@@ -1,0 +1,15 @@
+# Python 가상환경
+.venv/
+
+# 환경변수
+.env
+
+# Python 임시 파일
+__pycache__/
+*.pyc
+
+# 테스트 임시 파일
+.pytest_cache/
+
+# 에디터 설정
+.idea/
