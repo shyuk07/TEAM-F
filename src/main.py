@@ -2,9 +2,12 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from database import engine
+from payments.presentation.router import router as payments_router
 
 
 app = FastAPI(title="마감 직전 API")
+
+app.include_router(payments_router)
 
 
 @app.get("/")
