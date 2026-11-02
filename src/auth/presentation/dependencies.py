@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.application.service import AuthApplicationService, AuthenticatedPrincipal
@@ -9,7 +9,7 @@ from auth.domain.exceptions import AuthenticationError
 from auth.domain.user import Role, User
 from database import get_db
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login", auto_error=False)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthApplicationService:
@@ -17,12 +17,12 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthApplicationServi
 
 
 async def get_current_principal(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     service: Annotated[AuthApplicationService, Depends(get_auth_service)],
 ) -> AuthenticatedPrincipal:
-    if not token:
+    if credentials is None or not credentials.credentials:
         raise AuthenticationError("로그인이 필요합니다.")
-    return await service.authenticate(token)
+    return await service.authenticate(credentials.credentials)
 
 
 async def get_current_user(

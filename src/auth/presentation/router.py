@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from fastapi.security import OAuth2PasswordRequestForm
 
 from auth.application.service import AuthApplicationService
 from auth.domain.point_log import PointType
@@ -11,6 +10,7 @@ from auth.presentation.dependencies import (
     get_auth_service,
 )
 from auth.presentation.schemas import (
+    LoginRequest,
     PointLogListResponse,
     SignupRequest,
     TokenResponse,
@@ -40,8 +40,8 @@ async def signup(body: SignupRequest, service: Service):
 
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["인증"], summary="로그인")
-async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], service: Service):
-    token = await service.login(form.username, form.password)
+async def login(body: LoginRequest, service: Service):
+    token = await service.login(body.email, body.password)
     return TokenResponse(access_token=token, token_type="bearer")
 
 

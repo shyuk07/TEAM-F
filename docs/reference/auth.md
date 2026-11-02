@@ -68,20 +68,20 @@
 | --- | --- | --- | --- |
 | POST | `/v1/auth/login` | 공개 | 200 OK |
 
-OAuth2 Password Flow로 로그인하고 JWT 액세스 토큰을 발급한다. JSON이 아닌 form 데이터로 받으며, 이메일은 OAuth2 표준 필드명인 `username`에 넣는다.
+이메일과 비밀번호로 로그인하고 JWT 액세스 토큰을 발급한다. 요청은 JSON이다.
 토큰 내용: `sub`(사용자 id), `role`, `jti`(토큰마다 새 UUID), `exp`(발급 30분 후)
 
 **헤더**
-- `Content-Type: application/x-www-form-urlencoded`
+- `Content-Type: application/json`
 
-**요청 본문 (form)**
+**요청 본문**
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `username` | string | O | 이메일 |
+| `email` | string | O | 이메일 |
 | `password` | string | O | 비밀번호 |
 
-```
-username=user@test.com&password=password123
+```json
+{ "email": "user@test.com", "password": "password123" }
 ```
 
 **응답**
@@ -95,14 +95,14 @@ username=user@test.com&password=password123
 **에러**
 | HTTP | error_code | 상황 |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | `username` 또는 `password` 누락 |
+| 400 | `VALIDATION_ERROR` | `email` 또는 `password` 누락 (form 등 JSON이 아닌 본문 포함) |
 | 401 | `INVALID_CREDENTIALS` | 이메일 또는 비밀번호 불일치 |
 
 ```json
 { "success": false, "error_code": "INVALID_CREDENTIALS", "message": "이메일 또는 비밀번호가 올바르지 않습니다." }
 ```
 
-> **노션과 다른 점:** 노션은 헤더를 `application/json`, 요청 예시를 `{"email", "password"}`로 적었고 응답 필드가 비어 있습니다. 설명에 적힌 OAuth2 표준(form, `username`)을 따라야 Swagger의 Authorize 버튼이 동작해서 이 문서는 표준 형식으로 적었습니다.
+> **노션 명세(JSON)를 따름:** Swagger는 Authorize 버튼에 로그인으로 받은 `access_token`을 붙여 넣어 사용한다(Bearer 토큰 입력 방식. OAuth2 form 로그인은 쓰지 않는다).
 
 ---
 
