@@ -107,3 +107,30 @@ http://127.0.0.1:8001/health/db
 공통 FastAPI 및 PostgreSQL 개발 환경 구성 완료.
 
 실제 도메인 기능과 API는 담당별로 구현할 예정입니다.
+## Claude Code 개발 도구
+
+`.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델로 동작합니다.
+
+### 에이전트 (`.claude/agents/`)
+
+| 이름 | 용도 |
+| --- | --- |
+| `layer-architect` | 모듈의 도메인 규칙, 테이블, 레포지토리, 서비스, API 명세 설계 (읽기 전용) |
+| `layer-implementer` | 모듈 하나의 4계층 코드 구현과 검사 |
+| `layer-checker` | 프로젝트 전체 4계층 규칙 점검 (읽기 전용) |
+
+### 스킬 (`.claude/skills/`)
+
+| 이름 | 용도 |
+| --- | --- |
+| `layer-implementation` | 계층별 코드 규칙과 예시 코드 |
+| `layer-check` | 계층 구조·import 방향 자동 검사 |
+| `fastapi-run` | DB와 서버 실행, 200/400/401/404 시나리오 확인 |
+| `auth-security-check` | OAuth2, JWT 블랙리스트, 비밀번호 해싱, 권한 점검 |
+| `pre-merge-check` | 머지 전 검증 순서 |
+
+계층 규칙 검사는 Claude 없이도 실행할 수 있습니다.
+
+```powershell
+python .claude/skills/layer-check/check_layers.py
+```
