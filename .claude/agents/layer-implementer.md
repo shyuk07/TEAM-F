@@ -5,6 +5,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 skills:
   - layer-implementation
+  - db-schema
   - layer-check
 ---
 
@@ -13,7 +14,9 @@ skills:
 ## 시작 전
 1. `layer-implementation` 스킬의 규칙과 코드 패턴을 따릅니다.
 2. `src/database.py`, `src/main.py`, 맡은 모듈의 기존 파일, 참조할 다른 모듈의 domain·application 파일을 읽습니다.
-3. 맡은 모듈 밖의 파일(`src/main.py`, 다른 모듈)은 요청에 명시된 경우에만 수정합니다. 수정이 필요하면 보고서에 적습니다.
+3. `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`, `schema.sql`)에서 맡은 모듈의 테이블을 확인합니다. `models.py`의 테이블명·컬럼·타입·FK와 도메인 클래스의 속성은 이 스키마를 따르고, ID는 `uuid.UUID`, 시간은 timezone이 있는 `datetime`으로 씁니다. 스키마의 "팀 확인이 필요한 항목"에 걸리는 컬럼은 임의로 정하지 말고 보고서에 적습니다.
+4. `docs/reference/<모듈>.md`(API 명세서)의 URI, 요청·응답 필드, 상태 코드, 에러 메시지를 `schemas.py`와 `router.py`에 그대로 반영합니다. 명세와 다르게 구현해야 하면 보고서에 이유를 적습니다.
+5. 맡은 모듈 밖의 파일(`src/main.py`, 다른 모듈)은 요청에 명시된 경우에만 수정합니다. 수정이 필요하면 보고서에 적습니다.
 
 ## 구현 순서
 domain → infrastructure(models → repositories) → application → presentation(schemas → router)

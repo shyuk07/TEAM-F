@@ -11,6 +11,7 @@ description: 마감 직전 프로젝트의 기능 모듈(auth, stores, catalog, 
 - 구현 순서: domain → infrastructure(models → repositories) → application → presentation(schemas → router) → `main.py` 등록
 - 예외 규칙: 규칙 위반은 `ValueError`, 대상 없음은 `LookupError`, 권한 없음은 `PermissionError`를 내고, HTTP 코드 변환은 router에서만 합니다.
 - 아래 코드는 `catalog` 상품 예시입니다. 실제 필드와 규칙은 팀이 정한 도메인 규칙을 따릅니다.
+- 실제 테이블, 컬럼, FK, UUID·TIMESTAMPTZ 매핑은 `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`)을 기준으로 합니다. 예시의 `int` ID는 실제로는 `uuid.UUID`입니다.
 
 ## 1. domain/ — 순수 파이썬 (Rich Domain Model)
 fastapi, sqlalchemy, pydantic, `database`를 import하지 않습니다. 검증과 상태 변경을 클래스 안에 둡니다.
