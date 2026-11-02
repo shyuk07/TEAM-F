@@ -20,8 +20,8 @@ API 요청·응답 형식은 `docs/reference/`(API 명세서)를 봅니다. 이 
 스키마를 바꿀 때는 이 문서와 `schema.sql`을 함께 고칩니다. 두 파일이 어긋나면 에이전트가 잘못된 기준으로 코드를 작성하거나 점검하게 됩니다.
 
 - 원본: 팀 ERD에서 내보낸 DDL (MySQL식 백틱 문법)
-- 권장 DDL: 같은 폴더의 [`schema.sql`](schema.sql). PostgreSQL 16에서 전체 실행과 제약조건 동작을 확인했습니다.
-- 모든 PK는 `UUID`입니다. 이 폴더 밖의 예시 코드(`layer-implementation`)는 `int` ID를 쓰지만, 실제 구현은 이 문서를 따릅니다.
+- 권장 DDL: 같은 폴더의 [`schema.sql`](schema.sql). 프로젝트 스택인 PostgreSQL 17(`compose.yaml`의 `postgres:17`)에서 전체 실행을 확인했습니다.
+- 모든 PK는 `UUID`입니다. 실제 매핑 예시는 `src/auth/infrastructure/models.py`와 6절을 봅니다.
 
 ## 1. 관계도
 
@@ -228,7 +228,7 @@ class DiscountOfferModel(Base):
     sales_end: Mapped[datetime] = mapped_column(TZ)
     pickup_start: Mapped[datetime] = mapped_column(TZ)
     pickup_end: Mapped[datetime] = mapped_column(TZ)
-    status: Mapped[str | None] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(default=True)
 ```
 

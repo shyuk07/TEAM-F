@@ -1,7 +1,7 @@
 -- 마감 직전(Last Call) PostgreSQL 스키마 (권장안)
 -- 팀 ERD 원본을 PostgreSQL 문법에 맞게 고치고 FK·인덱스·기본값·CHECK를 더한 버전입니다.
 -- "확인 필요" 주석이 붙은 항목은 팀 결정 후 확정합니다.
--- 검증: PostgreSQL 16에서 이 파일 전체가 오류 없이 실행됨을 확인했습니다.
+-- 검증: PostgreSQL 17(compose.yaml의 postgres:17)에서 이 파일 전체가 오류 없이 실행됨을 확인했습니다.
 -- gen_random_uuid()는 PostgreSQL 13 이상에 기본 내장입니다.
 
 -- ── auth ──────────────────────────────────────────────
