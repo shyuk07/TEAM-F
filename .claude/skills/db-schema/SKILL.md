@@ -5,6 +5,18 @@ description: 마감 직전 프로젝트의 PostgreSQL 테이블 10개(users, poi
 
 # PostgreSQL 스키마와 관계도
 
+## 사용 대상
+| 사용자 | 언제 | 무엇을 |
+| --- | --- | --- |
+| `layer-architect` 에이전트 | 모듈 설계 | 테이블 설계의 기준으로 삼고, 바꿀 점은 "스키마 변경 제안"으로 분리 |
+| `layer-implementer` 에이전트 | `models.py`, `repositories.py`, 도메인 클래스, 시드 데이터 작성 | 테이블명·컬럼·타입·FK와 UUID·TIMESTAMPTZ 매핑을 그대로 따름 |
+| `layer-checker` 에이전트 | 계층 규칙 점검 | `models.py`가 `schema.sql`과 일치하는지 비교 |
+| 메인 세션 | ERD 확인, 조인 쿼리 작성, 스키마 질문 | 관계도와 관계 목록 참고 |
+
+팀 역할로는 **인프라 계층 담당**(models, repositories, lifespan 시드)이 주 사용자이고, 도메인·응용 계층 담당은 엔티티 속성과 모듈 간 관계를 확인할 때 씁니다.
+
+스키마를 바꿀 때는 이 문서와 `schema.sql`을 함께 고칩니다. 두 파일이 어긋나면 에이전트가 잘못된 기준으로 코드를 작성하거나 점검하게 됩니다.
+
 - 원본: 팀 ERD에서 내보낸 DDL (MySQL식 백틱 문법)
 - 권장 DDL: 같은 폴더의 [`schema.sql`](schema.sql). PostgreSQL 16에서 전체 실행과 제약조건 동작을 확인했습니다.
 - 모든 PK는 `UUID`입니다. 이 폴더 밖의 예시 코드(`layer-implementation`)는 `int` ID를 쓰지만, 실제 구현은 이 문서를 따릅니다.
