@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.1",
+    "bcrypt>=4.0.1,<5",
     "asyncpg>=0.32.0",
     "fastapi>=0.162.0",
     "greenlet>=3.5.6",
@@ -33,3 +34,8 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = ["db: 실제 PostgreSQL 필요"]
