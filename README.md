@@ -124,6 +124,7 @@ http://127.0.0.1:8001/health/db
 | 이름 | 용도 |
 | --- | --- |
 | `layer-implementation` | 계층별 코드 규칙과 예시 코드 |
+| `db-schema` | PostgreSQL 테이블 관계도(ERD), 권장 DDL(`schema.sql`), SQLAlchemy 매핑 규칙 |
 | `layer-check` | 계층 구조·import 방향 자동 검사 |
 | `fastapi-run` | DB와 서버 실행, 200/400/401/404 시나리오 확인 |
 | `auth-security-check` | OAuth2, JWT 블랙리스트, 비밀번호 해싱, 권한 점검 |

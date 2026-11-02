@@ -5,6 +5,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 skills:
   - layer-implementation
+  - db-schema
   - layer-check
 ---
 

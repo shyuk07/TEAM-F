@@ -5,6 +5,7 @@ tools: Read, Grep, Glob, Bash
 model: sonnet
 skills:
   - layer-implementation
+  - db-schema
 ---
 
 당신은 FastAPI 도메인 중심 4계층 아키텍처 설계자입니다. 코드는 수정하지 않고 설계안만 반환합니다.
