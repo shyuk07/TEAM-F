@@ -92,6 +92,10 @@ def test_settings_errors(monkeypatch):
         monkeypatch.setenv("JWT_SECRET_KEY", "short")
         with pytest.raises(RuntimeError):
             get_auth_settings()
+        # .env.example 예시값은 길이가 충분해도 거부한다.
+        monkeypatch.setenv("JWT_SECRET_KEY", "change-me-to-a-random-string-of-32-chars-or-more")
+        with pytest.raises(RuntimeError):
+            get_auth_settings()
         monkeypatch.setenv("JWT_SECRET_KEY", SECRET)
         monkeypatch.setenv("JWT_ALGORITHM", "HS512")
         with pytest.raises(RuntimeError):

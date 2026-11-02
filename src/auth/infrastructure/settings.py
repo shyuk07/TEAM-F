@@ -5,6 +5,8 @@ from functools import lru_cache
 from dotenv import load_dotenv
 
 MIN_SECRET_LENGTH = 32
+# .env.example의 예시값을 그대로 쓰면 누구나 아는 키로 토큰을 위조할 수 있으므로 거부한다.
+PLACEHOLDER_PREFIX = "change-me"
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,8 @@ def get_auth_settings() -> AuthSettings:
         raise RuntimeError(
             f"JWT_SECRET_KEY 환경변수가 없거나 {MIN_SECRET_LENGTH}자 미만입니다."
         )
+    if secret.startswith(PLACEHOLDER_PREFIX):
+        raise RuntimeError("JWT_SECRET_KEY가 .env.example의 예시값입니다. 임의의 값으로 바꾸세요.")
     algorithm = os.getenv("JWT_ALGORITHM", "HS256")
     if algorithm != "HS256":
         raise RuntimeError("JWT_ALGORITHM은 HS256만 지원합니다.")
