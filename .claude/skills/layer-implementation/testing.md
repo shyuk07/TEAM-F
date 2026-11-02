@@ -190,7 +190,7 @@ async def client(session_factory):
 - 테스트 중에 `app`에 라우트를 추가했다면 `finally`에서 지웁니다(`test_api_db.py`의 `/_t/` 라우트 참고). `dependency_overrides`도 fixture에서 비웁니다.
 
 ### 작성 요령
-- 로그인 토큰은 API로 가입·로그인해서 받습니다(`signup`, `login`, `token_for`, `bearer` 헬퍼). 로그인은 form 데이터(`data={"username": ..., "password": ...}`)입니다.
+- 로그인 토큰은 API로 가입·로그인해서 받습니다(`signup`, `login`, `token_for`, `bearer` 헬퍼). 로그인은 JSON 본문(`json={"email": ..., "password": ...}`)입니다.
 - 에러 응답은 본문 전체를 확인합니다: `assert r.json() == {"success": False, "error_code": "...", "message": "..."}`.
 - 시드나 서비스 직접 호출은 `async with client.session_factory() as db:`로 세션을 열어 `XxxApplicationService(db)`를 씁니다.
 - 동시성은 세션을 따로 연 작업 여러 개를 `asyncio.gather`로 돌려 확인합니다(`test_concurrent_use_points_never_negative` 참고). 실패한 작업은 `await db.rollback()` 합니다.

@@ -63,7 +63,7 @@ curl -s http://localhost:$PORT/ && curl -s http://localhost:$PORT/health/db
 3. **도메인 규칙 차단:** 재고 초과, 잘못된 상태 전이, 형식 오류 등 → 400과 `error_code`(`VALIDATION_ERROR` 등), `message`
 4. **없는 리소스:** 없는 ID → 404 `NOT_FOUND`
 5. **인증:**
-   - 회원가입 → `POST /v1/auth/login`(form: `username`, `password`)으로 토큰 발급
+   - 회원가입 → `POST /v1/auth/login`(JSON: `{"email", "password"}`)으로 토큰 발급 (form으로 보내면 400)
    - `Authorization: Bearer <토큰>`으로 보호된 API 호출 → 200
    - 토큰 없이 호출 → **401** `UNAUTHORIZED`와 `WWW-Authenticate: Bearer` 헤더
    - 로그아웃(204) → 같은 토큰으로 다시 호출 → **401** `TOKEN_REVOKED`와 `WWW-Authenticate: Bearer`

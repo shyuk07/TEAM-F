@@ -21,7 +21,7 @@ skills:
 2. `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`, `schema.sql`)을 읽습니다. 테이블 설계는 새로 만들지 않고 이 스키마를 기준으로 하며, 바꿔야 할 점이 있으면 "스키마 변경 제안"으로 따로 적습니다. 스키마 문서의 "팀 확인이 필요한 항목"은 질문 목록에 포함합니다.
 3. `docs/reference/`(API 명세서)에서 대상 모듈의 엔드포인트, 요청·응답, 에러를 확인합니다. 표현 계층 설계는 이 명세를 따르고, 명세의 "확인 필요" 항목은 질문 목록에 포함합니다.
 4. **차단 이슈를 실행해서 확인합니다.** 추측으로 적지 않고 명령 결과를 근거로 씁니다. 저장소를 바꾸는 명령(`uv add`, `uv sync`, `pip install`, `git` 쓰기 명령)은 실행하지 않습니다.
-   - 필요한 패키지가 설치돼 있는지: `uv run python -c "import jwt, passlib, multipart"`처럼 설계에 쓰는 패키지를 import해 보고, 없으면 `pyproject.toml`에 추가할 의존성을 적습니다 (예: `OAuth2PasswordRequestForm`은 `python-multipart`가 필요)
+   - 필요한 패키지가 설치돼 있는지: `uv run python -c "import jwt, passlib"`처럼 설계에 쓰는 패키지를 import해 보고, 없으면 `pyproject.toml`에 추가할 의존성을 적습니다 (예: `Form`·`File`·`OAuth2PasswordRequestForm`을 쓰면 `python-multipart`가 필요)
    - 현재 코드가 불러와지는지: `(cd src && uv run python -c "import main")`
    - 설정·환경변수: `.env.example`에 설계가 요구하는 키(예: `JWT_SECRET_KEY`)가 있는지
    - 다른 모듈 의존: 설계가 기대는 다른 모듈의 서비스·테이블이 실제로 있는지(`Glob`, `Grep`)

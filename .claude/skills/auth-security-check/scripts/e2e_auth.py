@@ -61,19 +61,19 @@ async def run(r: Report, keep: bool) -> None:
                     r.add("통과", "OWNER 가입 제한", str(res.status_code))
 
                 r.section("로그인")
-                r1 = await c.post(LOGIN, data={"username": email, "password": "wrong-pass"})
-                r2 = await c.post(LOGIN, data={"username": f"nouser-{email}", "password": "wrong-pass"})
+                r1 = await c.post(LOGIN, json={"email": email, "password": "wrong-pass"})
+                r2 = await c.post(LOGIN, json={"email": f"nouser-{email}", "password": "wrong-pass"})
                 r.check(r1.status_code == 401 and is_error(r1, "INVALID_CREDENTIALS"), "비밀번호 틀림 401 INVALID_CREDENTIALS")
                 r.check(r2.status_code == 401 and is_error(r2, "INVALID_CREDENTIALS"), "없는 사용자 401 INVALID_CREDENTIALS")
                 r.check(r1.json() == r2.json(), "로그인 실패 2종 본문 동일 (계정 존재 여부 비노출)")
                 statuses = []
                 for _ in range(10):
-                    statuses.append((await c.post(LOGIN, data={"username": email, "password": "wrong-pass"})).status_code)
+                    statuses.append((await c.post(LOGIN, json={"email": email, "password": "wrong-pass"})).status_code)
                 if 429 in statuses:
                     r.add("통과", "로그인 시도 제한", "연속 실패 시 429")
                 else:
                     r.add("주의", "로그인 시도 제한 없음", f"연속 10회 실패가 모두 {set(statuses)}")
-                res = await c.post(LOGIN, data={"username": email, "password": PW})
+                res = await c.post(LOGIN, json={"email": email, "password": PW})
                 body = res.json()
                 r.check(res.status_code == 200 and body.get("token_type") == "bearer" and body.get("access_token"),
                         "로그인 성공 access_token + token_type=bearer")
@@ -115,9 +115,10 @@ async def run(r: Report, keep: bool) -> None:
                 r.section("OpenAPI")
                 spec = (await c.get("/openapi.json")).json()
                 schemes = spec.get("components", {}).get("securitySchemes", {})
-                urls = [s.get("flows", {}).get("password", {}).get("tokenUrl") for s in schemes.values()]
-                r.check(bool(urls) and all(u in (LOGIN, LOGIN.lstrip("/")) for u in urls) and LOGIN in spec["paths"],
-                        "OAuth2 tokenUrl이 실제 로그인 경로와 같음", str(urls))
+                # 로그인은 JSON이라 Swagger Authorize는 OAuth2 password flow가 아니라 HTTP Bearer(토큰 붙여 넣기)여야 한다.
+                kinds = [(s.get("type"), s.get("scheme")) for s in schemes.values()]
+                r.check(bool(kinds) and all(k == ("http", "bearer") for k in kinds) and LOGIN in spec["paths"],
+                        "securitySchemes가 HTTP Bearer뿐 (JSON 로그인과 Swagger Authorize 호환)", str(kinds))
                 leaked = [k for k, v in spec["components"]["schemas"].items()
                           if k.endswith("Response") and any("password" in p for p in v.get("properties", {}))]
                 r.check(not leaked, "Response 스키마에 password 필드 없음", str(leaked) if leaked else "")

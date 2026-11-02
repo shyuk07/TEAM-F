@@ -43,7 +43,7 @@ DB 불필요. 위조 토큰 매트릭스(alg=none 3종, 다른 시크릿, HS512,
 ```bash
 (cd src && uv run python ../.claude/skills/auth-security-check/scripts/e2e_auth.py)
 ```
-PostgreSQL 필요, 서버 불필요(ASGI 직접 호출). 로그인 실패 2종 본문 동일, 401+`WWW-Authenticate: Bearer`, 로그아웃 후 재사용 401 `TOKEN_REVOKED`, 없는 사용자 토큰 401, 해시 저장, 블랙리스트 저장, OpenAPI `tokenUrl` 일치, Response 스키마의 password 필드. 매번 고유 이메일(`sec-<랜덤>@example.com`)로 가입하고 끝나면 만든 행을 지웁니다(`--keep`이면 남김).
+PostgreSQL 필요, 서버 불필요(ASGI 직접 호출). 로그인 실패 2종 본문 동일, 401+`WWW-Authenticate: Bearer`, 로그아웃 후 재사용 401 `TOKEN_REVOKED`, 없는 사용자 토큰 401, 해시 저장, 블랙리스트 저장, OpenAPI securitySchemes가 HTTP Bearer뿐인지, Response 스키마의 password 필드. 매번 고유 이메일(`sec-<랜덤>@example.com`)로 가입하고 끝나면 만든 행을 지웁니다(`--keep`이면 남김).
 
 passlib이 출력하는 `(trapped) error reading bcrypt version`은 passlib 1.7.4와 bcrypt 4.x의 버전 표기 차이로 생기는 로그이며 동작과 무관합니다(스크립트는 숨김).
 
@@ -56,10 +56,10 @@ passlib이 출력하는 `(trapped) error reading bcrypt version`은 passlib 1.7.
 - [ ] 시크릿 키를 코드에 하드코딩하지 않고 환경변수(`.env`)에서 읽는다. `.env.example`에는 예시 값만 있고, 그 값으로는 서버가 뜨지 않는다 (`static_check`)
 - [ ] 알고리즘을 고정한다(`HS256`). 디코딩 시 `algorithms=["HS256"]`를 명시한다 (`static_check`, `jwt_matrix`)
 - [ ] `exp`(만료)와 블랙리스트 식별용 `jti`(고유 ID)를 넣고, 디코딩 시 필수로 요구한다 (`jwt_matrix`)
-- [ ] 로그인은 `OAuth2PasswordRequestForm`을 쓰고 `{"access_token": ..., "token_type": "bearer"}`를 반환한다 (Swagger Authorize 동작 조건)
+- [ ] 로그인은 JSON 본문(`LoginRequest`: `email`, `password`)을 받고 `{"access_token": ..., "token_type": "bearer"}`를 반환한다. form 본문은 400이다
 
 ## 3. 토큰 검증 의존성
-- [ ] `OAuth2PasswordBearer(tokenUrl=...)`의 경로가 실제 로그인 경로와 같다 (`e2e_auth`)
+- [ ] 토큰 추출은 `HTTPBearer(auto_error=False)`를 쓰고, OpenAPI securitySchemes가 HTTP Bearer뿐이다. 로그인이 JSON이라 OAuth2 password flow를 쓰면 Swagger Authorize가 form을 보내 실패한다 (`e2e_auth`)
 - [ ] 만료(`ExpiredSignatureError`), 위조(`InvalidTokenError`) 모두 **401**과 `WWW-Authenticate: Bearer` 헤더로 응답한다 (`jwt_matrix`, `e2e_auth`)
 - [ ] 서명 검증 다음에 **블랙리스트를 조회**하고, 있으면 401을 낸다
 - [ ] 토큰의 사용자가 DB에 없거나 비활성이면 401을 낸다 (`e2e_auth`)

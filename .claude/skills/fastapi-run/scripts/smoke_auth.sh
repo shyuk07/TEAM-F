@@ -91,12 +91,13 @@ check "가입 잘못된 role" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":
 check "가입 password 누락" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"y_$EMAIL\",\"role\":\"CUSTOMER\"}"; err VALIDATION_ERROR
 
 echo "--- 로그인"
-check "로그인 비밀번호 틀림" 401 POST /v1/auth/login --data-urlencode "username=$EMAIL" --data-urlencode "password=wrong-pass"; err INVALID_CREDENTIALS
+check "로그인 비밀번호 틀림" 401 POST /v1/auth/login "${J[@]}" -d "{\"email\":\"$EMAIL\",\"password\":\"wrong-pass\"}"; err INVALID_CREDENTIALS
 cp "$BODY" "$TMPD/login_wrong"
-check "로그인 없는 사용자" 401 POST /v1/auth/login --data-urlencode "username=none_$EMAIL" --data-urlencode "password=$PW"; err INVALID_CREDENTIALS
+check "로그인 없는 사용자" 401 POST /v1/auth/login "${J[@]}" -d "{\"email\":\"none_$EMAIL\",\"password\":\"$PW\"}"; err INVALID_CREDENTIALS
 if cmp -s "$BODY" "$TMPD/login_wrong"; then PASS=$((PASS+1)); echo "PASS    ↳ 실패 2종 본문 동일"; else FAIL=$((FAIL+1)); FAILED+=("로그인 실패 본문 동일"); echo "FAIL    ↳ 실패 2종 본문이 다름 (계정 존재 여부 노출)"; fi
-check "로그인 password 누락" 400 POST /v1/auth/login --data-urlencode "username=$EMAIL"; err VALIDATION_ERROR
-check "로그인 성공" 200 POST /v1/auth/login --data-urlencode "username=$EMAIL" --data-urlencode "password=$PW"
+check "로그인 password 누락" 400 POST /v1/auth/login "${J[@]}" -d "{\"email\":\"$EMAIL\"}"; err VALIDATION_ERROR
+check "로그인 form 거부" 400 POST /v1/auth/login --data-urlencode "email=$EMAIL" --data-urlencode "password=$PW"; err VALIDATION_ERROR
+check "로그인 성공" 200 POST /v1/auth/login "${J[@]}" -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}"
 expect "  ↳ access_token, token_type=bearer" "d and d.get('access_token') and d.get('token_type')=='bearer'"
 TOKEN="$(json "d.get('access_token','') if d else ''")"
 A=(-H "Authorization: Bearer $TOKEN")
