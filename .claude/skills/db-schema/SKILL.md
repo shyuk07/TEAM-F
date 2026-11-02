@@ -5,6 +5,8 @@ description: 마감 직전 프로젝트의 PostgreSQL 테이블 10개(users, poi
 
 # PostgreSQL 스키마와 관계도
 
+API 요청·응답 형식은 `docs/reference/`(API 명세서)를 봅니다. 이 문서는 DB 구조를 다룹니다.
+
 ## 사용 대상
 | 사용자 | 언제 | 무엇을 |
 | --- | --- | --- |
@@ -26,7 +28,7 @@ description: 마감 직전 프로젝트의 PostgreSQL 테이블 10개(users, poi
 ```mermaid
 erDiagram
     users ||--o{ point_log : "포인트 내역"
-    users ||--o{ stores : "운영(owner_id)"
+    users ||--o| stores : "운영(owner_id)"
     users ||--o{ pickup_reservations : "예약"
     users |o--o{ stock_log : "재고 변경 주체"
     stores ||--o{ products : "판매 상품"
@@ -66,7 +68,7 @@ erDiagram
         float8 latitude
         float8 longitude
         timestamptz created_at
-        varchar approval_status
+        timestamptz approval_at
         timestamptz closed_at
     }
     products {
@@ -149,7 +151,7 @@ erDiagram
 | 자식 테이블.컬럼 | 부모 테이블 | 관계 | NULL | 비고 |
 | --- | --- | --- | --- | --- |
 | `point_log.user_id` | `users` | 1 : N | 불가 | 포인트 적립·사용 내역 |
-| `stores.owner_id` | `users` | 1 : N | 불가 | 운영자 한 명이 여러 매장 가능 (확인 필요) |
+| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE` |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |
@@ -180,7 +182,8 @@ erDiagram
 | `DOUBLE` | PostgreSQL에 없는 타입 | `DOUBLE PRECISION` |
 | `TIMESTAMPZ` (`stock_log`, `point_log`) | 오타 | `TIMESTAMPTZ` |
 | `products.store_id ... DEFAULT AS` | 문법 오류 | `DEFAULT` 제거 |
-| `stores.approval_at VARCHAR(20)` | 이름은 시각인데 타입은 문자열 | `approval_status` (확인 필요) |
+| `stores.approval_at VARCHAR(20)` | API 명세는 "개설 시각"(datetime)으로 사용 | `approval_at TIMESTAMPTZ` |
+| 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 `discount_offers.status`, `point_log.point_type`에 `CHECK` |
 | FK 없음 | 참조 무결성 보장 안 됨 | FK 10개와 인덱스 추가 |
 | PK·`created_at` 기본값 없음 | 앱에서 매번 넣어야 함 | `gen_random_uuid()`, `now()` |
 | 재고·금액 검증 없음 | 음수, 초과 재고 가능 | `remaining_stock BETWEEN 0 AND initial_stock`, 금액 `>= 0`, `quantity >= 1`, `pickup_end > pickup_start` |
@@ -189,10 +192,11 @@ erDiagram
 ## 5. 팀 확인이 필요한 항목
 1. **중복 가격 컬럼:** `discount_offers.price`와 `sale_price`, `pickup_reservations.price`와 `unit_price`/`total_price`의 차이. 같은 의미라면 `price`를 빼는 것을 권장합니다.
 2. **`refunds.reason`과 `refund_reason`(JSONB)의 구분.**
-3. **상태 값 목록:** `users.role`, `stores.approval_status`, `discount_offers.status`, `pickup_reservations.status`, `payments.status`, `refunds.status`, `point_log.point_type`. 정해지면 도메인 클래스에 상수와 전이 규칙을 두고, DB에 `CHECK (status IN (...))`를 더합니다.
+3. **남은 상태 값:** API 명세(`docs/reference/README.md`의 상태 값 표)로 `discount_offers.status`와 `point_log.point_type`은 확정됐습니다. `users.role`의 상점주 값, `pickup_reservations.status`(`RESERVED`의 의미), `payments.status`의 실패 값, `refunds.status`의 나머지 값이 남았습니다. 정해지면 도메인 클래스에 상수와 전이 규칙을 두고, DB에 `CHECK (status IN (...))`를 더합니다.
 4. **`products.name`이 NULL 허용:** 상품명은 필수일 가능성이 높습니다.
 5. **`pickup_code` 고유 범위:** 전체에서 고유인지, 매장·날짜 안에서만 고유인지.
-6. **매장 삭제 정책:** `closed_at`으로 소프트 삭제하는지. 지금 FK는 기본값(참조 중이면 삭제 불가)입니다.
+6. **매장 재개점:** API 명세상 폐점은 `closed_at` 기록(소프트 삭제)이고 재개점이 가능하지만, 재개점 API와 이력 보관 방식이 정해지지 않았습니다. FK는 기본값(참조 중이면 삭제 불가)입니다.
+7. **상점주 승인 상태:** API 명세에 "승인 대기 중인 상점주 계정(403)"이 있지만 `users`에 저장할 컬럼이 없습니다.
 
 ## 6. SQLAlchemy 매핑 규칙
 ```python

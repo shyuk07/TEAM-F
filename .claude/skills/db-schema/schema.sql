@@ -9,7 +9,7 @@ CREATE TABLE users (
     id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     email            VARCHAR(255) NOT NULL UNIQUE,
     password_hash    VARCHAR(255) NOT NULL,
-    role             VARCHAR(20)  NOT NULL,                -- 원본 `role/admin` (확인 필요: 허용 값)
+    role             VARCHAR(20)  NOT NULL,                -- 원본 `role/admin`. CUSTOMER, ADMIN, 상점주(값 이름 확인 필요)
     name             VARCHAR(100),
     phone            VARCHAR(100),
     users_point      INTEGER      NOT NULL DEFAULT 0 CHECK (users_point >= 0),
@@ -21,7 +21,7 @@ CREATE TABLE point_log (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID        NOT NULL REFERENCES users (id),
     amount      INTEGER     NOT NULL,                      -- 적립 +, 사용 -
-    point_type  TEXT,                                      -- 확인 필요: 허용 값
+    point_type  TEXT        NOT NULL CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_point_log_user_id ON point_log (user_id);
@@ -35,16 +35,15 @@ CREATE INDEX ix_token_blacklist_expires_at ON token_blacklist (expires_at);
 -- ── stores ────────────────────────────────────────────
 CREATE TABLE stores (
     id               UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id         UUID             NOT NULL REFERENCES users (id),
+    owner_id         UUID             NOT NULL UNIQUE REFERENCES users (id),  -- 상점주 1인 1상점 (API 명세)
     name             VARCHAR(150)     NOT NULL,
     pickup_address   VARCHAR(500)     NOT NULL,
     latitude         DOUBLE PRECISION,
     longitude        DOUBLE PRECISION,
     created_at       TIMESTAMPTZ      NOT NULL DEFAULT now(),
-    approval_status  VARCHAR(20),                          -- 원본 `approval_at VARCHAR(20)` (확인 필요)
+    approval_at      TIMESTAMPTZ,                          -- 개설 시각 (API 명세). 원본 ERD는 VARCHAR(20)
     closed_at        TIMESTAMPTZ
 );
-CREATE INDEX ix_stores_owner_id ON stores (owner_id);
 
 -- ── catalog ───────────────────────────────────────────
 CREATE TABLE products (
@@ -68,7 +67,7 @@ CREATE TABLE discount_offers (
     sales_end        TIMESTAMPTZ NOT NULL,
     pickup_start     TIMESTAMPTZ NOT NULL,
     pickup_end       TIMESTAMPTZ NOT NULL,
-    status           VARCHAR(20),                          -- 확인 필요: 허용 값
+    status           VARCHAR(20) NOT NULL CHECK (status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED')),
     sales_start      TIMESTAMPTZ,
     is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
     price            INTEGER,                              -- 확인 필요: sale_price와 중복
@@ -94,7 +93,7 @@ CREATE TABLE pickup_reservations (
     quantity        INTEGER      NOT NULL CHECK (quantity >= 1),
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     total_price     INTEGER,
-    status          VARCHAR(20),                           -- 확인 필요: 허용 값
+    status          VARCHAR(20),                           -- PENDING_PAYMENT, RESERVED(?), CANCELLED, PICKED_UP (확인 필요)
     unit_price      INTEGER,
     pickup_code     VARCHAR(20),
     cancelled_at    TIMESTAMPTZ,
@@ -112,7 +111,7 @@ CREATE TABLE payments (
     id                   UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id       UUID         NOT NULL REFERENCES pickup_reservations (id),
     amount               INTEGER      CHECK (amount >= 0),
-    status               VARCHAR(30),                      -- 확인 필요: 허용 값
+    status               VARCHAR(30),                      -- READY, PAID, 실패 상태(확인 필요)
     provider_payment_id  VARCHAR(255),
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
     paid_at              TIMESTAMPTZ,
@@ -127,7 +126,7 @@ CREATE TABLE refunds (
     refund_amount   INTEGER      CHECK (refund_amount >= 0),
     penalty_amount  INTEGER      CHECK (penalty_amount >= 0),
     reason          VARCHAR(200),
-    status          VARCHAR(30),                           -- 확인 필요: 허용 값
+    status          VARCHAR(30),                           -- COMPLETED, 그 외(확인 필요)
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     completed_at    TIMESTAMPTZ,
     refund_reason   JSONB                                  -- 확인 필요: reason과 역할 구분

@@ -107,6 +107,10 @@ http://127.0.0.1:8001/health/db
 공통 FastAPI 및 PostgreSQL 개발 환경 구성 완료.
 
 실제 도메인 기능과 API는 담당별로 구현할 예정입니다.
+## API 명세서
+
+`docs/reference/`에 모듈별 API 명세가 있습니다. 전체 목록과 공통 규칙은 [docs/reference/README.md](docs/reference/README.md)를 봅니다.
+
 ## Claude Code 개발 도구
 
 `.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델로 동작합니다.
