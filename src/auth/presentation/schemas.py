@@ -12,6 +12,11 @@ class SignupRequest(BaseModel):
     role: str = Field(..., description="CUSTOMER 또는 OWNER (ADMIN 입력 불가)")
 
 
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=1, max_length=255, description="이메일")
+    password: str = Field(..., min_length=1, max_length=128, description="비밀번호")
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

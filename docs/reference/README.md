@@ -64,7 +64,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
 ### 인증
 - 헤더: `Authorization: Bearer {access_token}`
-- 로그인은 OAuth2 Password Flow입니다. 요청은 form 데이터(`application/x-www-form-urlencoded`)이고 이메일은 `username` 필드에 넣습니다.
+- 로그인 요청은 JSON(`application/json`, `{"email", "password"}`)입니다. Swagger에서는 로그인 응답의 `access_token`을 Authorize에 붙여 넣어 씁니다.
 - 토큰 내용 (노션 로그인 페이지):
 
 | 클레임 | 값 |
@@ -145,7 +145,7 @@ ISO 8601에 시간대를 붙입니다. 예: `2026-10-29T18:00:00+09:00`
 5. **페이지네이션 형식:** 시작 값(0/1)과 응답 필드 이름(`total`/`total_elements`)을 하나로 정해야 합니다. 교안은 목록 API의 페이지네이션을 요구하므로 내 예약 목록에도 필요합니다.
 
 ### auth
-6. **로그인:** 설명은 form 데이터(`username`)인데 요청 예시는 JSON(`email`)이고, 응답 필드가 비어 있습니다. 이 문서는 OAuth2 표준(form, `access_token`, `token_type`)으로 적었습니다.
+6. **로그인:** 노션 명세(JSON, `email`)를 따릅니다. 응답 필드가 비어 있어 `access_token`, `token_type`으로 적었습니다. Swagger는 Authorize에 토큰을 붙여 넣어 사용합니다.
 7. **상점주 역할 값**과 **상점주 승인 상태 저장 위치:** 상점 API에 "승인 대기 중인 상점주 계정(403)"이 있는데 `users` 테이블에 승인 상태 컬럼이 없습니다.
 8. **상점주 가입 정보:** 상점명은 "가입 시 등록한 상호(`name`)"를 쓴다고 되어 있습니다. 회원가입 요청에 `business_number`가 없습니다.
 

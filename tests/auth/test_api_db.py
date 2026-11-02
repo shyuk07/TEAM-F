@@ -85,7 +85,7 @@ async def signup(c, email="user@test.com", role="CUSTOMER", password="password12
 
 
 async def login(c, email="user@test.com", password="password123"):
-    return await c.post("/v1/auth/login", data={"username": email, "password": password})
+    return await c.post("/v1/auth/login", json={"email": email, "password": password})
 
 
 async def token_for(c, email="user@test.com", role="CUSTOMER"):
@@ -156,8 +156,24 @@ async def test_login_failures_identical(client):
 
 
 async def test_login_missing_fields(client):
-    r = await client.post("/v1/auth/login", data={"username": "a@b.com"})
+    r = await client.post("/v1/auth/login", json={"email": "a@b.com"})
     assert r.status_code == 400 and r.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_login_form_rejected(client):
+    await signup(client)
+    r = await client.post(
+        "/v1/auth/login", data={"username": "user@test.com", "password": "password123"}
+    )
+    assert r.status_code == 400 and r.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_basic_scheme_is_unauthorized(client):
+    token = await token_for(client)
+    r = await client.get("/v1/users/me", headers={"Authorization": f"Basic {token}"})
+    assert r.status_code == 401 and r.json()["error_code"] == "UNAUTHORIZED"
+    assert r.json()["message"] == "로그인이 필요합니다."
+    assert r.headers["www-authenticate"] == "Bearer"
 
 
 async def test_me(client):
