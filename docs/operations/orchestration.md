@@ -18,7 +18,7 @@
 | 상황 | 에이전트 | 쓰기 범위 | 병렬 |
 | --- | --- | --- | --- |
 | 모듈 설계 (엔티티·레포·시나리오·API) | `layer-architect` | `docs/design/<모듈>.md`만 | 모듈이 다르면 가능 |
-| 모듈 구현·수정 | `layer-implementer` | 맡은 모듈, `tests/<모듈>/`, `src/main.py`의 자기 모듈 두 줄 | 모듈이 다르고 서로 의존이 없을 때만 |
+| 모듈 구현·수정 | `layer-implementer` | 맡은 모듈, `tests/<모듈>/`, `src/main.py`의 자기 모듈 두 줄, `src/container.py`의 자기 모듈 구역 | 모듈이 다르고 서로 의존이 없을 때만 |
 | 계층 규칙 정성 점검 | `layer-checker` | 없음 (읽기 전용) | 가능 |
 | 실행·보안·머지 전 검증 | `verifier` | 없음 (scratchpad만) | 서버 포트가 겹치지 않을 때만 |
 
@@ -68,6 +68,7 @@
 | `docs/design/<모듈>.md` | `layer-architect` |
 | `src/<모듈>/**`, `tests/<모듈>/**` | 그 모듈을 맡은 `layer-implementer` (한 번에 한 명) |
 | `src/main.py` | 각 implementer는 자기 모듈의 models import·router 등록 한 줄씩. 순서 조정은 오케스트레이터 |
+| `src/container.py` | 각 implementer는 자기 모듈 구역의 `create_*` 팩토리와 `wire_dependencies` 매핑만. 모듈 간 연결·충돌 조정은 오케스트레이터 |
 | `src/error_handlers.py`, `src/database.py`, `src/common/`, `tests/conftest.py` | 발주서에 명시한 경우만 |
 | `.claude/**`, `docs/reference/**`, `docs/operations/**`, `AGENTS.md`, `CLAUDE.md` | 오케스트레이터 (사용자 승인 후) |
 

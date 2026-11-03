@@ -7,6 +7,8 @@ description: 마감 직전 프로젝트의 기능 모듈(auth, stores, catalog, 
 
 정답 예시는 이미 구현된 auth 모듈입니다(`src/auth/**`, `src/error_handlers.py`, `src/main.py`, `tests/**`). 이 문서와 auth 코드가 다르면 auth 코드를 따르고 이 문서를 고칩니다.
 
+> **의존성 주입·조립은 `layer-architecture` 스킬이 정본입니다.** 아래 예시 중 서비스가 레포지토리를 직접 생성하는 부분(`offers or DiscountOfferRepository(db)` 등)은 이전 방식입니다. 새 코드는 domain 추상 레포지토리 + infrastructure 구현체 + `presentation/dependencies.py`의 `provide_*` + `src/container.py` 연결을 따릅니다.
+
 ## 공통 규칙
 - import는 `src/` 기준 절대 경로로 씁니다: `from catalog.domain.discount_offer import DiscountOffer`
 - 새 폴더를 만들면 `__init__.py`를 함께 만듭니다.

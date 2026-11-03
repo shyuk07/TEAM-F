@@ -4,6 +4,7 @@ description: 마감 직전(Last Call) 프로젝트의 기능 모듈(auth, stores
 tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 skills:
+  - layer-architecture
   - layer-implementation
   - db-schema
 ---

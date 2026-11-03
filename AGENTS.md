@@ -4,7 +4,7 @@
 
 1. AGENTS.md
 2. README.md
-3. docs/operations/architecture.md
+3. .claude/skills/layer-architecture/SKILL.md
 4. docs/operations/orchestration.md
 5. docs/reference/README.md
 
@@ -15,7 +15,6 @@
 | 관심사 | 위치 |
 |--------|------|
 | 프로젝트 개요·스택·로컬 실행 | `README.md` |
-| 4계층·DDD 아키텍처 원칙 | `docs/operations/architecture.md` |
 | 오케스트레이션·에이전트 중계·쓰기 소유권 | `docs/operations/orchestration.md` |
 | API 명세 (공통 에러 형식·권한·전체 목록) | `docs/reference/README.md` |
 | 모듈별 API 명세 | `docs/reference/<모듈>.md` |
@@ -24,6 +23,7 @@
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
+| 4계층 책임·DDD 원칙·DI(container) 구조 | `.claude/skills/layer-architecture/SKILL.md` | 모듈 설계, 추상화·주입, 모듈 간 의존 판단, container.py 수정 시 |
 | DB 스키마·관계·SQLAlchemy 매핑 | `.claude/skills/db-schema/SKILL.md`, `schema.sql` | 테이블·컬럼·FK·조인·시드를 다룰 때 |
 | 4계층 코드 패턴·예외→HTTP 표 | `.claude/skills/layer-implementation/SKILL.md` | 계층 코드를 쓰거나 고칠 때 |
 | 테스트 작성법 | `.claude/skills/layer-implementation/testing.md` | 테스트를 쓸 때 |
@@ -31,7 +31,7 @@
 | 서버 실행·동작 확인 | `.claude/skills/fastapi-run/SKILL.md` | 실제 동작을 볼 때 |
 | 인증·보안 점검 | `.claude/skills/auth-security-check/SKILL.md` | auth·인증 의존성·미들웨어 변경 후 |
 | 머지 전 점검 순서 | `.claude/skills/pre-merge-check/SKILL.md` | PR·머지 직전 |
-| 정답 예시 코드 | `src/auth/**`, `src/error_handlers.py`, `tests/auth/**` | 패턴이 문서와 다르거나 불분명할 때 |
+| 정답 예시 코드 | `src/auth/**`, `src/error_handlers.py`, `tests/auth/**` | 패턴이 문서와 다르거나 불분명할 때 (DI·조립은 제외) |
 
 ### 역할 (에이전트)
 
@@ -52,12 +52,13 @@
 
 - `.claude/` 안의 에이전트와 스킬만 사용한다.
 - 설계 → 구현 → 점검 → 검증 순서를 건너뛰지 않는다. 설계안 없이 구현을 맡기지 않는다.
-- 문서와 `src/auth/**`가 다르면 auth 코드를 따르고 문서를 고친다.
+- 문서와 `src/auth/**`가 다르면 auth 코드를 따르고 문서를 고친다. 단, 의존성 주입·조립은 `layer-architecture` 스킬이 정본이다.
 - 의존 방향을 지킨다: presentation → application → domain, application → infrastructure → domain. domain은 순수 파이썬이다.
 - 비즈니스 규칙은 도메인 메서드에 둔다. 서비스는 조회 → 도메인 메서드 → `save()` → `commit()`만 조율한다.
 - 레포지토리는 도메인 객체만 주고받는다. `commit()`은 서비스가 한다.
 - router·service에서 `HTTPException`을 만들지 않는다. 모듈 전용 도메인 예외를 내고 전역 핸들러가 변환한다.
-- 모듈 사이 협력은 상대 모듈의 application 서비스로만 한다. 순환 의존은 포트로 끊고 조립은 presentation에서 한다.
+- 레포지토리·도메인 서비스는 domain에 추상(ABC)으로, infrastructure에 구현체로 둔다. 응용 서비스는 추상만 받고, 구현체 연결은 `src/container.py`에서만 한다.
+- 바운디드 컨텍스트를 지킨다. 다른 모듈의 ORM 모델·구현체를 쓰지 않고, 추상 또는 application 서비스를 주입받는다. 순환 의존은 포트로 끊는다.
 - 확정되지 않은 규칙은 지어내지 않는다. 임시 기본값과 함께 설계안 결정 표에 올리고 사용자가 확정한다.
 - 스키마를 바꾸면 `schema.sql`과 `db-schema/SKILL.md`를 함께 고친다.
 - 에이전트 사이 전달은 요약이 아니라 "파일 경로 + ID"로 한다. 발주서 필수 항목은 `docs/operations/orchestration.md` §3.2를 따른다.

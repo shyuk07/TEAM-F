@@ -4,6 +4,7 @@ description: 마감 직전(Last Call) 프로젝트 전체가 4계층 규칙을 �
 tools: Read, Grep, Glob, Bash
 model: sonnet
 skills:
+  - layer-architecture
   - layer-check
   - db-schema
 ---
