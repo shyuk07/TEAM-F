@@ -4,6 +4,7 @@ description: 마감 직전(Last Call) 프로젝트의 기능 모듈(auth, stores
 tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 skills:
+  - backend-invariants
   - layer-architecture
   - layer-implementation
   - db-schema
@@ -68,8 +69,5 @@ skills:
 - 임시 기본값은 코드에서 한곳(상수, enum, 설정)에 모아 나중에 바꾸기 쉽게 설계합니다.
 
 ## 지켜야 할 규칙
-- domain은 fastapi, sqlalchemy, pydantic, `database`, 다른 계층을 import하지 않는 순수 파이썬 클래스로 설계합니다.
-- 비즈니스 검증은 서비스의 if-else가 아니라 도메인 메서드에 둡니다.
-- 의존 방향: presentation → application → domain, application → infrastructure → domain. presentation은 infrastructure를 직접 참조하지 않습니다.
-- 다른 모듈의 데이터가 필요하면 그 모듈의 application 서비스나 레포지토리를 응용 계층에서 조합하도록 설계합니다.
+- 설계안은 `backend-invariants` 스킬의 불변 규칙(R1~R16)을 위반하지 않아야 합니다. 규칙과 충돌하는 요구가 있으면 설계안의 질문 목록에 해당 R번호와 함께 올립니다.
 - 확정되지 않은 비즈니스 규칙은 지어내지 말고 "확인 필요"로 표시해 질문 목록에 모읍니다. 임시 기본값은 확정이 아니라 제안임을 표에 분명히 둡니다.

@@ -23,6 +23,7 @@
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
+| 백엔드 불변 규칙(R1~R16)·코드 완료 게이트 | `.claude/skills/backend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
 | 4계층 책임·DDD 원칙·DI(container) 구조 | `.claude/skills/layer-architecture/SKILL.md` | 모듈 설계, 추상화·주입, 모듈 간 의존 판단, container.py 수정 시 |
 | DB 스키마·관계·SQLAlchemy 매핑 | `.claude/skills/db-schema/SKILL.md`, `schema.sql` | 테이블·컬럼·FK·조인·시드를 다룰 때 |
 | 4계층 코드 패턴·예외→HTTP 표 | `.claude/skills/layer-implementation/SKILL.md` | 계층 코드를 쓰거나 고칠 때 |

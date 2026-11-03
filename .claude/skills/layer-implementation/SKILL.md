@@ -10,11 +10,12 @@ description: 마감 직전 프로젝트의 기능 모듈(auth, stores, catalog, 
 > **의존성 주입·조립은 `layer-architecture` 스킬이 정본입니다.** 아래 예시 중 서비스가 레포지토리를 직접 생성하는 부분(`offers or DiscountOfferRepository(db)` 등)은 이전 방식입니다. 새 코드는 domain 추상 레포지토리 + infrastructure 구현체 + `presentation/dependencies.py`의 `provide_*` + `src/container.py` 연결을 따릅니다.
 
 ## 공통 규칙
+- 불변 규칙(R1~R16)과 완료 게이트의 정본은 `backend-invariants` 스킬입니다. 이 문서는 그 규칙을 지키는 코드 패턴을 보여줍니다.
 - import는 `src/` 기준 절대 경로로 씁니다: `from catalog.domain.discount_offer import DiscountOffer`
 - 새 폴더를 만들면 `__init__.py`를 함께 만듭니다.
 - 구현 순서: domain → infrastructure(models → repositories) → application → presentation(schemas → router) → `main.py` 등록 → 테스트
 - ID는 `uuid.UUID`, 시간은 timezone이 있는 `datetime`입니다. 테이블, 컬럼, FK, 매핑은 `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`)을 기준으로 합니다.
-- 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`docs/reference/README.md`). 이 형식은 `src/error_handlers.py`의 전역 핸들러가 만듭니다. **router에서 try/except로 `HTTPException`을 만들지 않습니다.**
+- 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`docs/reference/README.md`). 이 형식은 `src/error_handlers.py`의 전역 핸들러가 만듭니다. **router에서 try/except로 `HTTPException`을 만들지 않습니다(R6).**
 - 공용 코드는 `src/common/`(4계층 불필요) 또는 `src` 루트 단일 파일(`database.py`, `error_handlers.py`처럼)에 둡니다. 기능 모듈 안에 다른 모듈용 공용 코드를 두지 않습니다.
 - 아래 코드는 `catalog`의 마감 할인(`discount_offers`) 예시입니다. 시간 컬럼(`sales_end`, `pickup_start` 등)은 줄였으니 실제 `models.py`는 `db-schema` 6절을 그대로 따릅니다.
 - 테스트 작성법은 같은 폴더의 [`testing.md`](testing.md)를 봅니다.

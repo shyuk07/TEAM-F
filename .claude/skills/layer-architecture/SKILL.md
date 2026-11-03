@@ -206,8 +206,5 @@ app.include_router(user_router)
 6. `src/main.py`: 모델 import(FK 대상 모듈 먼저), 라우터 등록
 7. `python3 .claude/skills/layer-check/check_layers.py`, `(cd src && uv run python -c "import main")`
 
-## 8. 하지 않는 것
-- 레포지토리 안에서 `commit()` — 트랜잭션을 서비스가 묶지 못한다.
-- 추상에 없는 메서드 호출 — 추상 레포에 선언한 메서드만 쓴다(이름 불일치는 런타임에야 터진다).
-- application·presentation에서 구현체 import, 서비스 생성자에서 기본 구현체 생성.
-- `provide_*`를 container에 매핑하지 않고 배포 — 요청 시 `NotImplementedError`가 난다. 매핑 누락은 `import main` 후 엔드포인트 호출 테스트로 잡는다.
+## 8. 규칙
+이 스킬의 금지 사항은 `backend-invariants`의 R5(commit 위치), R8(추상만 받기), R9(container 매핑), R10(추상 메서드만 호출), R11~R12(컨텍스트·순환)가 정본입니다.

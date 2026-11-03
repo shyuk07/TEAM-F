@@ -4,6 +4,7 @@ description: 마감 직전(Last Call) 프로젝트의 구현 결과를 실제로
 tools: Read, Grep, Glob, Bash
 model: sonnet
 skills:
+  - backend-invariants
   - fastapi-run
   - auth-security-check
   - pre-merge-check
