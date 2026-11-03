@@ -50,10 +50,10 @@ CREATE TABLE stores (
 CREATE TABLE products (
     id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     store_id        UUID         NOT NULL REFERENCES stores (id),
-    name            VARCHAR(200),
+    name            VARCHAR(200) NOT NULL,
     category        VARCHAR(80),
     description     TEXT,
-    original_price  INTEGER      CHECK (original_price >= 0),
+    original_price  INTEGER      NOT NULL CHECK (original_price >= 0),
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     product_image   JSON
 );
@@ -69,7 +69,7 @@ CREATE TABLE discount_offers (
     pickup_start     TIMESTAMPTZ NOT NULL,
     pickup_end       TIMESTAMPTZ NOT NULL,
     status           VARCHAR(20) NOT NULL CHECK (status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED')),
-    sales_start      TIMESTAMPTZ,
+    sales_start      TIMESTAMPTZ NOT NULL,
     is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
     price            INTEGER,                              -- 확인 필요: sale_price와 중복
     CONSTRAINT ck_offer_remaining_stock CHECK (remaining_stock BETWEEN 0 AND initial_stock),
@@ -82,6 +82,7 @@ CREATE TABLE stock_log (
     offer_id    UUID        NOT NULL REFERENCES discount_offers (id),
     user_id     UUID        REFERENCES users (id),         -- 시스템 조정이면 NULL
     amount      INTEGER     NOT NULL,                      -- 차감 -, 복구 +
+    reason      VARCHAR(200),                              -- 조정 사유 (최초 입고는 '최초 입고')
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_stock_log_offer_id ON stock_log (offer_id);

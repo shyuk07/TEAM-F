@@ -15,6 +15,19 @@ from auth.infrastructure.repositories import (
 )
 from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
 from auth.presentation.dependencies import provide_auth_service
+from catalog.application.ports import StorePort
+from catalog.application.service import CatalogApplicationService
+from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
+from catalog.domain.repository.product_repository import ProductRepository
+from catalog.domain.repository.stock_log_repository import StockLogRepository
+from catalog.domain.service import Clock as CatalogClock
+from catalog.infrastructure.clock import SystemClock as CatalogSystemClock
+from catalog.infrastructure.repositories import (
+    SqlAlchemyDiscountOfferRepository,
+    SqlAlchemyProductRepository,
+    SqlAlchemyStockLogRepository,
+)
+from catalog.presentation.dependencies import provide_catalog_service, provide_store_port
 from database import get_db
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
@@ -27,6 +40,7 @@ from stores.presentation.dependencies import provide_store_repository, provide_s
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
 _stores_clock: StoresClock = SystemClock()
+_catalog_clock: CatalogClock = CatalogSystemClock()
 
 
 # ── auth ─────────────────────────────
@@ -72,11 +86,51 @@ def create_stores_service(
     return StoresApplicationService(session=session, stores=stores, clock=_stores_clock)
 
 
+# ── catalog ──────────────────────────
+def create_product_repository(session: AsyncSession = Depends(get_db)) -> ProductRepository:
+    return SqlAlchemyProductRepository(session)
+
+
+def create_discount_offer_repository(
+    session: AsyncSession = Depends(get_db),
+) -> DiscountOfferRepository:
+    return SqlAlchemyDiscountOfferRepository(session)
+
+
+def create_stock_log_repository(session: AsyncSession = Depends(get_db)) -> StockLogRepository:
+    return SqlAlchemyStockLogRepository(session)
+
+
+def create_store_port(
+    stores_service: StoresApplicationService = Depends(create_stores_service),
+) -> StorePort:
+    return stores_service
+
+
+def create_catalog_service(
+    session: AsyncSession = Depends(get_db),
+    stores: StorePort = Depends(create_store_port),
+    products: ProductRepository = Depends(create_product_repository),
+    offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
+    stock_logs: StockLogRepository = Depends(create_stock_log_repository),
+) -> CatalogApplicationService:
+    return CatalogApplicationService(
+        session=session,
+        stores=stores,
+        products=products,
+        offers=offers,
+        stock_logs=stock_logs,
+        clock=_catalog_clock,
+    )
+
+
 def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
             provide_auth_service: create_auth_service,
             provide_store_repository: create_store_repository,
             provide_stores_service: create_stores_service,
+            provide_store_port: create_store_port,
+            provide_catalog_service: create_catalog_service,
         }
     )

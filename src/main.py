@@ -15,6 +15,10 @@ from error_handlers import register_exception_handlers
 from stores.infrastructure import models as stores_models  # noqa: F401
 from stores.presentation.router import router as stores_router
 
+# catalog의 FK 대상(stores, users)이 먼저 등록돼야 하므로 stores 뒤에 둔다.
+from catalog.infrastructure import models as catalog_models  # noqa: F401
+from catalog.presentation.router import router as catalog_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +36,7 @@ register_exception_handlers(app)
 wire_dependencies(app)  # 라우터 등록 전에
 app.include_router(auth_router)
 app.include_router(stores_router)
+app.include_router(catalog_router)
 
 
 @app.get("/")
