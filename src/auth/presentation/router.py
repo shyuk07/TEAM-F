@@ -7,7 +7,7 @@ from auth.domain.point_log import PointType
 from auth.presentation.dependencies import (
     CurrentPrincipal,
     CurrentUser,
-    get_auth_service,
+    provide_auth_service,
 )
 from auth.presentation.schemas import (
     LoginRequest,
@@ -19,7 +19,7 @@ from auth.presentation.schemas import (
 
 router = APIRouter(prefix="/v1")
 
-Service = Annotated[AuthApplicationService, Depends(get_auth_service)]
+Service = Annotated[AuthApplicationService, Depends(provide_auth_service)]
 
 
 @router.post(

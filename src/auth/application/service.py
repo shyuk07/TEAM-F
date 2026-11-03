@@ -11,26 +11,13 @@ from auth.domain.exceptions import (
     TokenRevokedError,
 )
 from auth.domain.point_log import PointLog, PointType
+from auth.domain.repository.point_log_repository import PointLogRepository
+from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
+from auth.domain.repository.user_repository import UserRepository
+from auth.domain.service import PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.domain.user import Role, User
-from auth.infrastructure.repositories import (
-    PointLogRepository,
-    TokenBlacklistRepository,
-    UserRepository,
-)
-from auth.infrastructure.security import JwtTokenProvider, PasswordHasher
-
 MAX_PAGE_SIZE = 100
-
-_hasher: PasswordHasher | None = None
-
-
-def _default_hasher() -> PasswordHasher:
-    global _hasher
-    if _hasher is None:
-        _hasher = PasswordHasher()
-    return _hasher
-
 
 @dataclass(frozen=True)
 class AuthenticatedPrincipal:
@@ -48,24 +35,23 @@ class PointLogPage:
 
 
 class AuthApplicationService:
-    """payments 등 다른 모듈은 같은 세션으로 이 서비스를 만들어 commit=False로 호출한다."""
+    """다른 모듈은 이 서비스를 생성자 인자로 주입받아 commit=False로 호출한다 (src/container.py에서 연결)."""
 
     def __init__(
         self,
-        db: AsyncSession,
-        *,
-        users: UserRepository | None = None,
-        point_logs: PointLogRepository | None = None,
-        blacklist: TokenBlacklistRepository | None = None,
-        hasher: PasswordHasher | None = None,
-        tokens: JwtTokenProvider | None = None,
+        session: AsyncSession,
+        users: UserRepository,
+        point_logs: PointLogRepository,
+        blacklist: TokenBlacklistRepository,
+        hasher: PasswordHasher,
+        tokens: TokenProvider,
     ):
-        self.db = db
-        self.users = users or UserRepository(db)
-        self.point_logs = point_logs or PointLogRepository(db)
-        self.blacklist = blacklist or TokenBlacklistRepository(db)
-        self.hasher = hasher or _default_hasher()
-        self.tokens = tokens or JwtTokenProvider()
+        self.session = session
+        self.users = users
+        self.point_logs = point_logs
+        self.blacklist = blacklist
+        self.hasher = hasher
+        self.tokens = tokens
 
     async def signup(
         self,
@@ -86,9 +72,9 @@ class AuthApplicationService:
         try:
             await self.users.save(user)
         except EmailDuplicatedError:
-            await self.db.rollback()
+            await self.session.rollback()
             raise
-        await self.db.commit()
+        await self.session.commit()
         return user
 
     async def login(self, email: str, password: str) -> str:
@@ -112,7 +98,7 @@ class AuthApplicationService:
 
     async def logout(self, claims: TokenClaims) -> None:
         await self.blacklist.add(claims.to_blacklist_entry())
-        await self.db.commit()
+        await self.session.commit()
 
     async def get_user(self, user_id: uuid.UUID) -> User:
         user = await self.users.find_by_id(user_id)
@@ -143,7 +129,7 @@ class AuthApplicationService:
 
     async def _finish(self, commit: bool) -> None:
         if commit:
-            await self.db.commit()
+            await self.session.commit()
 
     async def use_points(self, user_id: uuid.UUID, amount: int, *, commit: bool = True) -> User:
         user = await self._locked_user(user_id)
@@ -184,5 +170,5 @@ class AuthApplicationService:
 
     async def purge_expired_tokens(self, now: datetime | None = None) -> int:
         deleted = await self.blacklist.delete_expired(now)
-        await self.db.commit()
+        await self.session.commit()
         return deleted

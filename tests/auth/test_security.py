@@ -5,7 +5,7 @@ import jwt
 import pytest
 
 from auth.domain.exceptions import AuthenticationError
-from auth.infrastructure.security import JwtTokenProvider, PasswordHasher
+from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings, get_auth_settings
 
 SECRET = "s" * 40
@@ -15,8 +15,14 @@ def provider(secret=SECRET):
     return JwtTokenProvider(AuthSettings(secret_key=secret))
 
 
+def test_dummy_verify_returns_none_and_is_repeatable():
+    h = BcryptPasswordHasher()
+    assert h.dummy_verify("x") is None
+    assert h.dummy_verify("y") is None
+
+
 def test_password_hash_roundtrip():
-    h = PasswordHasher()
+    h = BcryptPasswordHasher()
     hashed = h.hash("password123")
     assert hashed != "password123"
     assert h.verify("password123", hashed)

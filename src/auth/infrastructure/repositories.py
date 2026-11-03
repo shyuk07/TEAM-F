@@ -8,30 +8,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.domain.exceptions import EmailDuplicatedError
 from auth.domain.point_log import PointLog, PointType
+from auth.domain.repository.point_log_repository import PointLogRepository
+from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
+from auth.domain.repository.user_repository import UserRepository
 from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role, User
 from auth.infrastructure.models import PointLogModel, TokenBlacklistModel, UserModel
 
 
-class UserRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+class SqlAlchemyUserRepository(UserRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def find_by_id(self, user_id: uuid.UUID, for_update: bool = False) -> User | None:
         stmt = select(UserModel).where(UserModel.id == user_id)
         if for_update:
             stmt = stmt.with_for_update()
-        model = (await self.db.execute(stmt)).scalar_one_or_none()
+        model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
     async def find_by_email(self, email: str) -> User | None:
         stmt = select(UserModel).where(UserModel.email == User.normalize_email(email))
-        model = (await self.db.execute(stmt)).scalar_one_or_none()
+        model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
     async def exists_by_email(self, email: str) -> bool:
         stmt = select(UserModel.id).where(UserModel.email == User.normalize_email(email))
-        return (await self.db.execute(stmt)).first() is not None
+        return (await self.session.execute(stmt)).first() is not None
 
     async def save(self, user: User) -> User:
         if user.id is None:
@@ -46,22 +49,22 @@ class UserRepository:
             )
             if user.created_at is not None:
                 model.created_at = user.created_at
-            self.db.add(model)
+            self.session.add(model)
             try:
-                await self.db.flush()
+                await self.session.flush()
             except IntegrityError as err:
                 raise EmailDuplicatedError() from err
             user.id = model.id
             user.created_at = model.created_at
         else:
-            model = await self.db.get(UserModel, user.id)
+            model = await self.session.get(UserModel, user.id)
             if model is None:
                 raise LookupError("저장할 회원을 찾을 수 없습니다.")
             model.users_point = user.users_point
             model.name = user.name
             model.phone = user.phone
             model.password_hash = user.password_hash
-            await self.db.flush()
+            await self.session.flush()
         return user
 
     @staticmethod
@@ -79,9 +82,9 @@ class UserRepository:
         )
 
 
-class PointLogRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+class SqlAlchemyPointLogRepository(PointLogRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def add(self, log: PointLog) -> PointLog:
         model = PointLogModel(
@@ -91,8 +94,8 @@ class PointLogRepository:
         )
         if log.created_at is not None:
             model.created_at = log.created_at
-        self.db.add(model)
-        await self.db.flush()
+        self.session.add(model)
+        await self.session.flush()
         log.id = model.id
         if log.created_at is None:
             log.created_at = model.created_at
@@ -114,7 +117,7 @@ class PointLogRepository:
             .offset(offset)
             .limit(limit)
         )
-        models = (await self.db.execute(stmt)).scalars().all()
+        models = (await self.session.execute(stmt)).scalars().all()
         return [self._to_domain(m) for m in models]
 
     async def count_by_user(
@@ -125,7 +128,7 @@ class PointLogRepository:
         )
         if point_type is not None:
             stmt = stmt.where(PointLogModel.point_type == str(point_type))
-        return (await self.db.execute(stmt)).scalar_one()
+        return (await self.session.execute(stmt)).scalar_one()
 
     @staticmethod
     def _to_domain(model: PointLogModel) -> PointLog:
@@ -138,9 +141,9 @@ class PointLogRepository:
         )
 
 
-class TokenBlacklistRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+class SqlAlchemyTokenBlacklistRepository(TokenBlacklistRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def add(self, token: BlacklistedToken) -> None:
         stmt = (
@@ -148,16 +151,16 @@ class TokenBlacklistRepository:
             .values(jti=token.jti, expires_at=token.expires_at)
             .on_conflict_do_nothing(index_elements=["jti"])
         )
-        await self.db.execute(stmt)
-        await self.db.flush()
+        await self.session.execute(stmt)
+        await self.session.flush()
 
     async def exists(self, jti: str) -> bool:
         stmt = select(TokenBlacklistModel.jti).where(TokenBlacklistModel.jti == jti)
-        return (await self.db.execute(stmt)).first() is not None
+        return (await self.session.execute(stmt)).first() is not None
 
     async def delete_expired(self, now: datetime | None = None) -> int:
         now = now or datetime.now(timezone.utc)
-        result = await self.db.execute(
+        result = await self.session.execute(
             delete(TokenBlacklistModel).where(TokenBlacklistModel.expires_at <= now)
         )
         return result.rowcount or 0

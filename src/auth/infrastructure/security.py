@@ -5,31 +5,34 @@ import jwt
 from passlib.context import CryptContext
 
 from auth.domain.exceptions import AuthenticationError
+from auth.domain.service import PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.infrastructure.settings import AuthSettings, get_auth_settings
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class PasswordHasher:
+class BcryptPasswordHasher(PasswordHasher):
     def __init__(self):
-        # 사용자가 없을 때도 같은 비용의 검증을 하기 위한 더미 해시
-        self._dummy_hash = _pwd_context.hash("dummy-password-for-timing")
+        # 사용자가 없을 때도 같은 비용의 검증을 하기 위한 더미 해시 (첫 사용 시 생성)
+        self._dummy_hash: str | None = None
 
-    def hash(self, raw: str) -> str:
-        return _pwd_context.hash(raw)
+    def hash(self, raw_password: str) -> str:
+        return _pwd_context.hash(raw_password)
 
-    def verify(self, raw: str, hashed: str) -> bool:
+    def verify(self, raw_password: str, hashed_password: str) -> bool:
         try:
-            return _pwd_context.verify(raw, hashed)
+            return _pwd_context.verify(raw_password, hashed_password)
         except (ValueError, TypeError):
             return False
 
-    def dummy_verify(self, raw: str) -> None:
-        self.verify(raw, self._dummy_hash)
+    def dummy_verify(self, raw_password: str) -> None:
+        if self._dummy_hash is None:
+            self._dummy_hash = _pwd_context.hash("dummy-password-for-timing")
+        self.verify(raw_password, self._dummy_hash)
 
 
-class JwtTokenProvider:
+class JwtTokenProvider(TokenProvider):
     def __init__(self, settings: AuthSettings | None = None):
         self._settings = settings
 
