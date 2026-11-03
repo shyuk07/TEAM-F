@@ -127,7 +127,7 @@ DB 연결 fixture에서 `except Exception: pytest.skip(...)`을 하면 비밀번
 - 실행할 때 항상 `-rs`로 skip 이유를 봅니다. DB 테스트가 있는데 skip이면 완료가 아닙니다.
 
 ### fixture 패턴
-`tests/auth/test_api_db.py`의 `session_factory`, `client`를 따릅니다. 새 모듈은 이 패턴을 `tests/<모듈>/` 테스트 파일이나 `tests/<모듈>/conftest.py`에 둡니다(여러 모듈이 같이 쓰게 되면 `tests/conftest.py`로 옮기자고 보고서에 제안).
+공용 fixture(`anyio_backend`, `session_factory`, `client`)는 `tests/conftest.py`에, 헬퍼(`signup`, `login`, `token_for`, `bearer`)는 `tests/helpers.py`에 있습니다. 새 모듈은 이 둘을 그대로 쓰고(`from tests.helpers import ...`), 다른 모듈의 테스트 파일에서 fixture를 import하지 않습니다. 아래는 그 구조 설명이며 실제 정의는 `tests/conftest.py`가 정본입니다.
 
 ```python
 import os
@@ -183,11 +183,11 @@ async def client(session_factory):
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         c.session_factory = session_factory  # 테스트에서 서비스 직접 호출용
         yield c
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(get_db, None)  # clear() 금지: wire_dependencies의 container 매핑까지 지운다
 ```
 - `httpx.ASGITransport`는 lifespan을 실행하지 않습니다. 테이블은 fixture가 만들고, 세션은 `dependency_overrides[get_db]`로 테스트 DB에 연결합니다.
 - `NullPool`은 테스트마다 이벤트 루프가 바뀌어도 연결이 남지 않게 합니다.
-- 테스트 중에 `app`에 라우트를 추가했다면 `finally`에서 지웁니다(`test_api_db.py`의 `/_t/` 라우트 참고). `dependency_overrides`도 fixture에서 비웁니다.
+- 테스트 중에 `app`에 라우트를 추가했다면 `finally`에서 지웁니다(`test_api_db.py`의 `/_t/` 라우트 참고). `dependency_overrides`는 fixture가 넣은 키만 `pop`으로 되돌립니다. `clear()`는 `src/container.py`의 `wire_dependencies`가 넣은 `provide_*` 매핑까지 지워, 다음 테스트부터 `NotImplementedError`가 납니다.
 
 ### 작성 요령
 - 로그인 토큰은 API로 가입·로그인해서 받습니다(`signup`, `login`, `token_for`, `bearer` 헬퍼). 로그인은 JSON 본문(`json={"email": ..., "password": ...}`)입니다.
