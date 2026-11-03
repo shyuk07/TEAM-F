@@ -4,6 +4,8 @@ description: 마감 직전(Last Call) 프로젝트에서 기능 모듈 하나의
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 skills:
+  - backend-invariants
+  - layer-architecture
   - layer-implementation
   - db-schema
   - layer-check
@@ -26,6 +28,7 @@ skills:
 domain → infrastructure(models → repositories) → application → presentation(schemas → router) → `main.py` 등록 → 테스트
 
 ## 완료 조건 (모두 통과해야 보고)
+게이트 정본은 `backend-invariants` §7입니다. 아래는 실행 절차입니다.
 1. 계층 규칙 검사 위반 0건:
    ```bash
    python3 .claude/skills/layer-check/check_layers.py
@@ -50,9 +53,4 @@ domain → infrastructure(models → repositories) → application → presentat
 - 맡은 범위 밖에서 필요한 작업 (예: `main.py`에 라우터 등록)
 
 ## 금지
-- domain에서 fastapi, sqlalchemy, pydantic, `database` import
-- 레포지토리가 SQLAlchemy 모델 객체를 그대로 반환
-- 서비스·router에서 `HTTPException`을 만들어 예외 변환 (변환은 `src/error_handlers.py` 전역 핸들러의 일)
-- 새 코드에서 `LookupError`·`PermissionError`를 그대로 raise (모듈 전용 하위 예외 클래스를 씀)
-- 검사나 테스트를 통과시키려고 규칙을 비활성화하거나 테스트를 건너뛰기 (DB 연결 실패를 모두 skip으로 처리하는 것 포함)
-- `.env` 파일 커밋, 비밀번호·시크릿 하드코딩
+- `backend-invariants` 스킬의 불변 규칙(R1~R16) 위반. 규칙 문장은 그 스킬이 정본이며, 보고서에서 위반·예외는 R번호로 적습니다.
