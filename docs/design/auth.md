@@ -1,10 +1,12 @@
-# auth 모듈 설계안 (리팩터링: 추상화 + 의존성 주입)
+# auth 모듈 현재 설계 (구현 완료: 추상화 + 의존성 주입)
 
-- 대상: `src/auth` (users, point_log, token_blacklist). 이미 구현·테스트 완료(84 passed)된 모듈을 `backend-invariants` R8·R9·R10, `layer-architecture` §5·§6 구조로 옮긴다.
-- 작성: 2026-11-03, `layer-architect` (같은 날 사용자 결정 반영 갱신)
-- **외부 동작 불변.** 엔드포인트, 요청·응답 형식, 에러 코드는 바꾸지 않는다. (`docs/reference/auth.md`와 현재 코드가 일치함을 전제로 한다.)
+- 상태: **구현 완료.** 이 문서는 리팩터링 계획으로 쓰였고, 그 구현은 `main`에 머지됐다(`a7e5c39 refactor(auth): inject abstractions via src/container.py`, `0554aed chore(claude): forbid application->infrastructure in layer check`, PR #8 머지 `e36bd21`). 현재는 `main`(HEAD `671d457`)의 auth 모듈의 정본 설계다.
+- 대상: `src/auth` (users, point_log, token_blacklist), 조립 `src/container.py`. `backend-invariants` R8·R9·R10, `layer-architecture` §5·§6 구조.
+- 작성: 2026-11-03 `layer-architect`. 같은 날 사용자 결정 반영. **2026-11-03 최신화:** 구현 후 코드(`src/auth/**`, `src/container.py`, `src/main.py`, `src/error_handlers.py`, `tests/auth/**`, `tests/test_container.py`)와 대조해 갱신. 계획과 다르게 구현된 부분은 "구현 메모"로 파일:줄과 함께 표시했다.
+- **외부 동작 불변.** 엔드포인트, 요청·응답 형식, 에러 코드는 바뀌지 않았다. `schemas.py`·`router.py`를 `docs/reference/auth.md`와 대조해 일치함을 확인했다(§7, §14).
 - 제외: 다른 모듈 설계, `src/error_handlers.py`의 넓은 예외 핸들러 정리, R6 잔존분 정리(후속 작업으로 확정).
-- 읽은 정본: `AGENTS.md`, `docs/operations/orchestration.md`, `backend-invariants`, `layer-architecture`, `layer-implementation`, `db-schema`, `docs/reference/auth.md`, 현재 `src/auth/**`, `src/main.py`, `src/error_handlers.py`, `src/database.py`, `tests/**`.
+- 읽은 정본: `AGENTS.md`, `docs/operations/orchestration.md`, `backend-invariants`, `layer-architecture`, `layer-implementation`, `db-schema`(`SKILL.md`, `schema.sql`), `docs/reference/auth.md`, `docs/reference/README.md`, `src/auth/**`, `src/container.py`, `src/main.py`, `src/error_handlers.py`, `src/database.py`, `tests/**`, `docs/design/stores.md`(읽기만, 정합 확인용).
+- 현재 상태 확인(2026-11-03, HEAD `671d457`): `python3 .claude/skills/layer-check/check_layers.py` -> 위반 없음(경고 3건), `(cd src && uv run python -c "import main")` -> 성공, `uv run pytest -rs -q` -> `89 passed`(skip 0, DB 테스트 포함).
 
 ---
 
@@ -15,14 +17,16 @@
 | B-1 | `(cd src && uv run python -c "import main")` | `import main ok` | 현재 코드는 불러와짐. 차단 아님 |
 | B-2 | `uv run python -c "import jwt, passlib, dotenv, httpx"` | 성공. `bcrypt 4.3.0`, `passlib 1.7.4` | 의존성 추가 없음. `pyproject.toml` 변경 불필요 |
 | B-3 | `uv run python -c "import ... multipart"` | `ModuleNotFoundError: multipart` | 이번 설계는 `Form`·`File`·`OAuth2PasswordRequestForm`을 쓰지 않으므로(D-로그인형식 = JSON) **필요 없음**. 차단 아님 |
-| B-4 | `uv run pytest -rs -q` | `84 passed` (DB 테스트 포함, skip 0) | 리팩터링 전 기준선. 구현 후 같은 수 이상 통과해야 함 |
-| B-5 | `python3 .claude/skills/layer-check/check_layers.py` | 위반 없음, 경고 3건(`[넓은예외]` error_handlers.py:45·49·53, 범위 밖) | 기준선 |
-| B-6 | `ls src/container.py` | 없음 | 신규 생성 대상(차단 아님). `check_layers.py`는 `container.py`를 import 제한에서 이미 제외함 |
+| B-4 | `uv run pytest -rs -q` | 리팩터링 전 `84 passed`. **현재 `89 passed`**(skip 0). 파일별 수집: test_api_db 24, test_domain 19, test_security 13, test_service 15, test_container 3, test_error_handlers 15 | 해소. 증가분 5 = `test_container.py` 3 + `test_security.py` 더미 해시 1 + `test_service.py` 필수 인자 1 |
+| B-5 | `python3 .claude/skills/layer-check/check_layers.py` | 위반 없음, 경고 3건(`[넓은예외]` error_handlers.py:45·49·53, 범위 밖). 검사 파일 70개 | 현재도 같음. application->infrastructure 금지가 `check_layers.py:41`에 반영된 판으로 통과(C-5) |
+| B-6 | `ls src/container.py` | 계획 시점 없음. **현재 있음**(59줄, `container.py:1-59`) | 해소. `check_layers.py`는 `container.py`를 import 제한에서 제외 |
 | B-7 | `.env.example`의 `JWT_SECRET_KEY` | 있음(`change-me-...` 예시값). `settings.py`가 예시값을 거부하므로 실제 `.env`에 임의 값 필요 | 새 키 없음. 변경 불필요 |
-| B-8 | 다른 모듈이 auth 서비스를 쓰는 곳 `Grep AuthApplicationService` | `src/` 안에서는 `auth` 자신과 `main.py`뿐. catalog·stores·reservations·payments는 전부 빈 파일(0줄) | 지금 깨질 외부 호출자 없음. 새 사용법(§6)만 문서화하면 됨 |
-| **B-9** | 작은 FastAPI 앱 실험(scratchpad `exp.py`): `dependency_overrides.update({provide: create})` 후 `dependency_overrides.clear()` | 1) `get_db`를 override하면 `create_*`의 하위 `Depends(get_db)`에도 적용되어 서비스·레포가 같은 세션(`True`)을 받음. 2) `.clear()` 뒤 호출은 `NotImplementedError` | **현재 테스트가 깨진다.** `tests/auth/test_api_db.py:77`의 fixture 정리 코드 `app.dependency_overrides.clear()`가 `wire_dependencies(app)`가 넣은 매핑까지 지움 -> 첫 API 테스트 이후 모든 API 테스트가 `NotImplementedError`. 해결: `.clear()`를 `pop(get_db, None)`으로 바꾼다(§9). `testing.md` 190행도 같은 지시라서 정합 이슈 C-3 |
+| B-8 | 다른 모듈이 auth 서비스를 쓰는 곳 `Grep AuthApplicationService` | `src/` 안에서는 `auth` 자신과 `container.py`뿐(`Grep "provide_|AuthApplicationService" src`). catalog·stores·reservations·payments는 아직 전부 빈 파일(0줄) | 지금 깨질 외부 호출자 없음. 새 사용법(§6)만 문서화하면 됨 |
+| **B-9** | 작은 FastAPI 앱 실험(scratchpad `exp.py`): `dependency_overrides.update({provide: create})` 후 `dependency_overrides.clear()` | 1) `get_db`를 override하면 `create_*`의 하위 `Depends(get_db)`에도 적용되어 서비스·레포가 같은 세션(`True`)을 받음. 2) `.clear()` 뒤 호출은 `NotImplementedError` | 계획 시점의 함정. `tests/auth/test_api_db.py`의 fixture 정리 `clear()`가 배선까지 지우는 문제. **구현에서 해소:** `tests/auth/test_api_db.py:94`가 `app.dependency_overrides.pop(get_db, None)`을 쓴다. 그러나 같은 지시가 남은 `testing.md:186`은 아직 `clear()`다(C-3 미해결) |
+| B-10 | (신규, 2026-11-03) `Grep "infrastructure\|database" src/auth/application src/auth/presentation` | 일치 0건(종료 코드 1) | R2·R9 자가 확인 통과(§10 7단계 조건) |
+| B-11 | (신규) `uv run python -c "import multipart"` | `ModuleNotFoundError`. `pyproject.toml`에 `python-multipart` 없음 | 변함없음. auth는 `Form`·`File`을 쓰지 않으므로 차단 아님(D-로그인형식 JSON). form 본문 거부는 `tests/auth/test_api_db.py`의 `test_login_form_rejected`가 확인 |
 
-차단 이슈는 없다. B-9는 구현자가 반드시 처리해야 하는 함정이다.
+차단 이슈는 없다.
 
 ---
 
@@ -57,9 +61,11 @@
 
 ---
 
-## 2. 변경 요약 (파일별)
+## 2. 변경 요약 (파일별) — 완료
 
-### 2.1 신규
+아래 표는 리팩터링에서 바뀐 파일 목록이며, 모두 `a7e5c39`에 반영됐다(`git show --stat a7e5c39`: 16개 파일). 표에 없는 변경: `0554aed`가 `.claude/skills/auth-security-check/scripts/jwt_matrix.py`를 `BcryptPasswordHasher` 이름에 맞게 고쳤다(`PasswordHasher` import 깨짐 회귀 수정, 오케스트레이터 범위).
+
+### 2.1 신규 (완료)
 | 파일 | 내용 | 담당 |
 | --- | --- | --- |
 | `src/auth/domain/repository/__init__.py` | 빈 파일 | `layer-implementer` |
@@ -70,7 +76,7 @@
 | `src/container.py` | `create_*` 팩토리, 싱글턴, `wire_dependencies(app)` (최초 생성은 이번 발주의 `layer-implementer`, D-작업소유권) | `layer-implementer` |
 | `tests/test_container.py` | 배선 점검 (§9) (D-작업소유권) | `layer-implementer` |
 
-### 2.2 변경
+### 2.2 변경 (완료)
 | 파일 | 변경 |
 | --- | --- |
 | `src/auth/infrastructure/repositories.py` | 클래스 이름을 `SqlAlchemyUserRepository`, `SqlAlchemyPointLogRepository`, `SqlAlchemyTokenBlacklistRepository`로 바꾸고 각 추상을 상속. 인자·속성 `db` -> `session`. 메서드 본문 불변 |
@@ -91,14 +97,23 @@
 ### 2.4 변경하지 않음
 `domain/user.py`, `point_log.py`, `token_blacklist.py`, `token_claims.py`, `exceptions.py`, `infrastructure/models.py`, `settings.py`, `presentation/schemas.py`, `src/error_handlers.py`, `src/database.py`, DB 스키마. **스키마 변경 제안: 없음.**
 
-### 2.5 구현자 범위 밖 (오케스트레이터 소유, D-R2검사강화)
-`.claude/skills/layer-check/check_layers.py`의 `FORBIDDEN_LAYERS["application"]`에 `"infrastructure"`를 추가하는 일은 `.claude/**` 소유자(오케스트레이터)가 한다. 구현자는 이 파일을 고치지 않는다.
+### 2.5 구현자 범위 밖 (오케스트레이터 소유, D-R2검사강화) — 완료
+`.claude/skills/layer-check/check_layers.py`의 `FORBIDDEN_LAYERS["application"]`에 `"infrastructure"`를 추가하는 일은 `.claude/**` 소유자(오케스트레이터)의 몫이었고 `0554aed`로 반영됐다: `check_layers.py:41` `"application": {"infrastructure", "presentation"},  # R2: ...`. (C-5)
+
+### 2.6 구현 메모 (계획과 다르거나 계획에 없던 점)
+| 항목 | 내용 | 근거 |
+| --- | --- | --- |
+| `_finish(commit)` 헬퍼 | 포인트 4개 메서드의 `if commit: commit()`을 `_finish`로 모았다. 동작은 §5.2와 같다 | `src/auth/application/service.py:130-132` |
+| 서비스 import 서식 | `service.py:19`와 `:20` 사이, `:20`과 `:22` 사이에 빈 줄이 없다(`MAX_PAGE_SIZE = 100`이 import 바로 뒤). 동작에는 영향 없는 서식 문제 | `service.py:19-22` |
+| `tests/conftest.py` | 계획에 없던 파일. `JWT_SECRET_KEY`, `DATABASE_URL` 기본값을 테스트에 설정(기존 파일, 이번 리팩터링으로 바뀌지 않음) | `tests/conftest.py:1-6` |
+| `test_container.py (c)` | 계획은 fake를 넘기도록 했으나 구현은 `object()` 마커를 4개 인자에 그대로 넘겨 `session`/`hasher`/`tokens` 타입만 확인한다 | `tests/test_container.py:39-45` |
+| `_pwd_context` | bcrypt `CryptContext`는 모듈 전역이다(구현체 인스턴스는 싱글턴, 컨텍스트는 import 시 생성). 더미 해시만 지연 생성이며 §4.2 설명과 같다 | `src/auth/infrastructure/security.py:12`, `:29-32` |
 
 ---
 
 ## 3. 도메인 (domain/)
 
-엔티티·VO·규칙(생성자 검증, `User.register`, `Role.for_signup`, 포인트 메서드, `PointLog` 불변, `BlacklistedToken.is_expired`, `TokenClaims.to_blacklist_entry`)은 **그대로**다. 추가되는 것은 추상 두 묶음뿐이다. 모두 순수 파이썬(`abc`, `uuid`, `datetime`)이며 R1을 지킨다.
+**구현됨, 코드와 일치.** 엔티티·VO·규칙(생성자 검증, `User.register`, `Role.for_signup`, 포인트 메서드, `PointLog` 불변, `BlacklistedToken.is_expired`, `TokenClaims.to_blacklist_entry`)은 그대로다. 추가된 것은 추상 두 묶음뿐이다: `src/auth/domain/repository/{user,point_log,token_blacklist}_repository.py`, `src/auth/domain/service.py`. 아래 시그니처는 해당 파일과 한 줄씩 대조해 같음을 확인했다(`user_repository.py:7-19`, `point_log_repository.py:7-25`, `token_blacklist_repository.py:7-16`, `service.py:8-29`). 모두 순수 파이썬(`abc`, `uuid`, `datetime`)이며 R1을 지킨다(`check_layers.py` 위반 없음).
 
 ### 3.1 `domain/repository/user_repository.py`
 ```python
@@ -189,14 +204,15 @@ class TokenProvider(ABC):
 - 서비스가 호출하는 메서드(`hash`, `verify`, `dummy_verify`, `issue`, `decode`, 레포 메서드 전부)는 위 추상에 모두 선언되어 있다 -> R10. 구현체 전용 멤버(`JwtTokenProvider.settings` 프로퍼티, `_dummy_hash`)는 서비스·테스트가 접근하지 않는다.
 
 ### 3.5 도메인 예외 / 상태 전이
-- 예외: 변경 없음(`AuthenticationError` 계열 401, `EmailDuplicatedError` 409). R6 잔존분은 후속 작업(D-R6후속).
+- 예외: 변경 없음(`AuthenticationError` 계열 401, `EmailDuplicatedError` 409; `domain/exceptions.py` 28줄). R6 잔존분은 후속 작업(D-R6후속, C-6).
+- 코드값 확인(임시 항목, 상태만 유지): `Role.OWNER = "OWNER"`(`domain/user.py:8`, 주석에 "팀 확인 필요 (임시)"), `Role.for_signup`은 `ADMIN` 거부(`user.py:13`)와 `CUSTOMER`/`OWNER`만 허용(`:15`), `business_number`는 `User`에 있으나 `SignupRequest`에는 없음(`schemas.py:7-12`). 표와 같다.
 - 상태 값(`Role`)은 전이가 없다. 포인트 `PointType` 4종(EARN, USE, RESTORE, REVOKE)은 `point_log`의 CHECK와 일치한다(`db-schema` §4).
 
 ---
 
 ## 4. 인프라 (infrastructure/)
 
-테이블·컬럼·제약·FK는 `models.py` 그대로(users, point_log, token_blacklist; `db-schema`와 일치, 변경 없음).
+**구현됨, 코드와 일치.** 테이블·컬럼·제약·FK는 `models.py` 그대로이며 `schema.sql`과 일치한다(대조 결과는 §14.1).
 
 ### 4.1 `repositories.py`
 ```python
@@ -226,11 +242,13 @@ class JwtTokenProvider(TokenProvider):
     def issue(...) -> tuple[str, TokenClaims]: ...
     def decode(self, token: str) -> TokenClaims: ...
 ```
-- 본문 로직(알고리즘 HS256 고정, `require: exp, sub, jti, role`, 예외 매핑)은 불변. 인자 이름만 추상과 맞춘다(`raw` -> `raw_password`, `hashed` -> `hashed_password`). 위치 인자 호출만 있어 영향 없음(테스트 `test_security.py`도 위치 인자).
+- 본문 로직(알고리즘은 설정값 `settings.algorithm`, `require: exp, sub, jti, role`, 예외 매핑)은 불변. 인자 이름은 추상과 맞췄다(`raw_password`, `hashed_password`; `security.py:20-29`). 위치 인자 호출만 있어 영향 없음. **구현됨** (`security.py:15-84`). 알고리즘은 `settings.algorithm`으로 읽지만 `JWT_ALGORITHM`이 `HS256`이 아니면 시작 시 `RuntimeError`라 사실상 HS256 고정이다(`settings.py:29-31`).
 
 ---
 
 ## 5. 응용 (application/)
+
+**구현됨, 코드와 일치** (`src/auth/application/service.py`). infrastructure·database import 없음(B-10).
 
 ### 5.1 생성자 (R8)
 ```python
@@ -263,7 +281,7 @@ class AuthApplicationService:
         self.tokens = tokens
 ```
 - 인자 이름 `users, point_logs, blacklist, hasher, tokens`는 **현재와 같다.** 그래서 `tests/auth/test_service.py`의 `AuthApplicationService(db, **parts)`가 그대로 동작한다.
-- 모든 인자 필수. 기본값·`or` 기본 생성·모듈 전역 해셔 없음.
+- 모든 인자 필수. 기본값·`or` 기본 생성·모듈 전역 해셔 없음. 구현: `service.py:40-54`, docstring `:38`(C-7 해소). `AuthApplicationService(`를 만드는 곳은 `src/container.py:44`뿐이며 나머지는 테스트(`tests/auth/test_service.py:114`, `:226`, `tests/auth/test_api_db.py:37`)다.
 
 ### 5.2 메서드 시그니처 (변경 없음, `self.db` -> `self.session`만)
 | 메서드 | 시나리오 | commit |
@@ -278,12 +296,15 @@ class AuthApplicationService:
 | `revoke_points(user_id, amount, *, commit=True) -> int` | 위와 같음, 실제 회수액 반환, 0이면 로그 없음 | 호출자 선택 |
 | `purge_expired_tokens(now=None) -> int` | `blacklist.delete_expired` | 1회 |
 
-- 공용 DTO `AuthenticatedPrincipal`, `PointLogPage`, `MAX_PAGE_SIZE`는 `service.py`에 그대로 둔다.
+- 공용 DTO `AuthenticatedPrincipal`, `PointLogPage`, `MAX_PAGE_SIZE`는 `service.py`에 그대로 둔다(`:20-34`).
+- 메서드 줄: signup `:56`, login `:80`, authenticate `:90`, logout `:99`, get_user `:103`, list_point_logs `:109`, use/earn/restore/revoke `:134-169`, purge `:171`. 시나리오는 위 표와 같다.
 - 트랜잭션 경계: 단독 유스케이스(signup, logout, purge)는 서비스가 commit. 포인트 4종은 D-포인트트랜잭션대로 `commit=False`로 호출자 트랜잭션에 참여한다. 요청 세션이 닫힐 때 미커밋분은 롤백된다(R13).
 
 ---
 
-## 6. 다른 모듈이 auth를 쓰는 방법 (이전 메모와 달라지는 점)
+## 6. 다른 모듈이 auth를 쓰는 방법 (이전 메모와 달라진 점)
+
+현재 auth를 쓰는 다른 모듈 코드는 아직 없다(B-8). 아래는 사용 규약이며, 이 규약과 어긋나는 `layer-implementation/SKILL.md` 예시는 C-1·C-2로 남아 있다.
 
 | 이전 사용법 (`layer-implementation` §4, §6) | 새 사용법 |
 | --- | --- |
@@ -325,7 +346,7 @@ def create_reservation_service(
 
 ## 7. 표현 (presentation/)
 
-엔드포인트·스키마·에러 코드는 **변경 없음**(R15). 참고용 현재 표:
+엔드포인트·스키마·에러 코드는 **변경 없음**(R15). `router.py`·`schemas.py`를 `docs/reference/auth.md`와 대조한 결과는 §14.2. 현재 표(`router.py:25-77`):
 
 | Method | URI | 요청 | 응답 | 성공 | 에러 |
 | --- | --- | --- | --- | --- | --- |
@@ -353,6 +374,7 @@ async def get_current_principal(
 # get_current_user, require_roles, CurrentPrincipal/CurrentUser/CustomerUser/OwnerUser/AdminUser: 변경 없음
 ```
 - `from database import get_db`, `AsyncSession` import 삭제. presentation은 infrastructure·database를 모른다(R2, R9).
+- **구현됨**(`dependencies.py:13-24`, `router.py:22`). `from database`·`AsyncSession` import 없음(`dependencies.py:1-8`).
 - `provide_*`는 이 모듈에서 **`provide_auth_service` 하나**다. 다른 모듈이 auth 레포 추상을 직접 주입받을 계획이 없으므로 `provide_user_repository` 등은 만들지 않는다(필요해지면 추가하고 `wire_dependencies`에도 같이 매핑).
 
 ### 7.2 `presentation/router.py`
@@ -361,6 +383,8 @@ async def get_current_principal(
 ---
 
 ## 8. 조립 (`src/container.py`) 와 `main.py`
+
+**구현됨, §8.2 코드와 `src/container.py:1-59`가 일치**한다(대조 확인). `main.py`는 `:10` import, `:27` `register_exception_handlers(app)`, `:28` `wire_dependencies(app)`, `:29` `include_router(auth_router)`로 D-wire위치 순서를 지킨다. `auth_models` import(`main.py:7`)와 lifespan의 `get_auth_settings()`(`:18`)도 유지된다.
 
 ### 8.1 container 매핑 표
 
@@ -450,7 +474,10 @@ app.include_router(auth_router)
 
 ## 9. 테스트 영향과 방침
 
-기준선: `84 passed`. 구현 후 같은 수 이상이 통과해야 하고 `-rs`에서 db 마커 skip이 0이어야 한다(R16).
+**구현 완료.** 기준선 `84 passed` -> 현재 `89 passed`, `-rs` skip 0(B-4). 아래 표의 "변경" 칸은 계획이며, 실제 반영 확인 결과를 "구현 상태" 줄로 덧붙인다.
+
+- 구현 상태: `test_security.py:8`이 `BcryptPasswordHasher` import, `:18-21` 더미 해시 테스트. `test_service.py:41`·`:57`·`:80`·`:96`의 Fake가 각각 `PasswordHasher`, `UserRepository`, `PointLogRepository`, `TokenBlacklistRepository`를 상속, `:224-226` 필수 인자 `TypeError` 테스트. `test_api_db.py:36-44` `auth_service(db)` 헬퍼, `:94` `pop(get_db, None)`. `test_container.py` 3건(`:25`, `:34`, `:39`). 계획과의 차이는 §2.6의 `test_container (c)` 한 건뿐이다.
+- 기준선(계획 시점) 표:
 
 | 파일 | 영향 | 변경 |
 | --- | --- | --- |
@@ -465,7 +492,9 @@ app.include_router(auth_router)
 
 ---
 
-## 10. 구현 순서 (`layer-implementer`용)
+## 10. 구현 순서 (`layer-implementer`용) — 완료
+
+1~7단계 모두 `a7e5c39`(+ 검사 강화 `0554aed`)에서 수행됐다. 아래는 기록용으로 남긴다. 7단계 게이트의 현재 재실행 결과: `check_layers.py` 위반 0건, `import main` 성공, `pytest -rs` 89 passed, `grep infrastructure|database src/auth/application src/auth/presentation` 0건, `AuthApplicationService(`는 `container.py`에서만 생성(§5.1).
 
 1. domain: `domain/repository/` 패키지 3개 파일 + `domain/service.py`. 이 시점에 `python3 .claude/skills/layer-check/check_layers.py` 통과 확인.
 2. infrastructure: `repositories.py` 클래스 이름 변경 + 추상 상속 + `db` -> `session`, `security.py`(`BcryptPasswordHasher` 지연 더미, `JwtTokenProvider(TokenProvider)`).
@@ -486,7 +515,34 @@ app.include_router(auth_router)
 
 ## 11. R1~R16 해소 / 잔여 현황
 
-범례: 해소 = 이 설계로 충족, 유지 = 이미 충족하며 변경 없음, **잔존** = 위반이 남음(범위 밖이라 건드리지 않음).
+### 11.1 현재 판정 (2026-11-03, HEAD `671d457`)
+
+판정 방법: 자동 규칙은 `python3 .claude/skills/layer-check/check_layers.py` 결과(위반 없음, 경고 3건 `[넓은예외]`), 실행 규칙은 `import main`·`pytest -rs`(89 passed, skip 0), 정독 규칙은 설계자가 코드를 읽은 **참고 판정**이다. 정독 규칙의 공식 판정은 `layer-checker`가 한다(AGENTS.md "만든 사람과 확인하는 사람을 나눈다").
+
+| 규칙 | 현재 판정 | 근거 |
+| --- | --- | --- |
+| R1 | 충족 | 자동: `[외부의존]`·`[의존방향]` 위반 0 |
+| R2 | 충족 | 자동: application->infrastructure 금지 판(`check_layers.py:41`)에서 위반 0. `grep infrastructure\|database src/auth/application src/auth/presentation` 0건 |
+| R3 | **잔존(경미)** | `service.py:112-115` page/size 범위 검증, `:166` `if actual > 0`, `:82-86` 로그인 분기가 서비스에 있음. 검증 규칙 자체(비밀번호, role, 포인트 단위·잔액)는 도메인(`user.py`)에 있음 |
+| R4 | 충족 | 자동 `[레포반환]`·`[반환타입]` 위반 0. 레포는 `_to_domain`으로 도메인 객체만 반환(`repositories.py:70-82`, `:133-141`) |
+| R5 | 충족(정독) | `commit()`은 `service.py:77`, `:101`, `:132`, `:173`뿐. 레포는 `flush()`까지(`repositories.py:54`, `:67`, `:98`, `:155`) |
+| R6 | **잔존** | `service.py:106`·`:127` `LookupError`, `repositories.py:62` `LookupError`, `user.py:111` `PermissionError`를 그대로 raise. 자동 `[HTTP예외]` 위반은 0(`HTTPException` 없음). D-R6후속, C-6 |
+| R7 | 충족 | 핸들러 `error_handlers.py:25-60`이 `{success,error_code,message}` 형식, 401은 `WWW-Authenticate: Bearer`(`:27`). `tests/test_error_handlers.py`·`test_api_db.py` 통과 |
+| R8 | 충족 | 서비스 생성자는 추상만 필수 인자(`service.py:40-54`), 기본 구현체 없음. 테스트 `test_service.py:224-226` |
+| R9 | 충족 | `container.py:54-59` 매핑, `provide_auth_service`(`dependencies.py:13`) 1개가 모두 매핑됨. `tests/test_container.py:25-31`이 검증 |
+| R10 | 충족 | 서비스가 쓰는 레포·해셔·토큰 메서드는 모두 추상에 선언(§3). Fake가 추상 상속(`test_service.py:41`, `:57`, `:80`, `:96`) |
+| R11 | 충족 | auth는 다른 모듈을 import하지 않음. 다른 모듈에서 auth를 쓰는 코드는 아직 없음(B-8) |
+| R12 | 충족 | `import main` 성공. 서비스 생성자 안에서 다른 서비스를 만들지 않음(`container.py:38-51`만 생성) |
+| R13 | 충족 | 포인트 4개 메서드 `commit: bool = True`(`service.py:134`, `:142`, `:150`, `:160`), 같은 요청 세션은 B-9에서 확인 |
+| R14 | 충족 | §14.1 대조: 3개 테이블 컬럼·타입·NULL·CHECK·FK·인덱스 일치, UUID는 `uuid.UUID`, 시간은 `DateTime(timezone=True)` |
+| R15 | 충족 | §14.2 대조. 응답 스키마에 `password_hash` 없음(`schemas.py:20-29`) |
+| R16 | 충족 | `.env` 커밋 없음(`git status`에 `.env` 없음, `JWT_SECRET_KEY`는 `.env.example`에 예시값만), pytest skip 0. 신규 의존성 없음 |
+
+R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전부터 알려진 항목이며 이번 범위 밖이다(D-R6후속).
+
+### 11.2 계획 시점 기록 (이력)
+
+범례: 해소 = 이 설계로 충족, 유지 = 이미 충족하며 변경 없음, **잔존** = 위반이 남음(범위 밖이라 건드리지 않음). 아래 "이 설계 후" 열은 계획이며, 실제 결과는 11.1이 정본이다.
 
 | 규칙 | 현재 | 이 설계 후 | 비고 |
 | --- | --- | --- | --- |
@@ -515,6 +571,25 @@ app.include_router(auth_router)
 
 설계안 작성자는 아래 파일을 고치지 않는다. 오케스트레이터가 사용자 승인 후 처리한다.
 
+### 12.1 현재 상태 요약 (2026-11-03, HEAD `671d457`, 실제 파일로 확인)
+
+| ID | 상태 | 근거 |
+| --- | --- | --- |
+| C-1 | **미해결** | `.claude/skills/layer-implementation/SKILL.md:231` `self.offers = offers or DiscountOfferRepository(db)`, `:269` `self.auth = AuthApplicationService(db)  # 같은 세션`, `:226-232` `__init__(self, db, *, offers=None)`. `:10`의 "이전 방식" 안내문만 있고 예시는 그대로. `provide_*`·`container`는 `:10`에만 언급 |
+| C-2 | **미해결** | `SKILL.md:333-337` `get_catalog_service(db=Depends(get_db))`가 router 모듈에서 서비스 직접 생성. `AGENTS.md:35` "정답 예시 코드 ... (DI·조립은 제외)" 그대로 |
+| C-3 | **부분 해결** | 테스트 코드는 해결: `tests/auth/test_api_db.py:94` `pop(get_db, None)`(`a7e5c39`). 문서는 미해결: `.claude/skills/layer-implementation/testing.md:186` `app.dependency_overrides.clear()`, `:190` "`dependency_overrides`도 fixture에서 비웁니다". `docs/design/stores.md` B-10은 "auth C-3 해소"로 적었으나 `testing.md`는 아직 `clear()`다(stores 쪽 표현 정정 필요, §12.3 C-10) |
+| C-4 | **해결** | `docs/operations/orchestration.md:21`(`layer-implementer`는 `src/container.py`의 자기 모듈 구역), `:71`(container 소유권 행)에 반영. 이번 발주에서 `src/container.py`·`tests/test_container.py`는 구현자가 작성(`a7e5c39`) |
+| C-5 | **해결** | `0554aed`: `.claude/skills/layer-check/check_layers.py:41` `"application": {"infrastructure", "presentation"}`. 같은 커밋이 `layer-check/SKILL.md` 1줄도 수정. 실행 결과 위반 0 |
+| C-6 | **미해결(후속 확정)** | R6 잔존 위치: `service.py:106`, `:127`, `repositories.py:62`, `user.py:111`. D-R6후속 |
+| C-7 | **해결** | `service.py:38` docstring이 §5.1 문구로 교체됨 |
+| C-8 | **해결(결정 반영)** | (a) `test_api_fake.py` 없음(미채택), (b) `session` 이름 `service.py:42`, `repositories.py:20`, (c) 지연 더미 `security.py:18`, `:30-31`, (d) `domain/repository/` 패키지 3파일 |
+| C-9 | 신규 | §12.3 |
+| C-10 | 신규 | §12.3 |
+| C-11 | 신규 | §12.3 |
+| C-12 | 신규 | §12.3 |
+
+### 12.2 계획 시점 원문 (이력)
+
 | ID | 위치 | 내용 | 제안 / 상태 |
 | --- | --- | --- | --- |
 | C-1 | `.claude/skills/layer-implementation/SKILL.md` §4 "여러 모듈이 얽힌 흐름", §4 서비스 예시, 상단 안내 | `self.auth = AuthApplicationService(db)`, `offers or DiscountOfferRepository(db)`가 R8·R12와 충돌. 상단 안내문이 "이전 방식"이라고만 하고 코드는 그대로 남아 있음 | 예시를 §6과 같은 생성자 주입 + `provide_*`/container 방식으로 교체. 오케스트레이터 처리 |
@@ -525,6 +600,15 @@ app.include_router(auth_router)
 | C-6 | `src/auth/domain/user.py`(`PermissionError`), `src/auth/application/service.py`·`infrastructure/repositories.py`(`LookupError`) | R6 잔존 | **결정됨 (D-R6후속):** 이번 범위 제외, 후속 작업. 예: `domain/exceptions.py`에 `UserNotFoundError(LookupError)`, `RoleForbiddenError(PermissionError)` 추가(응답 코드 동일, 기존 `pytest.raises(LookupError)`도 통과) |
 | C-7 | `src/auth/application/service.py` 클래스 docstring | "payments 등 다른 모듈은 같은 세션으로 이 서비스를 만들어..." 문구가 새 구조와 반대 | §5.1의 docstring으로 교체(구현 시 반영) |
 | C-8 | 이 설계가 요청 범위를 넘어 추가한 부분 | (a) `tests/auth/test_api_fake.py` (b) `db` -> `session` (c) 더미 해시 지연 생성 (d) `domain/repository/` 패키지 | **결정됨 (사용자, 2026-11-03):** (a) 미채택, (b)(c)(d) 확정. 결정 표 D-fake API테스트, D-세션이름, D-해셔싱글턴, D-레포구조 참고 |
+
+### 12.3 새로 발견한 정합 이슈 (2026-11-03)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-9 | `src/auth/application/service.py:19-22` | import 블록과 `MAX_PAGE_SIZE = 100`, `@dataclass` 사이에 빈 줄이 없다(서식, 동작 무관). R 위반 아님 | 구현자가 후속 정리 때 빈 줄 추가. 코드 변경이라 이번 작업에서는 고치지 않음 |
+| C-10 | `docs/design/stores.md` B-10 (미커밋 초안, 이번 작업에서 수정 금지) | "auth C-3 해소"라고 적혀 있으나 코드(`test_api_db.py:94`)만 해소됐고 `.claude/skills/layer-implementation/testing.md:186`·`:190`은 아직 `clear()` 지시(C-3 부분 해결) | stores 설계 갱신 시 "코드 해소, testing.md 미해결"로 정정. 오케스트레이터가 testing.md 수정 시 함께 해소 |
+| C-11 | `src/auth/domain/user.py:111` | `require_role`의 `PermissionError("접근 권한이 없습니다.")`가 모든 역할 실패(`OwnerUser` 등)에 같은 메시지를 낸다. `docs/design/stores.md` C-S1은 stores 명세 403 메시지 "상점주 권한이 필요합니다."와 다르다고 지적(R15). stores는 `OwnerUser`를 그대로 쓰기로 함(D-인증의존성과 일치) | 후속 C-6 정리(`RoleForbiddenError`)에서 역할별 메시지를 낼지 사용자 결정 필요. 현재 auth 동작은 바꾸지 않음. 질문 8로 추가 |
+| C-12 | stores가 auth에 기대하는 점 | `docs/design/stores.md` S-2(a)는 상점주 승인 상태를 `users.approved_at`(auth 소유)로 두는 안을 제시한다. 이 경우 auth 스키마·`models.py`·`schema.sql`·`db-schema` 변경(R14)과 D-상점주승인 해소가 필요. stores Q-5(가입 시 `name`(상호) 필수화)도 auth 가입 규칙 변경이 된다. 두 안 모두 현재 auth 설계와 충돌하지 않으며(stores는 auth를 import하지 않고 원시값만 받음, `stores.md` §3) auth는 바뀌지 않았다 | 사용자가 stores Q-6, Q-5에서 결정할 때 auth 변경 여부를 함께 정한다. 질문 9·10으로 추가 |
 
 ---
 
@@ -541,5 +625,42 @@ app.include_router(auth_router)
 | 5 | 로그인 시도 제한 | - | 없음 | 명세에 없음 | `AuthApplicationService.login` |
 | 6 | 블랙리스트 만료 행 정리 방식 | `db-schema` §2 "만료가 지난 행은 지워도 됨" | 수동 호출(`purge_expired_tokens`)만 | 현 구현 | 스케줄러·lifespan 도입 시 결정 |
 | 7 | 추상 메서드 이름 정리(`add/exists/count_by_user/delete_expired` vs `find_*/save/delete`) | `layer-architecture` §5.1 | 현재 이름 유지 | D-추상메서드명, 변경 범위 최소화 | `domain/repository/*.py`와 구현체·fake 동시 변경 필요 |
+| 8 | (신규, C-11) 역할 불일치 403 메시지를 역할별로 낼지 | `docs/design/stores.md` C-S1, `docs/reference/stores.md` | 현재 `접근 권한이 없습니다.` 유지(미변경) | 현재 코드값 `user.py:111` | `User.require_role`, C-6 정리와 함께 |
+| 9 | (신규, C-12) 상점주 승인 상태를 `users`에 둘지 stores 소유 테이블에 둘지 (질문 3과 같은 주제) | `docs/design/stores.md` S-2, Q-6 | 미구현 유지(auth 변경 없음) | D-상점주승인 | 스키마 변경 시 R14: `models.py`, `schema.sql`, `db-schema/SKILL.md` 동시 |
+| 10 | (신규, C-12) 가입 시 상점주 `name`(상호) 필수화 여부 | `docs/design/stores.md` Q-5 | 미변경(`name` 선택, `schemas.py:10`) | 명세 `name` 선택 | `SignupRequest`, `User.register` |
 
-2026-11-03 사용자 결정으로 C-4, C-5, C-6, C-8은 모두 결정되었다. 남은 사용자 결정 사항은 없고, 위 임시 기본값으로 구현을 진행할 수 있다.
+현재 코드값 확인(1~7번은 건드리지 않고 상태만 유지): 1번 `Role.OWNER = "OWNER"`(`user.py:8`), 2번 `SignupRequest`에 `business_number` 없음(`schemas.py:7-12`), 3번 `users`에 승인 컬럼 없음(`models.py:13-28`), 4번 `error_handlers.py:33-43`이 400 `VALIDATION_ERROR`, 5번 `login`에 시도 제한 없음(`service.py:80-88`), 6번 `purge_expired_tokens`가 수동 메서드(`service.py:171-174`)이고 호출하는 곳이 없음, 7번 추상 메서드 이름 그대로(`add`, `exists`, `count_by_user`, `delete_expired`). 모두 표의 임시 기본값과 같다.
+
+2026-11-03 사용자 결정으로 C-4, C-5, C-6, C-8은 모두 결정되었고 구현도 끝났다(C-6 코드 정리만 후속). 남은 사용자 결정 항목은 질문 1~10(임시 기본값 유지 중)이며, 구현을 막지 않는다.
+
+---
+
+## 14. 스키마·명세 대조 결과 (2026-11-03)
+
+### 14.1 `models.py` vs `schema.sql` (R14) — 일치, 스키마 변경 제안 없음
+
+| 테이블.컬럼 | `schema.sql` | `models.py` | 판정 |
+| --- | --- | --- | --- |
+| `users.id` | `UUID PK DEFAULT gen_random_uuid()` | `UUID(as_uuid=True)` PK, `default=uuid.uuid4`, `server_default gen_random_uuid()` (`:17-20`) | 일치 |
+| `users.email` | `VARCHAR(255) NOT NULL UNIQUE` | `String(255), unique=True` (`:21`) | 일치 |
+| `users.password_hash` / `role` | `VARCHAR(255)` / `VARCHAR(20)` NOT NULL | `String(255)` / `String(20)` (`:22-23`) | 일치 |
+| `users.name` / `phone` | `VARCHAR(100)` NULL | `String(100) \| None` (`:24-25`) | 일치 |
+| `users.users_point` | `INTEGER NOT NULL DEFAULT 0 CHECK (>= 0)` | `server_default="0"` + `ck_users_point_nonneg` (`:15`, `:26`) | 일치 |
+| `users.created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | `DateTime(timezone=True)`, `now()` (`:10`, `:27`) | 일치 |
+| `users.business_number` | `TEXT` NULL | `Text \| None` (`:28`) | 일치 |
+| `point_log.*` | `user_id UUID NOT NULL FK users(id)`, `amount INTEGER`, `point_type TEXT CHECK IN (EARN,USE,RESTORE,REVOKE)`, `created_at TIMESTAMPTZ`, 인덱스 `ix_point_log_user_id` | FK `users.id` + `index=True`, `amount`, `Text`, `ck_point_log_type`, TZ (`:39-48`) | 일치 |
+| `token_blacklist.*` | `jti TEXT PK`, `expires_at TIMESTAMPTZ NOT NULL`, 인덱스 `ix_token_blacklist_expires_at` | `Text` PK, TZ + `index=True` (`:54-55`) | 일치 |
+
+도메인·모델의 ID는 `uuid.UUID`, 시간은 timezone 있는 `datetime`이다. `models.py`는 다른 모듈 모델을 import하지 않는다(FK는 문자열 `"users.id"`).
+
+### 14.2 `schemas.py`·`router.py` vs `docs/reference/auth.md` (R15) — 일치
+
+| 명세 | 구현 | 판정 |
+| --- | --- | --- |
+| POST `/v1/auth/signup` 201, 요청 `email/password/name/phone/role`, 응답 `id,email,name,phone,role,users_point,created_at` | `router.py:25-39`, `schemas.py:7-12`, `:20-29` | 일치. 응답에 `password_hash` 없음 |
+| POST `/v1/auth/login` 200 JSON `email/password`, 응답 `access_token`, `token_type="bearer"` | `router.py:42-45`, `schemas.py:15-17`, `:32-34` | 일치. form 본문 400은 `test_login_form_rejected` |
+| POST `/v1/auth/logout` 204, Bearer | `router.py:48-56` | 일치 |
+| GET `/v1/users/me` 200 | `router.py:59-61` | 일치 |
+| GET `/v1/users/me/points` `type`, `page`(0부터, 기본 0), `size`(기본 20, 최대 100), 응답 `users_point, logs[id,amount,point_type,created_at], page, size, total_elements` | `router.py:64-77`, `schemas.py:37-51` | 일치. 범위 오류는 `Query(ge=0)`/`ge=1, le=100` -> 400 `VALIDATION_ERROR`(`error_handlers.py:33-43`) |
+| 에러 400/401/409 코드 | `error_handlers.py:25-60`, 도메인 예외의 `error_code` | 일치(테스트로 확인: `pytest` 89 passed) |
+| 로그인·가입 요청 `password` 길이 | 명세는 "비밀번호"만 명시, 스키마 설명은 "8자 이상". 8자 검사는 `User.validate_raw_password`(도메인) | 명세에 길이 규칙 없음. 차이는 아니지만 명세에 길이가 없다는 점만 기록 |
