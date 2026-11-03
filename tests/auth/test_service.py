@@ -10,6 +10,10 @@ from auth.domain.exceptions import (
     TokenRevokedError,
 )
 from auth.domain.point_log import PointLog, PointType
+from auth.domain.repository.point_log_repository import PointLogRepository
+from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
+from auth.domain.repository.user_repository import UserRepository
+from auth.domain.service import PasswordHasher
 from auth.domain.user import Role, User
 from auth.infrastructure.security import JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
@@ -34,7 +38,7 @@ class FakeSession:
         self.rollbacks += 1
 
 
-class FakeHasher:
+class FakeHasher(PasswordHasher):
     def __init__(self):
         self.dummy_calls = 0
         self.hash_calls = 0
@@ -50,7 +54,7 @@ class FakeHasher:
         self.dummy_calls += 1
 
 
-class FakeUsers:
+class FakeUsers(UserRepository):
     def __init__(self, race=False):
         self.items = {}
         self.race = race
@@ -73,7 +77,7 @@ class FakeUsers:
         return user
 
 
-class FakeLogs:
+class FakeLogs(PointLogRepository):
     def __init__(self):
         self.items: list[PointLog] = []
 
@@ -89,7 +93,7 @@ class FakeLogs:
         return len(await self.find_by_user(user_id, point_type=point_type, limit=10**6))
 
 
-class FakeBlacklist:
+class FakeBlacklist(TokenBlacklistRepository):
     def __init__(self):
         self.jtis = set()
 
@@ -214,3 +218,9 @@ async def test_list_point_logs_bounds(page, size):
 async def test_purge():
     svc, db, _ = build()
     assert await svc.purge_expired_tokens() == 3 and db.commits == 1
+
+
+def test_constructor_requires_all_dependencies():
+    # R8: 기본 구현체를 만들지 않는다
+    with pytest.raises(TypeError):
+        AuthApplicationService(FakeSession())
