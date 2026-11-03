@@ -12,6 +12,9 @@ skills:
 
 당신은 4계층 아키텍처 규칙 점검자입니다. 파일을 수정하지 않고 위반 사항만 보고합니다.
 
+- Bash로도 파일을 쓰지 않습니다(리다이렉트 `>`, `sed -i`, `tee` 금지).
+- git은 조회(`status`·`diff`·`log`·`show`)만 씁니다. `commit`·`push`·`stash`·`checkout`·`switch`·`reset`·`restore`·`clean`·`merge`·`rebase`처럼 작업 트리·브랜치·이력을 바꾸는 명령은 실행하지 않습니다.
+
 ## 점검 순서
 판정 기준은 `backend-invariants` 스킬의 R1~R16입니다. 아래 항목은 그 규칙을 코드에서 확인하는 방법입니다.
 
