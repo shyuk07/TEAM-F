@@ -151,7 +151,7 @@ erDiagram
 | 자식 테이블.컬럼 | 부모 테이블 | 관계 | NULL | 비고 |
 | --- | --- | --- | --- | --- |
 | `point_log.user_id` | `users` | 1 : N | 불가 | 포인트 적립·사용 내역 |
-| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE` |
+| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별) |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |

@@ -35,14 +35,15 @@ CREATE INDEX ix_token_blacklist_expires_at ON token_blacklist (expires_at);
 -- ── stores ────────────────────────────────────────────
 CREATE TABLE stores (
     id               UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id         UUID             NOT NULL UNIQUE REFERENCES users (id),  -- 상점주 1인 1상점 (API 명세)
+    owner_id         UUID             NOT NULL REFERENCES users (id),  -- 상점주 1인 1상점 (API 명세)
     name             VARCHAR(150)     NOT NULL,
     pickup_address   VARCHAR(500)     NOT NULL,
     latitude         DOUBLE PRECISION,
     longitude        DOUBLE PRECISION,
     created_at       TIMESTAMPTZ      NOT NULL DEFAULT now(),
     approval_at      TIMESTAMPTZ,                          -- 개설 시각 (API 명세). 원본 ERD는 VARCHAR(20)
-    closed_at        TIMESTAMPTZ
+    closed_at        TIMESTAMPTZ,
+    CONSTRAINT uq_stores_owner_id UNIQUE (owner_id)
 );
 
 -- ── catalog ───────────────────────────────────────────

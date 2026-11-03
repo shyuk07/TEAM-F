@@ -7,8 +7,13 @@ from sqlalchemy import text
 from auth.infrastructure import models as auth_models  # noqa: F401
 from auth.infrastructure.settings import get_auth_settings
 from auth.presentation.router import router as auth_router
+from container import wire_dependencies
 from database import Base, engine
 from error_handlers import register_exception_handlers
+
+# FK 대상(users)이 먼저 등록돼야 하므로 auth → stores 순서를 유지한다.
+from stores.infrastructure import models as stores_models  # noqa: F401
+from stores.presentation.router import router as stores_router
 
 
 @asynccontextmanager
@@ -24,7 +29,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="마감 직전 API", lifespan=lifespan)
 
 register_exception_handlers(app)
+wire_dependencies(app)  # 라우터 등록 전에
 app.include_router(auth_router)
+app.include_router(stores_router)
 
 
 @app.get("/")
