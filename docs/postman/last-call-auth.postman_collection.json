@@ -1,0 +1,157 @@
+{
+  "info": {
+    "name": "마감 직전 - auth",
+    "description": "auth API 시연 컬렉션입니다. 위에서부터 순서대로 실행하거나 Collection Runner로 한 번에 실행합니다.\n\n- 서버: `uv run uvicorn main:app --app-dir src --reload --port 8001`\n- `baseUrl` 변수로 주소를 바꿉니다.\n- '1. 회원가입'이 실행될 때마다 새 이메일을 만들고, '3. 로그인'이 토큰을 `accessToken` 변수에 저장합니다. 이후 요청은 컬렉션의 Bearer 인증으로 이 토큰을 씁니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8001" },
+    { "key": "email", "value": "" },
+    { "key": "password", "value": "password123" },
+    { "key": "accessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. 서버·DB 확인",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{baseUrl}}/health/db"
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200, DB 연결', () => {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().database).to.eql('connected');",
+        "});"
+      ] } }]
+    },
+    {
+      "name": "1. 회원가입",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/auth/signup",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"name\": \"홍길동\",\n  \"phone\": \"010-1234-5678\",\n  \"role\": \"CUSTOMER\"\n}" }
+      },
+      "event": [
+        { "listen": "prerequest", "script": { "exec": [
+          "// 실행할 때마다 새 이메일로 가입한다.",
+          "pm.collectionVariables.set('email', `user_${Date.now()}@test.com`);"
+        ] } },
+        { "listen": "test", "script": { "exec": [
+          "pm.test('201, 포인트 0, 비밀번호 미노출', () => {",
+          "  pm.response.to.have.status(201);",
+          "  const d = pm.response.json();",
+          "  pm.expect(d.email).to.eql(pm.collectionVariables.get('email'));",
+          "  pm.expect(d.users_point).to.eql(0);",
+          "  pm.expect(Object.keys(d).join()).to.not.include('password');",
+          "});"
+        ] } }
+      ]
+    },
+    {
+      "name": "2. 회원가입 - 이메일 중복 (409)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/auth/signup",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"role\": \"CUSTOMER\"\n}" }
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('409 EMAIL_DUPLICATED', () => {",
+        "  pm.response.to.have.status(409);",
+        "  pm.expect(pm.response.json()).to.include({ success: false, error_code: 'EMAIL_DUPLICATED' });",
+        "});"
+      ] } }]
+    },
+    {
+      "name": "3. 로그인",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/auth/login",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" }
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200, bearer 토큰 발급', () => {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().token_type).to.eql('bearer');",
+        "});",
+        "// 이후 요청이 쓸 수 있게 토큰을 저장한다.",
+        "pm.collectionVariables.set('accessToken', pm.response.json().access_token);"
+      ] } }]
+    },
+    {
+      "name": "4. 로그인 - 비밀번호 틀림 (401)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/auth/login",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"wrong-password\"\n}" }
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('401 INVALID_CREDENTIALS', () => {",
+        "  pm.response.to.have.status(401);",
+        "  pm.expect(pm.response.json().error_code).to.eql('INVALID_CREDENTIALS');",
+        "});"
+      ] } }]
+    },
+    {
+      "name": "5. 내 정보",
+      "request": { "method": "GET", "url": "{{baseUrl}}/v1/users/me" },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200, 가입한 이메일', () => {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().email).to.eql(pm.collectionVariables.get('email'));",
+        "});"
+      ] } }]
+    },
+    {
+      "name": "6. 포인트 내역",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/v1/users/me/points?page=0&size=20",
+          "host": ["{{baseUrl}}"],
+          "path": ["v1", "users", "me", "points"],
+          "query": [
+            { "key": "type", "value": "EARN", "disabled": true, "description": "EARN, USE, RESTORE, REVOKE" },
+            { "key": "page", "value": "0" },
+            { "key": "size", "value": "20" }
+          ]
+        }
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200, 목록 형식', () => {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json()).to.have.keys('users_point', 'logs', 'page', 'size', 'total_elements');",
+        "});"
+      ] } }]
+    },
+    {
+      "name": "7. 로그아웃",
+      "request": { "method": "POST", "url": "{{baseUrl}}/v1/auth/logout" },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('204', () => pm.response.to.have.status(204));"
+      ] } }]
+    },
+    {
+      "name": "8. 로그아웃한 토큰으로 내 정보 (401)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/v1/users/me" },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('401 TOKEN_REVOKED', () => {",
+        "  pm.response.to.have.status(401);",
+        "  pm.expect(pm.response.json().error_code).to.eql('TOKEN_REVOKED');",
+        "});"
+      ] } }]
+    }
+  ]
+}

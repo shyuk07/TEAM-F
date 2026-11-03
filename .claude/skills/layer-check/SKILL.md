@@ -31,7 +31,7 @@ python3 .claude/skills/layer-check/check_layers.py 다른/src    # 복사한 트
 | --- | --- | --- |
 | domain | infrastructure, application, presentation | fastapi, starlette, sqlalchemy, pydantic, database, jinja2, jwt, passlib |
 | infrastructure | application, presentation | fastapi, starlette |
-| application | presentation | fastapi, starlette |
+| application | infrastructure, presentation | fastapi, starlette |
 | presentation | infrastructure | – |
 | common, src 루트 파일 | 기능 모듈의 infrastructure, application, presentation | – |
 

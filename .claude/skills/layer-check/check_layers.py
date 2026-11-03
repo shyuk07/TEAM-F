@@ -38,7 +38,7 @@ ROOT_EXEMPT_FILES = {"main.py", "container.py"}  # 모든 모듈을 조립하는
 FORBIDDEN_LAYERS = {
     "domain": {"infrastructure", "application", "presentation"},
     "infrastructure": {"application", "presentation"},
-    "application": {"presentation"},
+    "application": {"infrastructure", "presentation"},  # R2: 구현체는 container.py가 주입한다
     "presentation": {"infrastructure"},
     # 공용 코드는 기능 모듈의 domain(예외 클래스 등)만 참조할 수 있다
     COMMON_DIR: {"infrastructure", "application", "presentation"},

@@ -8,11 +8,28 @@ import pytest
 from auth.application.service import AuthApplicationService
 from auth.domain.point_log import PointType
 from auth.domain.user import Role
+from auth.infrastructure.repositories import (
+    SqlAlchemyPointLogRepository,
+    SqlAlchemyTokenBlacklistRepository,
+    SqlAlchemyUserRepository,
+)
+from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
 from auth.infrastructure.settings import get_auth_settings
 from main import app
 from tests.helpers import bearer, login, signup, token_for
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
+
+
+def auth_service(db):
+    return AuthApplicationService(
+        db,
+        SqlAlchemyUserRepository(db),
+        SqlAlchemyPointLogRepository(db),
+        SqlAlchemyTokenBlacklistRepository(db),
+        BcryptPasswordHasher(),
+        JwtTokenProvider(),
+    )
 
 
 async def test_signup_ok(client):
@@ -154,7 +171,7 @@ async def _seed_points(client, email):
         (await login(client, email)).json()["access_token"]))).json()
     uid = uuid.UUID(me["id"])
     async with client.session_factory() as db:
-        svc = AuthApplicationService(db)
+        svc = auth_service(db)
         await svc.earn_points(uid, 500)
         await svc.use_points(uid, 200)
         await svc.earn_points(uid, 40)
@@ -238,12 +255,12 @@ async def test_concurrent_use_points_never_negative(client):
         (await login(client)).json()["access_token"]))).json()
     uid = uuid.UUID(me["id"])
     async with client.session_factory() as db:
-        await AuthApplicationService(db).earn_points(uid, 300)
+        await auth_service(db).earn_points(uid, 300)
 
     async def attempt():
         async with client.session_factory() as db:
             try:
-                await AuthApplicationService(db).use_points(uid, 100)
+                await auth_service(db).use_points(uid, 100)
                 return True
             except ValueError:
                 await db.rollback()
@@ -252,7 +269,7 @@ async def test_concurrent_use_points_never_negative(client):
     results = await asyncio.gather(*(attempt() for _ in range(8)))
     assert sum(results) == 3
     async with client.session_factory() as db:
-        svc = AuthApplicationService(db)
+        svc = auth_service(db)
         assert (await svc.get_user(uid)).users_point == 0
         page = await svc.list_point_logs(await svc.get_user(uid), PointType.USE, 0, 100)
         assert page.total_elements == 3
@@ -262,7 +279,7 @@ async def test_purge_expired_tokens(client):
     token = await token_for(client)
     await client.post("/v1/auth/logout", headers=bearer(token))
     async with client.session_factory() as db:
-        svc = AuthApplicationService(db)
+        svc = auth_service(db)
         assert await svc.purge_expired_tokens() == 0
         far = datetime.now(timezone.utc) + timedelta(hours=1)
         assert await svc.purge_expired_tokens(far) == 1
