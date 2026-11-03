@@ -8,9 +8,10 @@ from auth.domain.service import PasswordHasher, TokenProvider
 from auth.presentation import dependencies as auth_dependencies
 from auth.presentation.dependencies import provide_auth_service
 from container import create_auth_service, wire_dependencies
+from stores.presentation import dependencies as stores_dependencies
 
 # 새 모듈이 생기면 그 모듈의 dependencies를 추가한다.
-DEPENDENCY_MODULES = [auth_dependencies]
+DEPENDENCY_MODULES = [auth_dependencies, stores_dependencies]
 
 
 def _provide_functions():
