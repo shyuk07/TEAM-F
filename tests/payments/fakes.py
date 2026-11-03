@@ -1,0 +1,115 @@
+"""payments 테스트용 fake 모음 (DB 없이 서비스·API 테스트)."""
+
+import uuid
+from dataclasses import replace
+from datetime import datetime
+
+from payments.domain.exceptions import PaymentAlreadyExistsError, PaymentAlreadyRefundedError
+from payments.domain.gateway_result import GatewayResult
+from payments.domain.reservation_snapshot import ReservationSnapshot
+from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
+
+
+class FakeSession:
+    def __init__(self):
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def commit(self):
+        self.commits += 1
+
+    async def rollback(self):
+        self.rollbacks += 1
+
+
+class FakePaymentRepository:
+    """메모리 저장소. 실제 DB처럼 reservation_id UNIQUE를 흉내 낸다."""
+
+    def __init__(self):
+        self.items = {}
+
+    async def find_by_id(self, payment_id, for_update=False):
+        return self.items.get(payment_id)
+
+    async def find_by_reservation_id(self, reservation_id, for_update=False):
+        return next((p for p in self.items.values() if p.reservation_id == reservation_id), None)
+
+    async def save(self, payment):
+        if payment.id is None:
+            if await self.find_by_reservation_id(payment.reservation_id) is not None:
+                raise PaymentAlreadyExistsError()
+            payment.id = uuid.uuid4()
+        self.items[payment.id] = payment
+        return payment
+
+
+class FakeRefundRepository:
+    """메모리 저장소. 실제 DB처럼 payment_id UNIQUE를 흉내 낸다."""
+
+    def __init__(self):
+        self.items = {}
+
+    async def find_by_id(self, refund_id):
+        return self.items.get(refund_id)
+
+    async def find_by_payment_id(self, payment_id):
+        return next((r for r in self.items.values() if r.payment_id == payment_id), None)
+
+    async def save(self, refund):
+        if await self.find_by_payment_id(refund.payment_id) is not None:
+            raise PaymentAlreadyRefundedError()
+        refund.id = uuid.uuid4()
+        self.items[refund.id] = refund
+        return refund
+
+
+class FakeReservationPort:
+    def __init__(self):
+        self.items: dict[uuid.UUID, ReservationSnapshot] = {}
+        self.mark_paid_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, commit)
+        self.get_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, for_update)
+        self.raise_on_mark_paid: Exception | None = None
+
+    def add(
+        self,
+        user_id: uuid.UUID,
+        total_price: int | None = 12000,
+        status: str = RESERVATION_PAYABLE_STATUS,
+        pickup_start: datetime | None = None,
+    ) -> uuid.UUID:
+        reservation_id = uuid.uuid4()
+        self.items[reservation_id] = ReservationSnapshot(
+            id=reservation_id,
+            user_id=user_id,
+            total_price=total_price,
+            status=status,
+            pickup_start=pickup_start,
+        )
+        return reservation_id
+
+    def set_status(self, reservation_id: uuid.UUID, status: str) -> None:
+        self.items[reservation_id] = replace(self.items[reservation_id], status=status)
+
+    async def get(self, reservation_id, *, for_update=False):
+        self.get_calls.append((reservation_id, for_update))
+        return self.items.get(reservation_id)
+
+    async def mark_paid(self, reservation_id, *, commit=False):
+        self.mark_paid_calls.append((reservation_id, commit))
+        if self.raise_on_mark_paid is not None:
+            raise self.raise_on_mark_paid
+        self.set_status(reservation_id, RESERVATION_PAID_STATUS)
+
+
+class FakeGateway:
+    def __init__(self):
+        self.charged = []
+
+    async def charge(self, payment):
+        self.charged.append(payment)
+        return GatewayResult(success=True, provider_payment_id="fake_pg_1")
+
+
+class FailingGateway:
+    async def charge(self, payment):
+        return GatewayResult(success=False, failure_response={"code": "CARD_DECLINED"})

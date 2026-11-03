@@ -1,227 +1,234 @@
-import asyncio
-from uuid import UUID, uuid4
+import uuid
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from main import app
-from payments.application.ports import ReservationInfo
-from payments.application.service import ConflictError, PaymentService
-from payments.domain.payment import Payment
-from payments.domain.refund import Refund
+from payments.application.service import PaymentApplicationService
+from payments.domain.rules import RESERVATION_PAID_STATUS
 from payments.presentation.dependencies import get_payment_service
+from tests.payments.fakes import (
+    FakeGateway,
+    FakePaymentRepository,
+    FakeRefundRepository,
+    FakeReservationPort,
+    FakeSession,
+)
+
+pytestmark = pytest.mark.anyio
+
+CUSTOMER_ID = uuid.uuid4()
+OTHER_ID = uuid.uuid4()
+OWNER_ID = uuid.uuid4()
+ADMIN_ID = uuid.uuid4()
 
 
-CUSTOMER_ID = uuid4()
-OTHER_CUSTOMER_ID = uuid4()
-OWNER_ID = uuid4()
-ADMIN_ID = uuid4()
-
-
-# DB 없이 테스트하기 위한 메모리 저장소
-class FakePaymentRepository:
-    def __init__(self):
-        self.payments: dict[UUID, Payment] = {}
-        self.refunds: dict[UUID, Refund] = {}
-
-    async def get_payment(self, payment_id):
-        return self.payments.get(payment_id)
-
-    async def get_payment_by_reservation(self, reservation_id):
-        return next(
-            (p for p in self.payments.values() if p.reservation_id == reservation_id),
-            None,
-        )
-
-    async def add_payment(self, payment):
-        self.payments[payment.id] = payment
-
-    async def get_refund(self, refund_id):
-        return self.refunds.get(refund_id)
-
-    async def add_refund(self, refund, payment):
-        self.refunds[refund.id] = refund
-        self.payments[payment.id] = payment
-
-
-class FakeReservationGateway:
-    def __init__(self):
-        self.reservations: dict[UUID, ReservationInfo] = {}
-
-    def add(self, total_price=12000, status="PENDING_PAYMENT") -> UUID:
-        reservation_id = uuid4()
-        self.reservations[reservation_id] = ReservationInfo(
-            id=reservation_id,
-            user_id=CUSTOMER_ID,
-            store_owner_id=OWNER_ID,
-            total_price=total_price,
-            status=status,
-        )
-        return reservation_id
-
-    async def get(self, reservation_id):
-        return self.reservations.get(reservation_id)
-
-    async def mark_paid(self, reservation_id):
-        self.reservations[reservation_id] = ReservationInfo(
-            **{**self.reservations[reservation_id].__dict__, "status": "CONFIRMED"}
-        )
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
 
 
 @pytest.fixture
 def service():
-    service = PaymentService(FakePaymentRepository(), FakeReservationGateway())
+    # DB 없이 fake를 주입한 서비스를 의존성으로 덮어쓴다.
+    service = PaymentApplicationService(
+        FakeSession(),
+        reservations=FakeReservationPort(),
+        payments=FakePaymentRepository(),
+        refunds=FakeRefundRepository(),
+        gateway=FakeGateway(),
+    )
     app.dependency_overrides[get_payment_service] = lambda: service
     yield service
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def client(service):
-    return TestClient(app)
+async def client(service):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        yield c
 
 
-def headers(user_id, role):
+def headers(user_id, role="CUSTOMER"):
     return {"X-User-Id": str(user_id), "X-User-Role": role}
 
 
-def pay(client, reservation_id, user_id=CUSTOMER_ID, role="CUSTOMER"):
-    return client.post(
+async def pay(client, reservation_id, user_id=CUSTOMER_ID, role="CUSTOMER"):
+    return await client.post(
         "/api/v1/payments",
         json={"reservation_id": str(reservation_id)},
         headers=headers(user_id, role),
     )
 
 
+def error(code, message):
+    return {"success": False, "error_code": code, "message": message}
+
+
 # ---------- 모의 결제 실행 ----------
+async def test_pay_success_uses_reservation_price(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, total_price=15000)
 
-def test_결제_성공시_예약금액으로_PAID(client, service):
-    reservation_id = service.reservations.add(total_price=15000)
-
-    response = pay(client, reservation_id)
+    response = await pay(client, reservation_id)
 
     assert response.status_code == 201
     body = response.json()
+    assert set(body) == {"id", "reservation_id", "amount", "status", "paid_at"}
     assert body["reservation_id"] == str(reservation_id)
     assert body["amount"] == 15000
     assert body["status"] == "PAID"
     assert body["paid_at"] is not None
-    assert service.reservations.reservations[reservation_id].status == "CONFIRMED"
+    assert service.reservations.items[reservation_id].status == RESERVATION_PAID_STATUS
 
 
-def test_로그인_안하면_401(client, service):
-    reservation_id = service.reservations.add()
+@pytest.mark.parametrize("role", ["CUSTOMER", "OWNER", "ADMIN"])
+async def test_pay_has_no_role_restriction(client, service, role):
+    # 로그인한 회원이면 역할과 상관없이 본인 예약은 결제할 수 있다.
+    reservation_id = service.reservations.add(OWNER_ID)
+    assert (await pay(client, reservation_id, OWNER_ID, role)).status_code == 201
 
-    response = client.post("/api/v1/payments", json={"reservation_id": str(reservation_id)})
+
+async def test_pay_without_login_is_401(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID)
+
+    response = await client.post("/api/v1/payments", json={"reservation_id": str(reservation_id)})
+
+    assert response.status_code == 401
+    assert response.json() == error("UNAUTHORIZED", "로그인이 필요합니다.")
+
+
+async def test_pay_other_users_reservation_is_403(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID)
+
+    response = await pay(client, reservation_id, OTHER_ID)
+
+    assert response.status_code == 403
+    assert response.json() == error("FORBIDDEN", "본인 예약만 결제할 수 있습니다.")
+
+
+async def test_pay_missing_reservation_is_404(client):
+    response = await pay(client, uuid.uuid4())
+
+    assert response.status_code == 404
+    assert response.json() == error("NOT_FOUND", "예약 정보를 찾을 수 없습니다.")
+
+
+async def test_pay_not_payable_reservation_is_400(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, status="CANCELLED")
+
+    response = await pay(client, reservation_id)
+
+    assert response.status_code == 400
+    assert response.json() == error("RESERVATION_NOT_PAYABLE", "결제할 수 없는 예약입니다.")
+
+
+async def test_pay_twice_is_409_not_400(client, service):
+    # 결제 후 예약 상태가 바뀌어도 중복 결제는 400이 아니라 409
+    reservation_id = service.reservations.add(CUSTOMER_ID)
+    assert (await pay(client, reservation_id)).status_code == 201
+
+    response = await pay(client, reservation_id)
+
+    assert response.status_code == 409
+    # 409는 router가 HTTPException으로 바꾸므로 전역 http_error 핸들러의 코드(CONFLICT)가 나간다.
+    assert response.json() == error("CONFLICT", "이미 결제된 예약입니다.")
+
+
+async def test_pay_invalid_body_is_400_validation_error(client):
+    response = await client.post(
+        "/api/v1/payments", json={"reservation_id": "not-a-uuid"}, headers=headers(CUSTOMER_ID)
+    )
+
+    assert response.status_code == 400
+    assert response.json()["success"] is False
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
+
+
+# ---------- 결제 조회 ----------
+async def test_get_payment_owner_only(client, service):
+    payment_id = (await pay(client, service.reservations.add(CUSTOMER_ID))).json()["id"]
+    url = f"/api/v1/payments/{payment_id}"
+
+    own = await client.get(url, headers=headers(CUSTOMER_ID))
+    assert own.status_code == 200
+    assert set(own.json()) == {"id", "reservation_id", "amount", "status", "paid_at"}
+    assert own.json()["id"] == payment_id and own.json()["status"] == "PAID"
+
+    # 타인, 상점주, 관리자 모두 403 (본인만, D-4)
+    for user_id, role in ((OTHER_ID, "CUSTOMER"), (OWNER_ID, "OWNER"), (ADMIN_ID, "ADMIN")):
+        denied = await client.get(url, headers=headers(user_id, role))
+        assert denied.status_code == 403
+        assert denied.json() == error("FORBIDDEN", "결제 정보를 조회할 권한이 없습니다.")
+
+
+async def test_get_payment_missing_is_404(client):
+    response = await client.get(f"/api/v1/payments/{uuid.uuid4()}", headers=headers(CUSTOMER_ID))
+
+    assert response.status_code == 404
+    assert response.json() == error("NOT_FOUND", "결제 정보를 찾을 수 없습니다.")
+
+
+async def test_get_payment_without_login_is_401(client):
+    response = await client.get(f"/api/v1/payments/{uuid.uuid4()}")
 
     assert response.status_code == 401
 
 
-def test_고객이_아니면_403(client, service):
-    reservation_id = service.reservations.add()
+async def test_get_payment_invalid_uuid_is_400(client):
+    response = await client.get("/api/v1/payments/not-a-uuid", headers=headers(CUSTOMER_ID))
 
-    assert pay(client, reservation_id, OWNER_ID, "OWNER").status_code == 403
-
-
-def test_남의_예약은_403(client, service):
-    reservation_id = service.reservations.add()
-
-    assert pay(client, reservation_id, OTHER_CUSTOMER_ID).status_code == 403
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
 
 
-def test_없는_예약은_404(client):
-    assert pay(client, uuid4()).status_code == 404
+# ---------- 환불 조회 (환불 요청 HTTP 엔드포인트는 2차, 서비스로 환불을 만들어 둔다) ----------
+async def make_refund(client, service, total_price=12000):
+    payment_id = (
+        await pay(client, service.reservations.add(CUSTOMER_ID, total_price=total_price))
+    ).json()["id"]
+    refund = await service.refund(CUSTOMER_ID, uuid.UUID(payment_id), "단순 변심")
+    return payment_id, refund
 
 
-def test_결제대기_아닌_예약은_409(client, service):
-    reservation_id = service.reservations.add(status="CANCELLED")
-
-    assert pay(client, reservation_id).status_code == 409
-
-
-def test_중복_결제는_409(client, service):
-    reservation_id = service.reservations.add()
-    pay(client, reservation_id)
-
-    # 예약 상태와 무관하게 결제 내역이 이미 있으면 막혀야 함
-    service.reservations.reservations[reservation_id] = ReservationInfo(
-        **{**service.reservations.reservations[reservation_id].__dict__,
-           "status": "PENDING_PAYMENT"}
-    )
-    assert pay(client, reservation_id).status_code == 409
-
-
-# ---------- 결제 상태 조회 ----------
-
-def test_결제_조회_본인과_관리자만(client, service):
-    payment_id = pay(client, service.reservations.add()).json()["id"]
-    url = f"/api/v1/payments/{payment_id}"
-
-    assert client.get(url, headers=headers(CUSTOMER_ID, "CUSTOMER")).status_code == 200
-    assert client.get(url, headers=headers(ADMIN_ID, "ADMIN")).status_code == 200
-    assert client.get(url, headers=headers(OTHER_CUSTOMER_ID, "CUSTOMER")).status_code == 403
-    assert client.get(url, headers=headers(OWNER_ID, "OWNER")).status_code == 403
-
-
-def test_없는_결제_조회는_404(client):
-    response = client.get(f"/api/v1/payments/{uuid4()}", headers=headers(CUSTOMER_ID, "CUSTOMER"))
-
-    assert response.status_code == 404
-
-
-# ---------- 환불 처리 / 환불 조회 ----------
-
-async def _refund(service, payment_id, penalty=2000):
-    return await service.refund(UUID(payment_id), penalty_amount=penalty, reason="단순 변심")
-
-
-def test_환불시_위약금_차감_및_결제_REFUNDED(client, service):
-
-    payment_id = pay(client, service.reservations.add(total_price=12000)).json()["id"]
-    refund = asyncio.run(_refund(service, payment_id, penalty=2000))
-
-    assert refund.refund_amount == 10000
-    assert refund.penalty_amount == 2000
-
-    payment = client.get(f"/api/v1/payments/{payment_id}", headers=headers(CUSTOMER_ID, "CUSTOMER"))
-    assert payment.json()["status"] == "REFUNDED"
-
-
-def test_위약금이_결제금액보다_크면_거절(client, service):
-
-    payment_id = pay(client, service.reservations.add(total_price=5000)).json()["id"]
-
-    with pytest.raises(ConflictError):
-        asyncio.run(_refund(service, payment_id, penalty=6000))
-
-
-def test_중복_환불_거절(client, service):
-
-    payment_id = pay(client, service.reservations.add()).json()["id"]
-    asyncio.run(_refund(service, payment_id))
-
-    with pytest.raises(ConflictError):
-        asyncio.run(_refund(service, payment_id))
-
-
-def test_환불_조회_본인_매장주_관리자만(client, service):
-
-    payment_id = pay(client, service.reservations.add(total_price=12000)).json()["id"]
-    refund = asyncio.run(_refund(service, payment_id))
+async def test_get_refund_owner_only(client, service):
+    payment_id, refund = await make_refund(client, service)
     url = f"/api/v1/refunds/{refund.id}"
 
-    response = client.get(url, headers=headers(CUSTOMER_ID, "CUSTOMER"))
+    response = await client.get(url, headers=headers(CUSTOMER_ID))
+
     assert response.status_code == 200
     assert response.json() == {
         "id": str(refund.id),
         "payment_id": payment_id,
-        "refund_amount": 10000,
-        "penalty_amount": 2000,
+        "refund_amount": 12000,
+        "penalty_amount": 0,
         "reason": "단순 변심",
         "status": "COMPLETED",
         "completed_at": response.json()["completed_at"],
     }
-    assert client.get(url, headers=headers(OWNER_ID, "OWNER")).status_code == 200
-    assert client.get(url, headers=headers(ADMIN_ID, "ADMIN")).status_code == 200
-    assert client.get(url, headers=headers(OTHER_CUSTOMER_ID, "CUSTOMER")).status_code == 403
-    assert client.get(url, headers=headers(uuid4(), "OWNER")).status_code == 403
+    assert response.json()["completed_at"] is not None
+
+    for user_id, role in ((OTHER_ID, "CUSTOMER"), (OWNER_ID, "OWNER"), (ADMIN_ID, "ADMIN")):
+        denied = await client.get(url, headers=headers(user_id, role))
+        assert denied.status_code == 403
+        assert denied.json() == error("FORBIDDEN", "환불 정보를 조회할 권한이 없습니다.")
+
+
+async def test_payment_status_is_refunded_after_refund(client, service):
+    payment_id, _ = await make_refund(client, service)
+
+    response = await client.get(f"/api/v1/payments/{payment_id}", headers=headers(CUSTOMER_ID))
+
+    assert response.json()["status"] == "REFUNDED"
+
+
+async def test_get_refund_missing_is_404(client):
+    response = await client.get(f"/api/v1/refunds/{uuid.uuid4()}", headers=headers(CUSTOMER_ID))
+
+    assert response.status_code == 404
+    assert response.json() == error("NOT_FOUND", "환불 정보를 찾을 수 없습니다.")
+
+
+async def test_get_refund_without_login_is_401(client):
+    assert (await client.get(f"/api/v1/refunds/{uuid.uuid4()}")).status_code == 401

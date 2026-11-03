@@ -1,102 +1,131 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
-from payments.application.ports import (
-    CurrentUser,
-    PaymentRepository,
-    ReservationGateway,
-    UserRole,
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from payments.application.ports import PaymentGateway, ReservationPort
+from payments.domain.cancellation_policy import CancellationPolicy
+from payments.domain.exceptions import (
+    PaymentAlreadyExistsError,
+    PaymentAlreadyRefundedError,
+    PaymentFailedError,
+    PaymentNotFoundError,
+    RefundNotFoundError,
+    ReservationNotFoundError,
 )
 from payments.domain.payment import Payment
 from payments.domain.refund import Refund
+from payments.domain.rules import DEFAULT_CANCELLATION_POLICY
+from payments.infrastructure.mock_gateway import MockPaymentGateway
+from payments.infrastructure.repositories import PaymentRepository, RefundRepository
 
 
-# 결제 가능한 예약 상태 (예약 생성 직후 상태)
-RESERVATION_PENDING_PAYMENT = "PENDING_PAYMENT"
-
-
-# 서비스 계층 예외 (router에서 HTTP 상태 코드로 변환)
-class PaymentError(Exception):
-    pass
-
-
-class NotFoundError(PaymentError):
-    pass
-
-
-class ForbiddenError(PaymentError):
-    pass
-
-
-class ConflictError(PaymentError):
-    pass
-
-
-class PaymentService:
-    def __init__(self, repository: PaymentRepository, reservations: ReservationGateway):
-        self.repository = repository
+class PaymentApplicationService:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        reservations: ReservationPort,
+        payments: PaymentRepository | None = None,
+        refunds: RefundRepository | None = None,
+        gateway: PaymentGateway | None = None,
+        policy: CancellationPolicy | None = None,
+    ):
+        self.db = db
         self.reservations = reservations
+        self.payments = payments or PaymentRepository(db)
+        self.refunds = refunds or RefundRepository(db)
+        self.gateway = gateway or MockPaymentGateway()
+        self.policy = policy or DEFAULT_CANCELLATION_POLICY
 
-    # 모의 결제 실행: 금액은 클라이언트가 아니라 서버(예약 정보)에서 계산
-    async def pay(self, user: CurrentUser, reservation_id: UUID) -> Payment:
-        if user.role != UserRole.CUSTOMER:
-            raise ForbiddenError("고객만 결제할 수 있습니다.")
+    # 모의 결제 실행: 금액은 클라이언트가 아니라 서버(예약 정보)에서 계산한다.
+    # 검사 순서: 404(예약 없음) -> 403(본인 아님) -> 409(이미 결제) -> 400(결제 불가 상태)
+    # 이미 결제된 예약은 상태가 바뀌어 있으므로 중복(409) 검사가 상태(400) 검사보다 먼저여야 한다.
+    # TODO(D-10): 포인트 사용·적립(use_point, auth 연동)은 미정이라 구현하지 않았다.
+    async def pay(self, user_id: UUID, reservation_id: UUID) -> Payment:
+        snapshot = await self.reservations.get(reservation_id, for_update=True)
+        if snapshot is None:
+            raise ReservationNotFoundError()
+        snapshot.ensure_payable_by(user_id)
+        if await self.payments.find_by_reservation_id(reservation_id) is not None:
+            raise PaymentAlreadyExistsError()
+        snapshot.ensure_payable_state()
 
-        reservation = await self.reservations.get(reservation_id)
-        if reservation is None:
-            raise NotFoundError("예약을 찾을 수 없습니다.")
-        if reservation.user_id != user.id:
-            raise ForbiddenError("본인 예약만 결제할 수 있습니다.")
-        if reservation.status != RESERVATION_PENDING_PAYMENT:
-            raise ConflictError("결제 대기 상태의 예약만 결제할 수 있습니다.")
-        if await self.repository.get_payment_by_reservation(reservation_id) is not None:
-            raise ConflictError("이미 결제된 예약입니다.")
-
-        payment = Payment.pay_mock(
-            reservation_id=reservation.id,
-            user_id=user.id,
-            amount=reservation.total_price,
-        )
-        await self.repository.add_payment(payment)
-        await self.reservations.mark_paid(reservation.id)
-        return payment
-
-    # 결제 상태 조회: 본인 또는 관리자
-    async def get_payment(self, user: CurrentUser, payment_id: UUID) -> Payment:
-        payment = await self.repository.get_payment(payment_id)
-        if payment is None:
-            raise NotFoundError("결제 내역을 찾을 수 없습니다.")
-        if user.role != UserRole.ADMIN and payment.user_id != user.id:
-            raise ForbiddenError("결제 내역을 조회할 권한이 없습니다.")
-        return payment
-
-    # 환불·위약금 내역 조회: 본인, 해당 매장주, 관리자
-    async def get_refund(self, user: CurrentUser, refund_id: UUID) -> Refund:
-        refund = await self.repository.get_refund(refund_id)
-        if refund is None:
-            raise NotFoundError("환불 내역을 찾을 수 없습니다.")
-
-        payment = await self.repository.get_payment(refund.payment_id)
-        if user.role == UserRole.ADMIN or (payment and payment.user_id == user.id):
-            return refund
-
-        if user.role == UserRole.OWNER and payment is not None:
-            reservation = await self.reservations.get(payment.reservation_id)
-            if reservation and reservation.store_owner_id == user.id:
-                return refund
-
-        raise ForbiddenError("환불 내역을 조회할 권한이 없습니다.")
-
-    # 환불 처리: 예약 취소 API(reservations 모듈)에서 호출하는 용도
-    # 위약금(penalty_amount)은 취소 시점에 따라 예약 쪽에서 계산해서 넘겨줌
-    async def refund(self, payment_id: UUID, penalty_amount: int, reason: str) -> Refund:
-        payment = await self.repository.get_payment(payment_id)
-        if payment is None:
-            raise NotFoundError("결제 내역을 찾을 수 없습니다.")
+        payment = Payment.request(reservation_id, user_id, snapshot.total_price)
+        result = await self.gateway.charge(payment)
+        if not result.success:
+            # 1차: 실패한 결제는 DB에 저장하지 않는다.
+            # models.py의 payments.reservation_id가 UNIQUE라서 FAILED를 저장하면
+            # 같은 예약을 다시 결제할 수 없게 된다. (실패 기록 저장은 2차 스키마 정렬 때 결정)
+            payment.fail(result.failure_response)
+            await self.db.rollback()
+            raise PaymentFailedError()
+        payment.approve(result.provider_payment_id)
 
         try:
-            refund = Refund.refund_mock(payment, penalty_amount, reason)
-        except ValueError as error:
-            raise ConflictError(str(error)) from error
+            await self.payments.save(payment)  # 동시 결제면 UNIQUE 위반 -> PaymentAlreadyExistsError(409)
+            await self.reservations.mark_paid(reservation_id, commit=False)
+        except Exception:
+            await self.db.rollback()
+            raise
+        await self.db.commit()  # 한 번만
+        return payment
 
-        await self.repository.add_refund(refund, payment)
+    # 결제 조회: 본인만
+    async def get_payment(self, user_id: UUID, payment_id: UUID) -> Payment:
+        payment = await self.payments.find_by_id(payment_id)
+        if payment is None:
+            raise PaymentNotFoundError()
+        snapshot = await self.reservations.get(payment.reservation_id)
+        if snapshot is None:
+            raise ReservationNotFoundError()
+        snapshot.ensure_viewable_by(user_id)
+        return payment
+
+    # 환불 조회: 본인만
+    async def get_refund(self, user_id: UUID, refund_id: UUID) -> Refund:
+        refund = await self.refunds.find_by_id(refund_id)
+        if refund is None:
+            raise RefundNotFoundError()
+        payment = await self.payments.find_by_id(refund.payment_id)
+        if payment is None:
+            raise PaymentNotFoundError()
+        snapshot = await self.reservations.get(payment.reservation_id)
+        if snapshot is None:
+            raise ReservationNotFoundError()
+        snapshot.ensure_refund_viewable_by(user_id)
+        return refund
+
+    # 환불 요청 (HTTP 엔드포인트는 2차). 전액 기준이고 위약금은 정책이 계산한다(현재 0원).
+    # 검사 순서: 404(결제 없음) -> 403(본인 아님) -> 409(이미 환불) -> 400(환불 불가)
+    # 락 순서: 예약 -> 결제 -> 환불 INSERT (예약 취소와의 교착 방지)
+    async def refund(self, user_id: UUID, payment_id: UUID, reason: str) -> Refund:
+        payment = await self.payments.find_by_id(payment_id)
+        if payment is None:
+            raise PaymentNotFoundError()
+        snapshot = await self.reservations.get(payment.reservation_id, for_update=True)
+        if snapshot is None:
+            raise ReservationNotFoundError()
+        snapshot.ensure_refundable_by(user_id)
+
+        payment = await self.payments.find_by_id(payment_id, for_update=True)
+        if payment is None:
+            raise PaymentNotFoundError()
+        if await self.refunds.find_by_payment_id(payment_id) is not None:
+            raise PaymentAlreadyRefundedError()
+        payment.ensure_refundable()  # REFUNDED -> 409, READY/FAILED -> 400
+        snapshot.ensure_refundable_state()  # 예약 상태 -> 400 (D-7)
+
+        # 미정(D-2): 위약금 계산 담당. 현재는 payments의 정책이 계산한다(D-1: 0원).
+        penalty = self.policy.penalty(payment.amount, snapshot.pickup_start, datetime.now(UTC))
+        refund = payment.refund(penalty, reason)
+
+        try:
+            await self.refunds.save(refund)  # 동시 환불이면 UNIQUE 위반 -> 409
+            await self.payments.save(payment)
+            # TODO(D-6): 예약 취소·재고 복구(cancel_for_refund)는 처리 순서가 미정이라 호출하지 않는다.
+        except Exception:
+            await self.db.rollback()
+            raise
+        await self.db.commit()  # 한 번만
         return refund

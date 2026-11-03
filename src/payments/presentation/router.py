@@ -4,36 +4,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from payments.application.ports import CurrentUser
-from payments.application.service import (
-    ConflictError,
-    ForbiddenError,
-    NotFoundError,
-    PaymentError,
-    PaymentService,
-)
+from payments.application.service import PaymentApplicationService
+from payments.domain.exceptions import PaymentConflictError
 from payments.presentation.dependencies import get_current_user, get_payment_service
 from payments.presentation.schemas import PaymentCreate, PaymentResponse, RefundResponse
 
-
+# /api/v1 -> /v1 변경과 JWT 인증 교체는 2차
 router = APIRouter(prefix="/api/v1")
 
 UserDep = Annotated[CurrentUser, Depends(get_current_user)]
-ServiceDep = Annotated[PaymentService, Depends(get_payment_service)]
+ServiceDep = Annotated[PaymentApplicationService, Depends(get_payment_service)]
 
 
-# 서비스 예외 -> HTTP 상태 코드
-def _to_http_error(error: PaymentError) -> HTTPException:
-    status_codes = {
-        NotFoundError: status.HTTP_404_NOT_FOUND,
-        ForbiddenError: status.HTTP_403_FORBIDDEN,
-        ConflictError: status.HTTP_409_CONFLICT,
-    }
-    return HTTPException(
-        status_code=status_codes.get(type(error), status.HTTP_400_BAD_REQUEST),
-        detail=str(error),
-    )
-
-
+# 400/403/404는 전역 핸들러(src/error_handlers.py)가 처리한다.
+# 409(PaymentConflictError)만 전역 핸들러에 없어서(error_handlers.py 수정 금지) 여기서 변환한다.
+# HTTPException은 전역 http_error 핸들러가 공통 형식으로 바꾼다. (2차: 409 핸들러 추가 후 제거)
 @router.post(
     "/payments",
     response_model=PaymentResponse,
@@ -43,9 +28,9 @@ def _to_http_error(error: PaymentError) -> HTTPException:
 )
 async def create_payment(body: PaymentCreate, user: UserDep, service: ServiceDep):
     try:
-        return await service.pay(user, body.reservation_id)
-    except PaymentError as error:
-        raise _to_http_error(error) from error
+        return await service.pay(user.id, body.reservation_id)
+    except PaymentConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
 @router.get(
@@ -55,10 +40,7 @@ async def create_payment(body: PaymentCreate, user: UserDep, service: ServiceDep
     summary="결제 상태 조회",
 )
 async def get_payment(payment_id: UUID, user: UserDep, service: ServiceDep):
-    try:
-        return await service.get_payment(user, payment_id)
-    except PaymentError as error:
-        raise _to_http_error(error) from error
+    return await service.get_payment(user.id, payment_id)
 
 
 @router.get(
@@ -68,7 +50,4 @@ async def get_payment(payment_id: UUID, user: UserDep, service: ServiceDep):
     summary="환불·위약금 내역 조회",
 )
 async def get_refund(refund_id: UUID, user: UserDep, service: ServiceDep):
-    try:
-        return await service.get_refund(user, refund_id)
-    except PaymentError as error:
-        raise _to_http_error(error) from error
+    return await service.get_refund(user.id, refund_id)
