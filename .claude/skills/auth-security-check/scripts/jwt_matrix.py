@@ -17,7 +17,7 @@ use_src()
 import jwt  # noqa: E402
 
 from auth.domain.exceptions import AuthenticationError  # noqa: E402
-from auth.infrastructure.security import JwtTokenProvider, PasswordHasher  # noqa: E402
+from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider  # noqa: E402
 from auth.infrastructure.settings import get_auth_settings  # noqa: E402
 
 
@@ -78,7 +78,7 @@ def main() -> None:
 
 
     r.section("비밀번호 해싱")
-    hasher = PasswordHasher()
+    hasher = BcryptPasswordHasher()
     hashed = hasher.hash("password123")
     r.check(hashed.startswith("$2"), "bcrypt 해시", hashed[:7])
     r.check(hasher.verify("password123", hashed), "올바른 비밀번호 검증")
