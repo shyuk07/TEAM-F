@@ -54,3 +54,4 @@ domain → infrastructure(models → repositories) → application → presentat
 
 ## 금지
 - `backend-invariants` 스킬의 불변 규칙(R1~R16) 위반. 규칙 문장은 그 스킬이 정본이며, 보고서에서 위반·예외는 R번호로 적습니다.
+- git은 조회(`status`·`diff`·`log`·`show`)만 씁니다. `commit`·`push`·`stash`·`checkout`·`switch`·`reset`·`restore`·`clean`·`merge`·`rebase`처럼 작업 트리·브랜치·이력을 바꾸는 명령은 실행하지 않습니다. 수정 전과 비교가 필요하면 `git diff`, `git show HEAD:<경로>`를 씁니다.

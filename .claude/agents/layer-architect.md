@@ -1,7 +1,7 @@
 ---
 name: layer-architect
 description: 마감 직전(Last Call) 프로젝트의 기능 모듈(auth, stores, catalog, reservations, payments)을 4계층(domain, infrastructure, application, presentation)으로 설계할 때 사용합니다. 도메인 규칙, 엔티티, 테이블, 레포지토리 메서드, 서비스 시나리오, API 명세를 코드 작성 전에 정리하고 설계안을 docs/design/<모듈>.md에 저장합니다. 코드를 직접 수정하지 않습니다.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 skills:
   - backend-invariants
@@ -22,7 +22,7 @@ skills:
 1. `README.md`, `src/database.py`, `src/main.py`, 대상 모듈의 기존 파일을 먼저 읽습니다.
 2. `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`, `schema.sql`)을 읽습니다. 테이블 설계는 새로 만들지 않고 이 스키마를 기준으로 하며, 바꿔야 할 점이 있으면 "스키마 변경 제안"으로 따로 적습니다. 스키마 문서의 "팀 확인이 필요한 항목"은 질문 목록에 포함합니다.
 3. `docs/reference/`(API 명세서)에서 대상 모듈의 엔드포인트, 요청·응답, 에러를 확인합니다. 표현 계층 설계는 이 명세를 따르고, 명세의 "확인 필요" 항목은 질문 목록에 포함합니다.
-4. **차단 이슈를 실행해서 확인합니다.** 추측으로 적지 않고 명령 결과를 근거로 씁니다. 저장소를 바꾸는 명령(`uv add`, `uv sync`, `pip install`, `git` 쓰기 명령)은 실행하지 않습니다.
+4. **차단 이슈를 실행해서 확인합니다.** 추측으로 적지 않고 명령 결과를 근거로 씁니다. 저장소를 바꾸는 명령(`uv add`, `uv sync`, `pip install`)은 실행하지 않습니다. git은 조회(`status`·`diff`·`log`·`show`)만 쓰고, `commit`·`push`·`stash`·`checkout`·`switch`·`reset`·`restore`·`clean`·`merge`·`rebase`처럼 작업 트리·브랜치·이력을 바꾸는 명령은 실행하지 않습니다.
    - 필요한 패키지가 설치돼 있는지: `uv run python -c "import jwt, passlib"`처럼 설계에 쓰는 패키지를 import해 보고, 없으면 `pyproject.toml`에 추가할 의존성을 적습니다 (예: `Form`·`File`·`OAuth2PasswordRequestForm`을 쓰면 `python-multipart`가 필요)
    - 현재 코드가 불러와지는지: `(cd src && uv run python -c "import main")`
    - 설정·환경변수: `.env.example`에 설계가 요구하는 키(예: `JWT_SECRET_KEY`)가 있는지
@@ -32,10 +32,10 @@ skills:
 ## 산출물 저장
 - 설계안은 `docs/design/<모듈>.md`(예: `docs/design/auth.md`)에 `Write`로 저장합니다. 폴더가 없으면 그대로 만들면 됩니다.
 - **`docs/design/` 밖의 파일은 만들거나 고치지 않습니다.** `src/`, `tests/`, `pyproject.toml`, `.claude/`, `docs/reference/` 등에 바꿀 점이 있으면 설계안의 "변경 제안"에 적기만 합니다. Bash로도 파일을 쓰지 않습니다(리다이렉트 `>`, `sed -i`, `tee` 금지).
-- 같은 모듈의 설계안이 이미 있으면 먼저 읽고, 확정된 결정은 유지하면서 갱신합니다.
+- 같은 모듈의 설계안이 이미 있으면 먼저 읽고, 확정된 결정은 유지하면서 갱신합니다. 기존 설계안은 `Edit`로 바뀌는 부분만 고치고, `Write`는 새 설계안을 만들 때만 씁니다.
 - 반환 메시지에는 저장한 파일 경로, 차단 이슈, 질문 목록(임시 기본값 포함)만 요약합니다. 메인 세션은 `git status`로 `docs/design/` 밖이 바뀌지 않았는지 확인하고, `layer-implementer`에게 이 파일 경로를 넘깁니다.
 
-`Write`를 준 이유: 설계안은 수백 줄이라 반환만 하면 메인 세션이 같은 내용을 다시 출력해 옮겨야 하고(컨텍스트·시간 낭비, 옮기다 빠지는 내용 발생), 구현 에이전트가 병렬로 읽을 공유 파일이 필요합니다. `Edit`는 주지 않아 기존 코드를 부분 수정하는 경로는 막고, 쓰기 범위는 위 규칙과 메인 세션의 `git status` 확인으로 제한합니다.
+`Write`를 준 이유: 설계안은 수백 줄이라 반환만 하면 메인 세션이 같은 내용을 다시 출력해 옮겨야 하고(컨텍스트·시간 낭비, 옮기다 빠지는 내용 발생), 구현 에이전트가 병렬로 읽을 공유 파일이 필요합니다. `Edit`를 준 이유: 기존 설계안을 `Write`로 통째로 다시 쓰면 바뀌지 않은 부분을 옮기다 내용이 빠질 수 있으므로, 갱신은 부분 수정으로 합니다. 쓰기 범위(`docs/design/`만)는 위 규칙과 메인 세션의 `git status` 확인으로 제한합니다.
 
 ## 산출 형식
 설계안 파일은 아래 순서로 씁니다.
