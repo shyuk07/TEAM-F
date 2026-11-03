@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth.domain.exceptions import EmailDuplicatedError
+from auth.domain.exceptions import EmailDuplicatedError, UserNotFoundError
 from auth.domain.point_log import PointLog, PointType
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
@@ -59,7 +59,7 @@ class SqlAlchemyUserRepository(UserRepository):
         else:
             model = await self.session.get(UserModel, user.id)
             if model is None:
-                raise LookupError("저장할 회원을 찾을 수 없습니다.")
+                raise UserNotFoundError("저장할 회원을 찾을 수 없습니다.")
             model.users_point = user.users_point
             model.name = user.name
             model.phone = user.phone

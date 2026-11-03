@@ -26,3 +26,21 @@ class EmailDuplicatedError(Exception):
 
     def __init__(self, message: str | None = None):
         super().__init__(message or self.default_message)
+
+
+class UserNotFoundError(LookupError):
+    """회원 없음 (HTTP 404 NOT_FOUND로 변환)."""
+
+    default_message = "회원을 찾을 수 없습니다."
+
+    def __init__(self, message: str | None = None):
+        super().__init__(message or self.default_message)
+
+
+class RoleForbiddenError(PermissionError):
+    """역할 권한 없음 (HTTP 403 FORBIDDEN으로 변환)."""
+
+    default_message = "접근 권한이 없습니다."
+
+    def __init__(self, message: str | None = None):
+        super().__init__(message or self.default_message)

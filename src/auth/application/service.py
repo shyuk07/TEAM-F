@@ -9,6 +9,7 @@ from auth.domain.exceptions import (
     EmailDuplicatedError,
     InvalidCredentialsError,
     TokenRevokedError,
+    UserNotFoundError,
 )
 from auth.domain.point_log import PointLog, PointType
 from auth.domain.repository.point_log_repository import PointLogRepository
@@ -17,7 +18,9 @@ from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.domain.user import Role, User
+
 MAX_PAGE_SIZE = 100
+
 
 @dataclass(frozen=True)
 class AuthenticatedPrincipal:
@@ -103,7 +106,7 @@ class AuthApplicationService:
     async def get_user(self, user_id: uuid.UUID) -> User:
         user = await self.users.find_by_id(user_id)
         if user is None:
-            raise LookupError("회원을 찾을 수 없습니다.")
+            raise UserNotFoundError()
         return user
 
     async def list_point_logs(
@@ -124,7 +127,7 @@ class AuthApplicationService:
     async def _locked_user(self, user_id: uuid.UUID) -> User:
         user = await self.users.find_by_id(user_id, for_update=True)
         if user is None:
-            raise LookupError("회원을 찾을 수 없습니다.")
+            raise UserNotFoundError()
         return user
 
     async def _finish(self, commit: bool) -> None:
