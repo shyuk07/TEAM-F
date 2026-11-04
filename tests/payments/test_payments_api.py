@@ -38,9 +38,14 @@ def service():
         refunds=FakeRefundRepository(),
         gateway=FakeGateway(),
     )
+    # 다른 모듈이 container에서 연결한 의존성은 건드리지 않고, 결제 서비스만 덮어썼다가 되돌린다.
+    previous = app.dependency_overrides.get(get_payment_service)
     app.dependency_overrides[get_payment_service] = lambda: service
     yield service
-    app.dependency_overrides.clear()
+    if previous is None:
+        app.dependency_overrides.pop(get_payment_service, None)
+    else:
+        app.dependency_overrides[get_payment_service] = previous
 
 
 @pytest.fixture
