@@ -6,7 +6,7 @@
 검사 대상:
   - 기능 모듈: src/ 바로 아래에서 계층 폴더(domain 등)가 하나라도 있는 폴더
   - 공용 패키지: src/common/ (4계층 폴더를 요구하지 않음)
-  - src 루트 파일: main.py(조립 지점)를 뺀 나머지 (database.py, error_handlers.py 등)
+  - src 루트 파일: main.py·container.py(조립 지점)를 뺀 나머지 (database.py, error_handlers.py 등)
   - templates, static, last_call은 검사하지 않음
 
 위반(종료 코드에 반영):
@@ -32,13 +32,13 @@ from pathlib import Path
 LAYERS = ("domain", "infrastructure", "application", "presentation")
 NON_MODULE_DIRS = {"templates", "static", "last_call", "__pycache__"}
 COMMON_DIR = "common"
-ROOT_EXEMPT_FILES = {"main.py"}  # 모든 모듈을 조립하는 곳이라 import 제한을 두지 않는다
+ROOT_EXEMPT_FILES = {"main.py", "container.py"}  # 모든 모듈을 조립하는 곳이라 import 제한을 두지 않는다
 
 # 계층별로 참조하면 안 되는 다른 계층
 FORBIDDEN_LAYERS = {
     "domain": {"infrastructure", "application", "presentation"},
     "infrastructure": {"application", "presentation"},
-    "application": {"presentation"},
+    "application": {"infrastructure", "presentation"},  # R2: 구현체는 container.py가 주입한다
     "presentation": {"infrastructure"},
     # 공용 코드는 기능 모듈의 domain(예외 클래스 등)만 참조할 수 있다
     COMMON_DIR: {"infrastructure", "application", "presentation"},
@@ -241,7 +241,7 @@ class Checker:
             extra.append(f"{COMMON_DIR}/")
         roots = [p.name for p in sorted(self.src.glob("*.py")) if p.name not in ROOT_EXEMPT_FILES]
         if roots:
-            extra.append("루트 파일 " + ", ".join(roots) + " (main.py는 import 제한 제외)")
+            extra.append("루트 파일 " + ", ".join(roots) + " (main.py·container.py는 import 제한 제외)")
         if extra:
             print(f"공용 검사: {'; '.join(extra)}")
         print(f"검사한 파일: {self.checked}개")

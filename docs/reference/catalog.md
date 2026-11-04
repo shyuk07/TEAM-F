@@ -393,7 +393,7 @@
 **쿼리 매개변수**
 | 이름 | 타입 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- | --- |
-| `status` | string | X | `ON_SALE` | `SCHEDULED` / `ON_SALE` / `SOLD_OUT` / `CLOSED` |
+| `status` | string (반복 가능) | X | `SCHEDULED`, `ON_SALE`, `SOLD_OUT` | `SCHEDULED` / `ON_SALE` / `SOLD_OUT` / `CLOSED`. 여러 번 주면 OR로 조회 (`?status=ON_SALE&status=SCHEDULED`). 생략하면 진행 중인 할인 전체(마감 전·중단 안 됨), `CLOSED`는 명시해야 조회 |
 | `page` | int | X | 1 | 페이지 |
 | `size` | int | X | 20 | 페이지 크기 |
 
@@ -413,7 +413,7 @@
 ---
 
 ## 10. 할인 상세
-| Method | URI (제안) | 권한 | 성공 |
+| Method | URI | 권한 | 성공 |
 | --- | --- | --- | --- |
 | GET | `/v1/offers/{offer_id}` | 공개 | 200 OK |
 
@@ -428,21 +428,39 @@
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `offer` | [Offer](#offer-할인) | 할인 정보 |
-| `description` | string | 상품 설명 |
+| `description` | string \| null | 상품 설명. 상품 설명이 비어 있으면 null |
 | `product_image` | string[] | 상품 이미지 |
 | `pickup_address` | string | 픽업 주소 |
-| `latitude` | float | 상점 위도 |
-| `longitude` | float | 상점 경도 |
-| `notice` | string | 안내 문구 |
-| `cancel_policy.cancellable_until` | datetime | 취소 가능 시각 |
-| `cancel_policy.description` | string | 취소 정책 설명 |
+| `latitude` | float \| null | 상점 위도. 상점이 좌표 없이 개설되면 null |
+| `longitude` | float \| null | 상점 경도. 상점이 좌표 없이 개설되면 null |
+| `notice` | string | 안내 문구(고정 문구) |
+| `cancel_policy.cancellable_until` | datetime | 취소 가능 시각. `pickup_start` − 1시간 |
+| `cancel_policy.description` | string | 취소 정책 설명(고정 문구) |
+
+인증 없이 누구나 조회합니다. 판매 중단·마감·품절된 할인, 비활성 상품의 할인, 폐점 상점의 할인도 조회되며 상태는 `offer.status`·`offer.is_active`로 구분합니다. 환불 위약금 규칙은 `cancellable_until`과 같은 기준을 따릅니다.
+
+**응답 예시**
+```json
+{
+  "offer": { "...": "Offer 17개 필드" },
+  "description": "오늘 구운 식빵 5종 모둠",
+  "product_image": ["https://example.com/bread.jpg"],
+  "pickup_address": "서울시 마포구 월드컵북로 1",
+  "latitude": 37.5563,
+  "longitude": 126.9236,
+  "notice": "마감 시간이 가까운 상품으로 수량이 한정되어 있습니다. 픽업 시간 안에 매장을 방문해 예약 확인 코드를 보여주세요. 픽업 시간이 지나면 수령할 수 없습니다.",
+  "cancel_policy": {
+    "cancellable_until": "2026-11-04T17:00:00+09:00",
+    "description": "픽업 시작 1시간 전까지 취소할 수 있습니다. 이후에는 취소가 제한되거나 위약금이 부과될 수 있습니다."
+  }
+}
+```
 
 **에러**
 | HTTP | 메시지 |
 | --- | --- |
+| 400 | 잘못된 UUID 형식(`VALIDATION_ERROR`) |
 | 404 | 할인 판매를 찾을 수 없습니다. |
-
-> **확인 필요:** `notice`, `cancel_policy`를 저장할 컬럼이 없습니다. 고정 문구인지, 규칙으로 계산하는지(예: `cancellable_until = pickup_start − 1시간`) 정해야 합니다. 환불 위약금 규칙과 같은 기준을 써야 합니다.
 
 ---
 
@@ -462,38 +480,46 @@
 | --- | --- | --- |
 | `offer_id` | UUID | 할인 ID |
 
-**요청 본문:** 모든 필드가 선택입니다.
+**요청 본문:** 모든 필드가 선택이며 `null`은 허용하지 않습니다. 보낸 필드만 바뀝니다.
 | 필드 | 타입 | 조건 |
 | --- | --- | --- |
 | `sale_price` | int | `0 < x < original_price` |
-| `initial_stock` | int | 1~9999 |
-| `sales_start` | datetime | |
-| `sales_end` | datetime | |
+| `initial_stock` | int | 1~9999. 늘리거나 줄인 만큼 `remaining_stock`도 같이 바뀌며, 이미 줄어든 수량보다 작게 줄일 수 없음. 바뀌면 재고 이력(`stock_log`, 사유 "할인 수정")에 증감량이 기록됨 |
+| `sales_start` | datetime | timezone 필수 |
+| `sales_end` | datetime | 판매 시작 이후, 현재 시각 이후 |
 | `pickup_start` | datetime | |
-| `pickup_end` | datetime | |
+| `pickup_end` | datetime | 판매 마감 이후, 픽업 시작 이후 |
+| `is_active` | bool | `false`=판매 중단, `true`=재개. **다른 필드와 함께 보낼 수 없음** |
+
+시간·가격 규칙은 보내지 않은 필드의 기존 값과 합친 결과로 [할인 등록](#7-할인-등록)과 같게 검증합니다. 수정 후 `status`는 시각·재고로 다시 계산됩니다. 예약 여부는 예약 기능이 생기기 전까지 항상 "예약 없음"으로 처리됩니다.
+
+> **재개 조건:** 마감 전, 상품이 활성이고 상점이 폐점이 아니며, 같은 상품에 다른 진행 중 할인이 없어야 합니다. 할인 중단은 이 API의 `is_active=false` 또는 [할인 판매 중단](#12-할인-판매-중단)으로 합니다. 중단된 할인은 [재등록](#13-할인-재등록)할 수 없습니다.
 
 **응답:** [Offer](#offer-할인)
 
 **에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 400 | 예약이 있는 할인은 수정할 수 없습니다. 재등록을 이용하세요. |
-| 400 | 종료된 할인은 수정할 수 없습니다. |
-| 400 | 할인 가격은 정상 가격보다 낮아야 합니다. |
-| 401 | 인증이 필요합니다. |
-| 403 | 본인 상점의 할인만 수정할 수 있습니다. |
-| 404 | 할인 판매를 찾을 수 없습니다. |
-
-> **확인 필요:** 시간 필드를 일부만 바꿀 때도 할인 등록과 같은 시간 순서 검증을 하는지, `initial_stock`을 바꾸면 `remaining_stock`도 같은 값으로 바꾸는지
+| HTTP | `error_code` | 메시지 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | 수정할 항목이 없습니다. / 항목은(는) null일 수 없습니다. / 할인 가격은 정상 가격보다 낮아야 합니다. / 판매 마감 시간은 판매 시작 시간 이후여야 합니다. / 판매 마감 시간은 현재 시각 이후여야 합니다. / 픽업 마감 시간은 판매 마감 시간 이후여야 합니다. / 픽업 마감 시간은 픽업 시작 시간 이후여야 합니다. / 최초 수량은 현재까지 줄어든 수량(n개)보다 작을 수 없습니다. / `is_active`와 다른 필드 동시 전송 |
+| 400 | `OFFER_HAS_RESERVATIONS` | 예약이 있는 할인은 수정할 수 없습니다. 재등록을 이용하세요. |
+| 400 | `OFFER_CLOSED` | 종료된 할인은 수정할 수 없습니다. / 이미 중단된 할인입니다. |
+| 400 | `OFFER_ENDED` | 판매가 끝난 할인은 중단할 수 없습니다. / 판매가 끝난 할인은 재개할 수 없습니다. |
+| 400 | `OFFER_ALREADY_ACTIVE` | 이미 활성화된 할인입니다. |
+| 400 | `PRODUCT_INACTIVE` | 비활성화된 상품의 할인은 재개할 수 없습니다. |
+| 400 | `OFFER_ALREADY_OPEN` | 이미 진행 중인 할인 판매가 있습니다. |
+| 400 | `STORE_CLOSED` | 폐점된 상점에서는 할인을 재개할 수 없습니다. |
+| 401 | `UNAUTHORIZED` | 인증이 필요합니다. |
+| 403 | `FORBIDDEN` | 본인 상점의 할인만 수정할 수 있습니다. |
+| 404 | `NOT_FOUND` | 할인 판매를 찾을 수 없습니다. |
 
 ---
 
 ## 12. 할인 판매 중단
 | Method | URI (제안) | 권한 | 성공 |
 | --- | --- | --- | --- |
-| POST | `/v1/offers/{offer_id}/close` | 상점주 (본인 상점) | 200 OK |
+| POST | `/v1/offers/{offer_id}/deactivate` | 상점주 (본인 상점) | 200 OK |
 
-할인을 즉시 중단(`is_active = false`, `status = CLOSED`)합니다. `cancel_reservations = true`이면 기존 예약을 상점주 사유로 취소·전액 환불 요청합니다(예약/결제 모듈 연계).
+할인을 즉시 중단합니다(`is_active = false`, `status = CLOSED`). 상품은 바꾸지 않습니다. `cancel_reservations`가 `true`이면 기존 예약을 상점주 사유로 취소하고 전액 환불을 요청합니다(예약·결제 모듈 연계). 물리 삭제는 하지 않습니다.
 
 **헤더**
 - `Content-Type: application/json`
@@ -505,36 +531,29 @@
 | `offer_id` | UUID | 할인 ID |
 
 **요청 본문**
-| 필드 | 타입 | 필수 | 조건 |
+| 필드 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `reason` | string | O | 최대 200자 |
-| `cancel_reservations` | bool | X | 기본값 `false` |
+| `reason` | string | O | 중단 사유 (1~200자, 공백만 불가). 현재 저장하지 않습니다 |
+| `cancel_reservations` | boolean | | 기본 `false`. `true`이면 기존 예약을 상점주 사유로 취소하고 전액 환불 요청 |
 
-```json
-{
-  "reason": "재료 소진",
-  "cancel_reservations": true
-}
-```
-
-**응답**
-| 필드 | 타입 | 설명 |
-| --- | --- | --- |
-| `offer` | [Offer](#offer-할인) | 중단된 할인 |
-| `cancelled_reservation_count` | int | 취소된 예약 수 |
+**응답:** `{"offer": Offer, "cancelled_reservation_count": int}`. `offer`는 [Offer](#offer-할인)와 같은 필드이며 `status`는 `CLOSED`, `is_active`는 `false`입니다.
 
 **에러**
 | HTTP | 메시지 |
 | --- | --- |
-| 400 | 이미 중단된 할인입니다. |
-| 400 | 픽업 완료된 예약이 있어 일괄 취소할 수 없습니다. |
+| 400 | 이미 중단된 할인입니다. (`OFFER_CLOSED`) |
+| 400 | 픽업 완료된 예약이 있어 일괄 취소할 수 없습니다. (`cancel_reservations=true`일 때만) |
+| 400 | 검증 오류 (`reason` 누락·빈 값·공백만·201자 이상, 본문 없음, 잘못된 UUID) |
 | 401 | 인증이 필요합니다. |
 | 403 | 본인 상점의 할인만 중단할 수 있습니다. |
 | 404 | 할인 판매를 찾을 수 없습니다. |
 
-> **확인 필요**
-> - `reason`을 저장할 컬럼이 없습니다.
-> - `cancel_reservations = false`일 때 기존 예약은 그대로 픽업할 수 있는지
+> **확인 필요:**
+> - `reason`은 현재 저장하지 않습니다(후속에 컬럼 추가).
+> - `cancel_reservations=false`이면 예약은 유지됩니다.
+> - 예약 모듈 구현 전까지는 `cancel_reservations=true`여도 실제 취소·환불 없이 `cancelled_reservation_count`는 항상 0입니다.
+> - 판매 마감이 지난 활성 할인도 중단할 수 있습니다.
+> - 중단한 할인은 마감 전이고 다른 진행 중 할인이 없고 상품이 활성이면 [할인 수정](#11-할인-수정)의 `is_active=true`로 재개할 수 있으나 취소된 예약은 복구되지 않습니다.
 
 ---
 

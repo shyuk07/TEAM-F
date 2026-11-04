@@ -111,6 +111,11 @@ http://127.0.0.1:8001/health/db
 
 `docs/reference/`에 모듈별 API 명세가 있습니다. 전체 목록과 공통 규칙은 [docs/reference/README.md](docs/reference/README.md)를 봅니다.
 
+
+## Postman으로 테스트
+
+`docs/postman/last-call-auth.postman_collection.json`을 Postman에서 **Import**합니다. 서버를 8001 포트로 띄운 뒤 위에서부터 순서대로 실행하거나 **Run collection**으로 한 번에 실행합니다. 회원가입이 매번 새 이메일을 만들고, 로그인이 토큰을 `accessToken` 변수에 저장해 이후 요청에 자동으로 붙입니다. 주소가 다르면 컬렉션 변수 `baseUrl`을 바꿉니다.
+
 ## Claude Code 개발 도구
 
 `.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델로 동작합니다.

@@ -100,6 +100,7 @@ erDiagram
         uuid offer_id FK
         uuid user_id FK
         int amount
+        varchar reason
         timestamptz created_at
     }
     pickup_reservations {
@@ -151,7 +152,7 @@ erDiagram
 | 자식 테이블.컬럼 | 부모 테이블 | 관계 | NULL | 비고 |
 | --- | --- | --- | --- | --- |
 | `point_log.user_id` | `users` | 1 : N | 불가 | 포인트 적립·사용 내역 |
-| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE` |
+| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별) |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |
@@ -193,7 +194,7 @@ erDiagram
 1. **중복 가격 컬럼:** `discount_offers.price`와 `sale_price`, `pickup_reservations.price`와 `unit_price`/`total_price`의 차이. 같은 의미라면 `price`를 빼는 것을 권장합니다.
 2. **`refunds.reason`과 `refund_reason`(JSONB)의 구분.**
 3. **남은 상태 값:** API 명세(`docs/reference/README.md`의 상태 값 표)로 `discount_offers.status`와 `point_log.point_type`은 확정됐습니다. `users.role`의 상점주 값, `pickup_reservations.status`(`RESERVED`의 의미), `payments.status`의 실패 값, `refunds.status`의 나머지 값이 남았습니다. 정해지면 도메인 클래스에 상수와 전이 규칙을 두고, DB에 `CHECK (status IN (...))`를 더합니다.
-4. **`products.name`이 NULL 허용:** 상품명은 필수일 가능성이 높습니다.
+4. **(해결됨)** `products.name`·`original_price`, `discount_offers.sales_start`는 NOT NULL로 확정했고 `stock_log.reason`을 추가했습니다(`docs/design/catalog.md` S1·S2·S4).
 5. **`pickup_code` 고유 범위:** 전체에서 고유인지, 매장·날짜 안에서만 고유인지.
 6. **매장 재개점:** API 명세상 폐점은 `closed_at` 기록(소프트 삭제)이고 재개점이 가능하지만, 재개점 API와 이력 보관 방식이 정해지지 않았습니다. FK는 기본값(참조 중이면 삭제 불가)입니다.
 7. **상점주 승인 상태:** API 명세에 "승인 대기 중인 상점주 계정(403)"이 있지만 `users`에 저장할 컬럼이 없습니다.
@@ -224,7 +225,7 @@ class DiscountOfferModel(Base):
     sale_price: Mapped[int]
     initial_stock: Mapped[int]
     remaining_stock: Mapped[int]
-    sales_start: Mapped[datetime | None] = mapped_column(TZ)
+    sales_start: Mapped[datetime] = mapped_column(TZ)
     sales_end: Mapped[datetime] = mapped_column(TZ)
     pickup_start: Mapped[datetime] = mapped_column(TZ)
     pickup_end: Mapped[datetime] = mapped_column(TZ)

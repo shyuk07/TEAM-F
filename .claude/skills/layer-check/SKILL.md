@@ -21,7 +21,7 @@ python3 .claude/skills/layer-check/check_layers.py 다른/src    # 복사한 트
 | 기능 모듈 | `src/` 바로 아래에서 계층 폴더가 하나라도 있는 폴더 (auth, stores, catalog, reservations, payments) | 4개 계층 폴더와 `__init__.py`, import 방향, 금지 패키지 |
 | 공용 패키지 | `src/common/` | `__init__.py`, import 방향 (4계층 폴더는 요구하지 않음) |
 | src 루트 파일 | `database.py`, `error_handlers.py` 등 | common과 같은 import 규칙 |
-| 조립 지점 | `src/main.py` | import 제한 없음 (모든 모듈의 라우터·모델을 모으는 곳) |
+| 조립 지점 | `src/main.py`, `src/container.py` | import 제한 없음 (모든 모듈의 라우터·모델·구현체를 모으는 곳) |
 | 제외 | `templates`, `static`, `last_call` | 검사하지 않음 |
 
 전역 예외 핸들러 경고는 위치와 상관없이 `src/` 아래 모든 `.py`에서 찾습니다.
@@ -31,7 +31,7 @@ python3 .claude/skills/layer-check/check_layers.py 다른/src    # 복사한 트
 | --- | --- | --- |
 | domain | infrastructure, application, presentation | fastapi, starlette, sqlalchemy, pydantic, database, jinja2, jwt, passlib |
 | infrastructure | application, presentation | fastapi, starlette |
-| application | presentation | fastapi, starlette |
+| application | infrastructure, presentation | fastapi, starlette |
 | presentation | infrastructure | – |
 | common, src 루트 파일 | 기능 모듈의 infrastructure, application, presentation | – |
 
