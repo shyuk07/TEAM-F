@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
 
+from auth.domain.exceptions import RoleForbiddenError
+
 
 class Role(StrEnum):
     CUSTOMER = "CUSTOMER"
@@ -108,7 +110,7 @@ class User:
 
     def require_role(self, *roles: Role) -> None:
         if not self.has_role(*roles):
-            raise PermissionError("접근 권한이 없습니다.")
+            raise RoleForbiddenError()
 
     @staticmethod
     def _require_positive(amount: int) -> None:

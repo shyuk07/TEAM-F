@@ -145,3 +145,20 @@ def test_claims_to_blacklist_entry():
     exp = datetime.now(timezone.utc)
     entry = TokenClaims(uuid.uuid4(), "CUSTOMER", "jti1", exp).to_blacklist_entry()
     assert entry.jti == "jti1" and entry.expires_at == exp
+
+
+def test_role_forbidden_error_is_permission_error():
+    from auth.domain.exceptions import RoleForbiddenError
+
+    assert issubclass(RoleForbiddenError, PermissionError)
+    assert str(RoleForbiddenError()) == "접근 권한이 없습니다."
+    with pytest.raises(RoleForbiddenError):
+        make_user().require_role(Role.ADMIN)
+
+
+def test_user_not_found_error_is_lookup_error():
+    from auth.domain.exceptions import UserNotFoundError
+
+    assert issubclass(UserNotFoundError, LookupError)
+    assert str(UserNotFoundError()) == "회원을 찾을 수 없습니다."
+    assert str(UserNotFoundError("x")) == "x"

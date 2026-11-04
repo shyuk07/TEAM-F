@@ -224,3 +224,13 @@ def test_constructor_requires_all_dependencies():
     # R8: 기본 구현체를 만들지 않는다
     with pytest.raises(TypeError):
         AuthApplicationService(FakeSession())
+
+
+async def test_missing_user_raises_user_not_found_error():
+    from auth.domain.exceptions import UserNotFoundError
+
+    svc, _, _ = build()
+    with pytest.raises(UserNotFoundError, match="회원을 찾을 수 없습니다."):
+        await svc.earn_points(uuid.uuid4(), 100)
+    with pytest.raises(UserNotFoundError, match="회원을 찾을 수 없습니다."):
+        await svc.get_user(uuid.uuid4())
