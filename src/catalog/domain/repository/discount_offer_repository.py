@@ -1,5 +1,6 @@
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import datetime
 
 from catalog.domain.discount_offer import DiscountOffer, OfferStatus
@@ -9,6 +10,9 @@ from catalog.domain.product import Product
 class DiscountOfferRepository(ABC):
     @abstractmethod
     async def find_by_id(self, offer_id: uuid.UUID, for_update: bool = False) -> DiscountOffer | None: ...
+
+    @abstractmethod
+    async def find_with_product(self, offer_id: uuid.UUID) -> tuple[DiscountOffer, Product] | None: ...
 
     @abstractmethod
     async def find_open_by_product(
@@ -23,7 +27,7 @@ class DiscountOfferRepository(ABC):
         self,
         store_id: uuid.UUID,
         *,
-        status: OfferStatus,
+        statuses: Sequence[OfferStatus],
         now: datetime,
         page: int,
         size: int,

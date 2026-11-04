@@ -40,7 +40,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 16 | catalog | [상점 할인 목록](catalog.md#9-상점-할인-목록) | GET | `/v1/stores/{store_id}/offers` | 공개 | 200 |
 | 17 | catalog | [할인 상세](catalog.md#10-할인-상세) | GET | `/v1/offers/{offer_id}` | 공개 | 200 |
 | 18 | catalog | [할인 수정](catalog.md#11-할인-수정) | PATCH | `/v1/offers/{offer_id}` | 상점주(본인) | 200 |
-| 19 | catalog | [할인 판매 중단](catalog.md#12-할인-판매-중단) | POST | `/v1/offers/{offer_id}/close` | 상점주(본인) | 200 |
+| 19 | catalog | [할인 판매 중단](catalog.md#12-할인-판매-중단) | POST | `/v1/offers/{offer_id}/deactivate` | 상점주(본인) | 200 |
 | 20 | catalog | [할인 재등록](catalog.md#13-할인-재등록) | POST | `/v1/offers/{offer_id}/relist` | 상점주(본인) | 201 |
 | 21 | catalog | [재고 수동 조정](catalog.md#14-재고-수동-조정) | POST | `/v1/offers/{offer_id}/stock-adjustments` | 상점주(본인) | 200 |
 | 22 | reservations | [예약 생성](reservations.md#1-예약-생성) | POST | `/v1/reservations` | 회원 | 201 |
@@ -56,6 +56,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
 - 자원은 복수형 명사(`/stores`, `/products`, `/offers`)로 씁니다.
 - 부모 자원이 꼭 필요한 생성·목록은 하위 경로로 둡니다. (상품 등록 → `/stores/{store_id}/products`, 할인 등록 → `/products/{product_id}/offers`)
+- 할인 수정(`PATCH /v1/offers/{offer_id}`)은 필드 수정과 함께 `is_active`로 판매 중단·재개를 받는 예외입니다.
 - 상태만 바꾸는 동작(폐점, 노출 중단, 판매 중단, 재등록, 취소, 픽업)은 `POST /{id}/동사` 형태로 둡니다. 요청 본문이 있거나 부수 효과(환불, 재고 이력)가 있어서 `PATCH`로 표현하기 어렵기 때문입니다.
 - 로그인한 사용자 기준 조회는 노션의 `/v1/users/me/...` 형태에 맞춥니다.
 - **FastAPI 주의:** `/v1/products/search`는 `/v1/products/{product_id}`보다 **먼저** 등록해야 합니다.
@@ -158,7 +159,7 @@ ISO 8601에 시간대를 붙입니다. 예: `2026-10-29T18:00:00+09:00`
 12. **상품 검색 응답:** 상품 필드 없이 `store_name`, `distance`, `unit`, `has_active_offer`만 있습니다.
 13. **상품 상세 응답:** 단일 상품인데 `items` 배열로 감싸져 있습니다. 이 문서는 단일 객체로 적었습니다.
 14. **할인 상세 `notice`, `cancel_policy`:** 저장할 컬럼이 없습니다. 어떤 규칙으로 계산할지 정해야 합니다.
-15. **사유 저장 위치:** 할인 판매 중단 `reason`, 재고 수동 조정 `reason`을 저장할 컬럼이 없습니다.
+15. **사유 저장 위치:** 재고 수동 조정 `reason`을 저장할 컬럼이 없습니다.
 16. **재고 수동 조정 에러:** 403 메시지가 "이력만 조회할 수 있습니다"로 복사 오류로 보입니다. 남은 재고보다 많이 빼는 경우(400)가 없습니다.
 17. **재고 이력 조회 API:** 403 메시지로 보아 계획이 있었던 것 같지만 페이지가 없습니다.
 

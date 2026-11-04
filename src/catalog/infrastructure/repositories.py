@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import ColumnElement, and_, func, not_, or_, select
@@ -11,7 +12,11 @@ from catalog.domain.repository.discount_offer_repository import DiscountOfferRep
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
 from catalog.domain.stock_log import StockLog
-from catalog.infrastructure.models import DiscountOfferModel, ProductModel, StockLogModel
+from catalog.infrastructure.models import (
+    DiscountOfferModel,
+    ProductModel,
+    StockLogModel,
+)
 
 
 class SqlAlchemyProductRepository(ProductRepository):
@@ -21,7 +26,7 @@ class SqlAlchemyProductRepository(ProductRepository):
     async def find_by_id(self, product_id: uuid.UUID, for_update: bool = False) -> Product | None:
         stmt = select(ProductModel).where(ProductModel.id == product_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -113,9 +118,20 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
     async def find_by_id(self, offer_id: uuid.UUID, for_update: bool = False) -> DiscountOffer | None:
         stmt = select(DiscountOfferModel).where(DiscountOfferModel.id == offer_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
+
+    async def find_with_product(self, offer_id: uuid.UUID) -> tuple[DiscountOffer, Product] | None:
+        stmt = (
+            select(DiscountOfferModel, ProductModel)
+            .join(ProductModel, ProductModel.id == DiscountOfferModel.product_id)
+            .where(DiscountOfferModel.id == offer_id)
+        )
+        row = (await self.session.execute(stmt)).first()
+        if row is None:
+            return None
+        return self._to_domain(row[0]), SqlAlchemyProductRepository._to_domain(row[1])
 
     async def find_open_by_product(
         self, product_id: uuid.UUID, now: datetime
@@ -150,12 +166,15 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
         self,
         store_id: uuid.UUID,
         *,
-        status: OfferStatus,
+        statuses: Sequence[OfferStatus],
         now: datetime,
         page: int,
         size: int,
     ) -> tuple[list[tuple[DiscountOffer, Product]], int]:
-        conditions = [ProductModel.store_id == store_id, _status_clause(status, now)]
+        conditions = [
+            ProductModel.store_id == store_id,
+            or_(*[_status_clause(s, now) for s in statuses]),
+        ]
         base = select(DiscountOfferModel, ProductModel).join(
             ProductModel, ProductModel.id == DiscountOfferModel.product_id
         )
@@ -199,6 +218,11 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
             model = await self.session.get(DiscountOfferModel, offer.id)
             if model is None:
                 raise OfferNotFoundError("저장할 할인 판매를 찾을 수 없습니다.")
+            model.sale_price = offer.sale_price
+            model.sales_start = offer.sales_start
+            model.sales_end = offer.sales_end
+            model.pickup_start = offer.pickup_start
+            model.pickup_end = offer.pickup_end
             model.initial_stock = offer.initial_stock
             model.remaining_stock = offer.remaining_stock
             model.status = str(offer.status)

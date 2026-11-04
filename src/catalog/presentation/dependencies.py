@@ -6,7 +6,11 @@ from fastapi.security import HTTPAuthorizationCredentials
 from auth.application.service import AuthApplicationService
 from auth.domain.user import User
 from auth.presentation.dependencies import bearer_scheme, provide_auth_service
-from catalog.application.ports import StorePort
+from catalog.application.ports import (
+    ReservationCancelPort,
+    ReservationLookupPort,
+    StorePort,
+)
 from catalog.application.service import CatalogApplicationService
 
 
@@ -18,6 +22,16 @@ def provide_catalog_service() -> CatalogApplicationService:
 def provide_store_port() -> StorePort:
     """FastAPI Depends 플레이스홀더 (src/container.py에서 바인딩)"""
     raise NotImplementedError("StorePort 의존성이 주입되지 않았습니다.")
+
+
+def provide_reservation_lookup() -> ReservationLookupPort:
+    """FastAPI Depends 플레이스홀더 (src/container.py에서 바인딩)"""
+    raise NotImplementedError("ReservationLookupPort 의존성이 주입되지 않았습니다.")
+
+
+def provide_reservation_cancel() -> ReservationCancelPort:
+    """FastAPI Depends 플레이스홀더 (src/container.py에서 바인딩)"""
+    raise NotImplementedError("ReservationCancelPort 의존성이 주입되지 않았습니다.")
 
 
 async def get_optional_user(

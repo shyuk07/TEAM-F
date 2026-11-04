@@ -3,6 +3,7 @@ from datetime import datetime
 
 MAX_REASON_LENGTH = 200
 INITIAL_STOCK_REASON = "최초 입고"
+OFFER_EDIT_REASON = "할인 수정"
 
 
 class StockLog:
@@ -39,3 +40,7 @@ class StockLog:
         cls, offer_id: uuid.UUID, user_id: uuid.UUID | None, amount: int, reason: str | None
     ) -> "StockLog":
         return cls(offer_id=offer_id, user_id=user_id, amount=amount, reason=reason)
+
+    @classmethod
+    def offer_edit(cls, offer_id: uuid.UUID, user_id: uuid.UUID | None, amount: int) -> "StockLog":
+        return cls(offer_id=offer_id, user_id=user_id, amount=amount, reason=OFFER_EDIT_REASON)

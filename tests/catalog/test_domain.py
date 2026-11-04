@@ -3,11 +3,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from catalog.domain.discount_offer import DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
 from catalog.domain.exceptions import (
     InsufficientStockError,
     NotStoreOwnerError,
+    OfferAlreadyActiveError,
     OfferClosedError,
+    OfferEndedError,
+    OfferHasReservationsError,
+    OpenOfferExistsError,
+    PickedUpReservationExistsError,
     ProductAlreadyInactiveError,
     ProductHasOpenOfferError,
     ProductInactiveError,
@@ -45,6 +50,8 @@ def info(**kw):
         owner_id = uuid.uuid4()
         name = "상점"
         pickup_address = "주소"
+        latitude = None
+        longitude = None
         approval_at = NOW
         closed_at = None
 
@@ -164,6 +171,14 @@ def test_deactivate():
         p.ensure_active_for_offer()
 
 
+def test_picked_up_reservation_exists_error():
+    assert issubclass(PickedUpReservationExistsError, ValueError)
+    e = PickedUpReservationExistsError()
+    assert e.error_code == "PICKED_UP_RESERVATION_EXISTS"
+    assert str(e) == "픽업 완료된 예약이 있어 일괄 취소할 수 없습니다."
+    assert issubclass(OfferClosedError, ValueError) and OfferClosedError.error_code == "OFFER_CLOSED"
+
+
 # ── DiscountOffer.register ──
 def test_register_on_sale_and_scheduled():
     o = offer()
@@ -238,8 +253,14 @@ def test_close_and_relistable():
     assert o.status == OfferStatus.CLOSED and not o.is_active
     with pytest.raises(OfferClosedError, match="이미 중단된 할인은 재등록할 수 없습니다."):
         o.ensure_relistable()
-    with pytest.raises(OfferClosedError):
+    with pytest.raises(OfferClosedError, match="이미 중단된 할인입니다."):
         o.close(NOW)
+
+
+def test_close_allowed_after_sales_end():
+    o = offer()
+    o.close(NOW + 3 * H)  # 마감 지난 활성 할인도 중단 가능 (Q24 A)
+    assert o.status == OfferStatus.CLOSED and not o.is_active
 
 
 # ── adjust_stock ──
@@ -311,3 +332,164 @@ def test_stock_log():
         StockLog.manual_adjustment(oid, None, 0, None)
     with pytest.raises(ValueError):
         StockLog.manual_adjustment(oid, None, 1, "a" * 201)
+
+
+# ── 목록 기본 상태 / 할인 수정 ──
+def test_open_statuses_match_is_open():
+    base = offer()
+    cases = [
+        base,
+        offer(sales_start=NOW + H // 2),
+    ]
+    sold = offer()
+    sold.adjust_stock(-10, NOW)
+    closed = offer()
+    closed.close(NOW)
+    cases += [sold, closed]
+    for o in cases + [base]:
+        for now in (NOW, NOW + 5 * H):
+            assert (o.effective_status(now) in OPEN_OFFER_STATUSES) == o.is_open(now)
+
+
+def edit(o, changes, **kw):
+    args = dict(original_price=6000, has_reservations=False, now=NOW)
+    args.update(kw)
+    return o.apply_changes(changes, **args)
+
+
+def test_apply_changes_fields_and_delta():
+    o = offer()
+    assert edit(o, {"sale_price": 2000}) == 0 and o.sale_price == 2000
+    assert edit(o, {"initial_stock": 15}) == 5
+    assert o.initial_stock == 15 and o.remaining_stock == 15
+    o.adjust_stock(-4, NOW)  # remaining 11
+    assert edit(o, {"initial_stock": 8}) == -7 and o.remaining_stock == 4
+    new_end = NOW + 4 * H
+    edit(o, {"sales_end": new_end, "pickup_end": NOW + 5 * H})
+    assert o.sales_end == new_end
+
+
+def test_apply_changes_status_sync():
+    o = offer()
+    edit(o, {"sales_start": NOW + H // 2})
+    assert o.status == OfferStatus.SCHEDULED
+
+
+@pytest.mark.parametrize(
+    "changes,match",
+    [
+        ({}, "수정할 항목이 없습니다."),
+        ({"sale_price": None}, "null"),
+        ({"bogus": 1}, "수정할 수 없는 항목"),
+        ({"sale_price": 0}, "0보다 커야"),
+        ({"sale_price": 6000}, "정상 가격보다 낮아야"),
+        ({"initial_stock": 0}, "1개 이상 9999개 이하"),
+        ({"initial_stock": 10000}, "1개 이상 9999개 이하"),
+        ({"sales_start": datetime(2026, 11, 3, 9, 0)}, "시간대"),
+        ({"sales_start": NOW + 3 * H}, "판매 마감 시간은 판매 시작 시간 이후"),
+        ({"sales_end": NOW + 4 * H}, "픽업 마감 시간은 판매 마감 시간 이후"),
+        ({"pickup_start": NOW + 3 * H}, "픽업 마감 시간은 픽업 시작 시간 이후"),
+        ({"sales_end": NOW}, "판매 마감 시간은"),
+    ],
+)
+def test_apply_changes_validation_keeps_state(changes, match):
+    o = offer()
+    before = (o.sale_price, o.initial_stock, o.remaining_stock, o.sales_start, o.sales_end,
+              o.pickup_start, o.pickup_end, o.status)
+    with pytest.raises(ValueError, match=match):
+        edit(o, changes)
+    after = (o.sale_price, o.initial_stock, o.remaining_stock, o.sales_start, o.sales_end,
+             o.pickup_start, o.pickup_end, o.status)
+    assert before == after
+
+
+def test_apply_changes_stock_below_sold():
+    o = offer()
+    o.adjust_stock(-7, NOW)  # sold 7
+    with pytest.raises(ValueError, match=r"줄어든 수량\(7개\)"):
+        edit(o, {"initial_stock": 5})
+    assert edit(o, {"initial_stock": 7}) == -3 and o.remaining_stock == 0
+
+
+def test_apply_changes_closed_and_reservations_order():
+    o = offer()
+    with pytest.raises(OfferHasReservationsError):
+        edit(o, {"sale_price": 2000}, has_reservations=True)
+    with pytest.raises(OfferClosedError, match="종료된 할인은 수정할 수 없습니다."):
+        edit(o, {"sale_price": 2000}, now=NOW + 2 * H)
+    o.close(NOW)
+    with pytest.raises(OfferClosedError):  # 닫힘이 예약보다 먼저
+        edit(o, {"sale_price": 2000}, has_reservations=True)
+
+
+def test_pause_resume():
+    o = offer()
+    o.pause(NOW)
+    assert not o.is_active and o.status == OfferStatus.CLOSED
+    with pytest.raises(OfferClosedError, match="이미 중단된 할인입니다."):
+        o.pause(NOW)
+    o.resume(NOW, product_active=True, has_other_open_offer=False)
+    assert o.is_active and o.status == OfferStatus.ON_SALE
+    with pytest.raises(OfferAlreadyActiveError):
+        o.resume(NOW, product_active=True, has_other_open_offer=False)
+
+
+def test_pause_resume_guards():
+    o = offer()
+    with pytest.raises(OfferEndedError):
+        o.pause(NOW + 2 * H)
+    o.pause(NOW)
+    with pytest.raises(OfferEndedError):
+        o.resume(NOW + 2 * H, product_active=True, has_other_open_offer=False)
+    with pytest.raises(ProductInactiveError):
+        o.resume(NOW, product_active=False, has_other_open_offer=False)
+    with pytest.raises(OpenOfferExistsError):
+        o.resume(NOW, product_active=True, has_other_open_offer=True)
+
+
+def test_resume_status_after():
+    sold = offer()
+    sold.adjust_stock(-10, NOW)
+    sold.pause(NOW)
+    sold.resume(NOW, product_active=True, has_other_open_offer=False)
+    assert sold.status == OfferStatus.SOLD_OUT
+    sched = offer(sales_start=NOW + H // 2)
+    sched.pause(NOW)
+    sched.resume(NOW, product_active=True, has_other_open_offer=False)
+    assert sched.status == OfferStatus.SCHEDULED
+
+
+def test_store_ref_ensure_not_closed_and_stock_log_offer_edit():
+    s = StoreRef(uuid.uuid4(), uuid.uuid4(), "상점", "주소", approved=False, closed=False)
+    s.ensure_not_closed("할인을 재개")  # 미승인은 검사하지 않음
+    s.closed = True
+    with pytest.raises(StoreClosedError, match="폐점된 상점에서는 할인을 재개할 수 없습니다."):
+        s.ensure_not_closed("할인을 재개")
+    log = StockLog.offer_edit(uuid.uuid4(), uuid.uuid4(), -3)
+    assert log.amount == -3 and log.reason == "할인 수정"
+    with pytest.raises(ValueError):
+        StockLog.offer_edit(uuid.uuid4(), None, 0)
+
+
+def test_cancel_policy_is_one_hour_before_pickup():
+    from catalog.domain.discount_offer import CANCEL_POLICY_DESCRIPTION
+
+    o = offer()
+    cp = o.cancel_policy()
+    assert cp.cancellable_until == o.pickup_start - timedelta(hours=1)
+    assert cp.description == CANCEL_POLICY_DESCRIPTION
+
+
+def test_store_ref_from_info_copies_coordinates():
+    class Info:
+        id = uuid.uuid4()
+        owner_id = uuid.uuid4()
+        name = "상점"
+        pickup_address = "주소"
+        latitude = 37.1
+        longitude = None
+        approval_at = None
+        closed_at = None
+
+    ref = StoreRef.from_info(Info())
+    assert ref.latitude == 37.1 and ref.longitude is None
