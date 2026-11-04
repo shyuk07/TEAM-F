@@ -87,6 +87,16 @@ def create_auth_service(
     )
 
 
+def build_auth_service(session: AsyncSession) -> AuthApplicationService:
+    """Depends 없이 서비스를 만든다(lifespan 등 요청 밖). create_auth_service와 같은 구현체를 쓴다."""
+    return create_auth_service(
+        session,
+        SqlAlchemyUserRepository(session),
+        SqlAlchemyPointLogRepository(session),
+        SqlAlchemyTokenBlacklistRepository(session),
+    )
+
+
 # ── stores ───────────────────────────
 def create_store_repository(session: AsyncSession = Depends(get_db)) -> StoreRepository:
     return SqlAlchemyStoreRepository(session)

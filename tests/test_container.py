@@ -7,7 +7,7 @@ from auth.application.service import AuthApplicationService
 from auth.domain.service import PasswordHasher, TokenProvider
 from auth.presentation import dependencies as auth_dependencies
 from auth.presentation.dependencies import provide_auth_service
-from container import create_auth_service, wire_dependencies
+from container import build_auth_service, create_auth_service, wire_dependencies
 from stores.presentation import dependencies as stores_dependencies
 
 # 새 모듈이 생기면 그 모듈의 dependencies를 추가한다.
@@ -40,6 +40,15 @@ def test_placeholder_raises_when_not_wired():
 def test_create_auth_service_builds_with_abstractions():
     marker = object()
     service = create_auth_service(marker, marker, marker, marker)
+    assert isinstance(service, AuthApplicationService)
+    assert service.session is marker
+    assert isinstance(service.hasher, PasswordHasher)
+    assert isinstance(service.tokens, TokenProvider)
+
+
+def test_build_auth_service_builds_with_abstractions():
+    marker = object()
+    service = build_auth_service(marker)
     assert isinstance(service, AuthApplicationService)
     assert service.session is marker
     assert isinstance(service.hasher, PasswordHasher)

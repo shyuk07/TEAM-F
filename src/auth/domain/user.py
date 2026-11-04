@@ -105,6 +105,20 @@ class User:
             business_number=business_number,
         )
 
+    @classmethod
+    def register_admin(
+        cls, email: str, password_hash: str, name: str | None = None
+    ) -> "User":
+        """관리자 계정 생성. 회원가입 경로(Role.for_signup)는 ADMIN을 계속 거부한다."""
+        return cls(
+            email=email,
+            password_hash=password_hash,
+            role=Role.ADMIN,
+            name=name,
+            users_point=0,
+            created_at=datetime.now(timezone.utc),
+        )
+
     def has_role(self, *roles: Role) -> bool:
         return self.role in roles
 

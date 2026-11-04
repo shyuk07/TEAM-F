@@ -6,6 +6,7 @@
 - **외부 동작 불변.** 엔드포인트, 요청·응답 형식, 에러 코드는 바뀌지 않았다. `schemas.py`·`router.py`를 `docs/reference/auth.md`와 대조해 일치함을 확인했다(§7, §14).
 - 제외: 다른 모듈 설계, `src/error_handlers.py`의 넓은 예외 핸들러 정리, R6 잔존분 정리(후속 작업으로 확정).
 - 읽은 정본: `AGENTS.md`, `docs/operations/orchestration.md`, `backend-invariants`, `layer-architecture`, `layer-implementation`, `db-schema`(`SKILL.md`, `schema.sql`), `docs/reference/auth.md`, `docs/reference/README.md`, `src/auth/**`, `src/container.py`, `src/main.py`, `src/error_handlers.py`, `src/database.py`, `tests/**`, `docs/design/stores.md`(읽기만, 정합 확인용).
+- **2026-11-04 추가 범위(관리자 기능, worktree `claude/auth-admin`, `origin/main` `fbe5ecc`):** (1) ADMIN 계정 생성 방법 (2) 관리자 회원 조회 EP (3) 블랙리스트 만료 토큰 정리 (4) 포인트 연동 가이드(EP 없음). 설계는 §0.2, §1(D-관리자생성·D-관리자조회·D-블랙리스트정리·D-포인트비공개·D-포인트연동), §6.1, §7.5, §12.5(C-16~C-19), §13(질문 14~19). **사용자가 2026-11-04에 확정했다**(질문 14~18, C-19 허용, D-포인트 2건). 질문 19(관리자 포인트 수동 조정 API)만 이번 범위 아님. 기존 확정 결정(§1)은 바꾸지 않았다.
 - 현재 상태 확인(2026-11-03, HEAD `671d457`): `python3 .claude/skills/layer-check/check_layers.py` -> 위반 없음(경고 3건), `(cd src && uv run python -c "import main")` -> 성공, `uv run pytest -rs -q` -> `89 passed`(skip 0, DB 테스트 포함).
 
 ---
@@ -40,6 +41,20 @@
 | **B-17** | 실험(scratchpad `probe.py`): `HTTPBearer(auto_error=False)`에 `Authorization` 헤더 값별로 `credentials` 확인 | 헤더 없음 `None`, `Basic abc` **`None`**, `Bearer`(값 없음) `None`, `Bearer ` `None`, `Token tok` `None`, `Bearer tok`/`bearer tok` -> `credentials="tok"` | **핵심 사실.** `HTTPBearer(auto_error=False)`는 "헤더 없음"과 "Bearer가 아닌 헤더"를 구분하지 못한다. 현재 catalog `get_optional_user`는 `credentials is None`이면 `None`을 돌려주므로 `Basic ...`·`Bearer`(토큰 없음) 헤더를 **조용히 비로그인으로 처리한다**. 필수 인증(`get_current_principal`)은 같은 입력에서 401(`test_basic_scheme_is_unauthorized`). 구분하려면 raw 헤더를 읽어야 한다(§7.3) |
 | B-18 | `src/catalog/presentation/dependencies.py:37-46`, `tests/catalog/test_api_db.py:166-170` | 현재 구현: 헤더 없음/빈 토큰 `None`, 토큰이 있으면 `authenticate()` 결과 `.user`(위조·만료·로그아웃·없는 사용자는 `AuthenticationError`/`TokenRevokedError` -> 401). 테스트가 `Bearer bad.token`으로 `GET /v1/stores/{id}/products` -> 401을 고정 | 무효 토큰 -> 401은 **이미 테스트로 고정된 현재 동작**(D-선택인증-무효토큰의 근거) |
 
+### 0.2 관리자 기능 설계 확인 (2026-11-04, worktree `claude/auth-admin`, `origin/main` `fbe5ecc`)
+
+| # | 확인 명령 | 결과 | 판정 / 해결 |
+| --- | --- | --- | --- |
+| B-19 | `(cd src && uv run python -c "import main")` | `ok` | 차단 아님 |
+| B-20 | `python3 .claude/skills/layer-check/check_layers.py` | 위반 2건: `payments/application/service.py:19`, `:20` (application -> payments.infrastructure). 경고 3건(`[넓은예외]`) | **기준선**(auth 무관). 구현 후 위반이 이 2건에서 늘지 않아야 하고 auth 신규 위반 0 |
+| B-21 | `uv run python -c "import dotenv, getpass"` | `ok`. 새 패키지 필요 없음. `pyproject.toml` 변경 없음 | 차단 아님 |
+| B-22 | `check_layers.py:35` `ROOT_EXEMPT_FILES = {"main.py", "container.py"}`, `:162-163` | `src/` 루트의 다른 `.py`는 `common` 취급이라 다른 모듈의 application·presentation·infrastructure를 import하면 위반 | **관리자 생성 후보 (B) 스크립트를 `src/create_admin.py` 같은 루트 파일로 두면 `check_layers.py` 위반**이 된다. (B)를 채택하면 `.claude/**`의 `ROOT_EXEMPT_FILES` 수정이 필요(C-19, 오케스트레이터 소유). (A)는 `main.py` 안이라 해당 없음 |
+| B-23 | 실험(inline `uv run python`, 파일 쓰기 없음): `GET /v1/admin/users/not-a-uuid`에 `AdminUser` 의존성, 토큰 없음 | `401 UNAUTHORIZED` | 인증·권한 의존성이 경로 UUID 검증보다 먼저 실행된다. 토큰 없이 잘못된 UUID는 400이 아니라 **401**. 테스트에서 이 순서를 고정(§7.5 T-A6) |
+| B-24 | 환경 | 이번 작업에서 DB·`pytest` db 마커를 실행하지 않았다(지시). 기준선 skip 수·통과 수는 확인하지 않았다 | 구현 단계에서 오케스트레이터가 DB를 켜고 `skip 0`을 확인해야 함(R16) |
+| B-25 | `Grep "/v1/admin" src`, `.env.example` | `/v1/admin` 경로를 쓰는 코드 없음. `.env.example`에 `ADMIN_*` 키 없음(`DATABASE_URL`, `JWT_*`, `ACCESS_TOKEN_EXPIRE_MINUTES`만) | 키 추가가 필요(C-18) |
+
+차단 이슈 없음(B-22는 후보 (B) 선택 시에만 발생하는 조건부 이슈).
+
 ---
 
 ## 1. 결정 표
@@ -73,7 +88,11 @@
 | D-상점주승인 | 상점주 승인 대기 상태 미구현(`users`에 컬럼 없음) | **임시/미해결** | `db-schema` §5 항목 7, 건드리지 않음 |
 | D-형식오류400 | 형식 오류는 400 `VALIDATION_ERROR`로 통일 | **임시** | 명세는 400, 건드리지 않음 |
 | D-로그인제한 | 로그인 시도 횟수 제한 없음 | **임시/미해결** | 건드리지 않음 |
-| D-블랙리스트정리 | 블랙리스트 자동 정리 없음. `purge_expired_tokens`는 수동 호출용으로만 존재 | **임시/미해결** | 건드리지 않음 |
+| D-블랙리스트정리 | **(2026-11-04 갱신 제안)** 관리자 API `POST /v1/admin/token-blacklist/purge`(200, `{"deleted_count": n}`, `AdminUser`)로 `purge_expired_tokens()`를 호출한다. 서버 시작 시 자동 실행은 하지 않는다. 이전 값 "자동 정리 없음, 수동 호출용만"은 호출처가 없다는 점이 바뀐 것 | **확정** (사용자, 2026-11-04, 질문 18 = (A) 관리자 API, 서버 시작 시 자동 정리 없음) | §7.5.3 비교. 정리는 정확성이 아니라 저장 공간 문제(만료 토큰은 `decode`에서 이미 거부) |
+| D-관리자생성 | ADMIN 계정은 서버 시작(lifespan) 시 `.env`의 `ADMIN_EMAIL`·`ADMIN_PASSWORD`로 **없으면 생성(멱등)**한다. 두 값이 모두 없으면 건너뜀, 하나만 있으면 시작 실패, 비밀번호가 예시값(`change-me` 접두사)이면 시작 실패. 도메인은 `User.register_admin`, 서비스는 `ensure_admin`. 회원가입으로 ADMIN 생성 불가(`Role.for_signup`)는 **그대로 확정 유지** | **확정** (사용자, 2026-11-04, 질문 14~16 = (A)) | §7.5.1 비교. 후보 (B) 관리 스크립트는 `check_layers.py` 루트 파일 제약(B-22) 때문에 `.claude/**` 수정이 필요해 탈락 |
+| D-관리자조회 | `GET /v1/admin/users/{user_id}` (`AdminUser`). 응답은 기존 `UserResponse` 재사용(id, email, name, phone, role, users_point, created_at). `password_hash`·`business_number` 제외. 없는 회원 404 `NOT_FOUND`, 비로그인 401, 관리자 아님 403, 잘못된 UUID 400 `VALIDATION_ERROR`. 서비스는 기존 `get_user` 재사용 | **확정** (사용자, 2026-11-04, 질문 17. 명세 반영은 C-16) | §7.5.2. R15: 명세 반영은 C-16 |
+| D-포인트비공개 | `use/earn/restore/revoke_points`는 **공개 엔드포인트로 만들지 않는다.** 이유: 이 메서드들은 호출자를 신뢰하고 권한·멱등성 검사가 없다. 공개하면 로그인한 사용자가 자기 `earn_points`를 호출해 포인트를 늘릴 수 있다. 내부 호출(payments)만 허용. 관리자 수동 조정 API도 만들지 않는다 | **확정** (사용자, 2026-11-04, "포인트 연동 가이드만" 선택). 관리자 포인트 수동 조정 API(질문 19)는 이번 범위 아님 | 명세 포인트 정책: USE·EARN·RESTORE·REVOKE는 결제·환불 시점에 payments가 내부 처리(`docs/design/payments.md` 1.2). 공개 EP는 `GET /v1/users/me/points`(조회)뿐 |
+| D-포인트연동 | payments는 `AuthApplicationService`를 **생성자 필수 인자**로 주입받고(D-타모듈주입, R8·R12) 포인트 메서드를 모두 `commit=False`로 호출, payments가 마지막에 한 번 `commit()`한다(D-포인트트랜잭션, R13). 상세 §6.1 **확정** (사용자, 2026-11-04). 기존 확정(D-타모듈주입, D-포인트트랜잭션)을 payments에 적용 | payments 파일 변경은 C-17 |
 
 ---
 
@@ -310,7 +329,8 @@ class AuthApplicationService:
 | `list_point_logs(user, point_type, page, size) -> PointLogPage` | 범위 검증(page>=0, 1<=size<=100) -> `find_by_user` + `count_by_user` | 없음 |
 | `use_points / earn_points / restore_points(user_id, amount, *, commit=True) -> User` | `_locked_user`(FOR UPDATE) -> 도메인 메서드 -> `users.save` -> `point_logs.add` -> `commit` 인자가 True면 commit | 호출자 선택 |
 | `revoke_points(user_id, amount, *, commit=True) -> int` | 위와 같음, 실제 회수액 반환, 0이면 로그 없음 | 호출자 선택 |
-| `purge_expired_tokens(now=None) -> int` | `blacklist.delete_expired` | 1회 |
+| `purge_expired_tokens(now=None) -> int` | `blacklist.delete_expired` | 1회 (2026-11-04: 관리자 API가 호출, §7.5.3) |
+| `ensure_admin(email, password, name=None) -> tuple[User, bool]` (신규 제안) | §7.5.1 | 생성 시 1회 |
 
 - 공용 DTO `AuthenticatedPrincipal`, `PointLogPage`, `MAX_PAGE_SIZE`는 `service.py`에 그대로 둔다(`:20-34`).
 - 메서드 줄: signup `:56`, login `:80`, authenticate `:90`, logout `:99`, get_user `:103`, list_point_logs `:109`, use/earn/restore/revoke `:134-169`, purge `:171`. 시나리오는 위 표와 같다.
@@ -358,6 +378,51 @@ def create_reservation_service(
 - 다른 모듈이 auth의 일부 속성만 필요하면 쓰는 쪽이 포트를 정의하고 container가 어댑터를 주입하는 방법(`layer-architecture` §3.4 2행)도 있다. 현재 필요한 호출(`use/earn/restore/revoke_points`, `get_user`)은 서비스 주입으로 충분하므로 포트는 만들지 않는다.
 - auth가 노출하는 메서드(다른 모듈용): `use_points`, `earn_points`, `restore_points`, `revoke_points`(실제 차감액 반환), `get_user`.
 - **로그인 선택 EP(제안, D-선택인증):** router는 `from auth.presentation.dependencies import OptionalUser`를 파라미터 타입으로 쓴다. 토큰 없음 -> `None`, 정상 토큰 -> `User`, 잘못된 토큰·비 Bearer 헤더 -> 401(D-선택인증-무효토큰·스킴). 서비스에는 `viewer.id if viewer else None`처럼 `user_id`만 넘긴다(catalog D23). 상세는 §7.3.
+
+### 6.1 포인트 연동 가이드 — payments (2026-11-04, D-포인트비공개, D-포인트연동)
+
+**엔드포인트는 만들지 않는다.** 포인트 4개 메서드(`service.py` `use_points`·`earn_points`·`restore_points`·`revoke_points`)는 호출자가 누구인지·같은 요청이 두 번 왔는지 검사하지 않는다. 공개하면 `earn_points`로 자기 포인트를 늘릴 수 있다. 사용자에게 열리는 것은 조회 `GET /v1/users/me/points`뿐이다. 호출은 결제·환불 서비스(payments)가 서버 로직 안에서만 한다.
+
+**연결 방법 (R8·R11·R12·R13)**
+
+```python
+# src/payments/application/service.py (구현은 payments 담당, C-17)
+from auth.application.service import AuthApplicationService   # 상대 application 서비스 타입 (R11 허용)
+
+class PaymentApplicationService:
+    def __init__(self, session, reservations, payments, refunds, gateway, policy,
+                 auth: AuthApplicationService):                 # 필수 인자, 기본값 None 금지
+        ...
+```
+```python
+# src/container.py (payments 구역) — auth 구역의 create_auth_service를 그대로 Depends로 받는다
+def create_payment_service(
+    session: AsyncSession = Depends(get_db),
+    ...,
+    auth: AuthApplicationService = Depends(create_auth_service),
+) -> PaymentApplicationService: ...
+```
+- 한 요청 안에서 `get_db`와 `create_auth_service`는 같은 세션을 쓴다(B-9). payments가 `AuthApplicationService(db)`를 만들지 않는다.
+- 호출은 **항상 `commit=False`**. 기본값(`True`)으로 부르면 포인트만 먼저 커밋되어 결제 실패 시 되돌릴 수 없다. 테스트는 fake auth가 `commit` 인자를 기록해 모든 호출이 `False`이고 payments가 `commit()`을 한 번만 하는지 확인한다.
+- payments가 `AuthApplicationService`를 만들려면 payments 설계의 생성자(`auth: ... | None = None  # 같은 세션`, `docs/design/payments.md:347`)를 위처럼 바꿔야 한다(C-17).
+
+**흐름별 호출 (`docs/design/payments.md` 1.2 포인트 정책 표, 4.3.1·4.3.3 기준)**
+
+| 흐름 | 시점(payments 단계) | auth 호출 | 금액(`amount` 인자는 항상 양수, 로그 부호는 auth가 정함) | auth 에러 -> HTTP |
+| --- | --- | --- | --- | --- |
+| 결제 요청 `pay` | 결제 INSERT 전, 게이트웨이 호출 전(4.3.1 단계 6) | `use_points(user_id, use_point, commit=False)` | 사용자가 정한 `use_point`(100P 단위, 잔액 이하). `0`이면 호출하지 않음 | 단위·잔액 위반 `ValueError` -> 400 `VALIDATION_ERROR` |
+| 결제 승인 직후 | 결제 저장 후, 예약 `mark_paid` 전(단계 9) | `earn_points(user_id, earn, commit=False)` | `earn = 결제 금액 x 1%` 버림. 0이면 호출하지 않음 | 없는 회원 `UserNotFoundError` -> 404 |
+| 환불 | `refunds.save`·`payments.save` 직후(4.3.3 `_apply_refund`) | `restore_points(user_id, used, commit=False)` | `used = total_price - payment.amount` > 0일 때 | 〃 |
+| 환불 | 위 다음 | `revoke_points(user_id, earned, commit=False) -> int` | `earned = payment.earn_point_amount()` > 0일 때. **반환값이 실제 회수액**이며 잔액이 모자라면 `earned`보다 작다(0이면 로그 없음). payments는 반환값을 환불 응답에 쓰지 않는다 | 〃 |
+
+**payments가 지킬 점**
+1. **commit은 payments가 마지막에 한 번.** auth 호출 중 예외가 나면 커밋 전이므로 세션 종료 시 롤백된다. 게이트웨이 실패 처리로 `rollback()`한 뒤에는 사용 포인트도 함께 되돌아간다(`payments.md` 4.3.1 단계 7).
+2. **멱등성은 payments 책임.** auth 메서드는 호출할 때마다 잔액과 `point_log`를 바꾼다. 같은 결제 환불 2번, 같은 결제 적립 2번을 막는 것은 payments의 중복 검사(`payments.md` C-2: `payments` 행 `with_for_update()` + `refunds.payment_id` UNIQUE)다.
+3. **락 순서.** auth는 회원 행을 `FOR UPDATE`로 잠근다(`_locked_user`). payments의 고정 순서 "예약 -> 결제 -> (환불 INSERT) -> 회원(포인트)"(`payments.md` C-4)의 마지막이므로 auth를 부르는 시점이 그 순서를 어기지 않게 한다. 환불은 예약·결제 행을 잠근 뒤에 부르고, 결제 요청은 `payments.md`의 트랜잭션 표대로 "예약 -> (포인트 회원 행) -> 결제 INSERT" 순서다.
+4. **계산은 payments.** 적립률 1%, `used`, `earned` 계산은 payments 도메인(`Payment`)이 한다. auth는 100P 단위 사용·음수 금지·잔액 한도만 검사한다(단위 규칙을 두 곳에 두지 않음, `payments.md` 4.1.2).
+5. **사용자 객체 갱신.** `use_points`·`earn_points`는 갱신된 `User`를 돌려주지만 `CurrentUser`로 받은 객체는 갱신되지 않는다. 응답에 잔액이 필요하면 반환값을 쓴다(명세의 결제·환불 응답에는 포인트 잔액이 없음).
+6. **호출자 신원.** `user_id`는 `CurrentUser`(JWT)에서 얻는다. 환불에서는 예약 스냅샷의 `user_id`(결제자)로 복구한다(관리자·상점주가 대신 환불해도 포인트는 결제자에게).
+7. **현재 payments 상태(참고, 수정은 C-17):** `src/payments/presentation/dependencies.py:14-19`가 `X-User-Id`·`X-User-Role` 헤더로 인증을 흉내 내고(payments.md V-9), `src/payments/application/service.py:44`가 `TODO(D-10)`로 포인트를 구현하지 않으며(V-17), 서비스가 `db`·기본 구현체를 직접 쓴다(`:19-20` 기준선 위반 2건). 포인트 연동은 이 세 가지를 고친 뒤에 붙인다.
 
 ---
 
@@ -467,6 +532,197 @@ DB 없이 도는 테스트를 먼저 둔다(현재 환경에서 DB 테스트가 
 - 기존 `tests/auth/**`, `tests/test_container.py`는 변경하지 않는다.
 
 **구현자 완료 게이트(코드 변경이 있으므로 `backend-invariants` §7):** `check_layers.py` 위반이 기준선 2건(B-13)을 넘지 않고 auth 쪽 신규 위반 0, `import main` 성공, `uv run pytest -rs` failed 0·**db 마커 skip 0**(오케스트레이터가 DB를 켜고 확인). 정독 규칙(R3, R5, R7~R15)은 `layer-checker`가 판정한다.
+
+### 7.5 관리자 기능 (2026-11-04, D-관리자생성·D-관리자조회·D-블랙리스트정리, 모두 **임시**)
+
+#### 7.5.1 ADMIN 계정 생성
+
+**비교**
+
+| 항목 | (A) 서버 시작 lifespan에서 `.env` 값으로 생성 | (B) 관리 명령 스크립트 (`uv run python ...`) |
+| --- | --- | --- |
+| 계층 위치 | 호출은 `main.py`(조립 지점, `check_layers` 제외). 로직은 도메인 `User.register_admin` + 서비스 `ensure_admin` | 스크립트가 서비스·DB를 모두 알아야 한다. `src/` 루트 파일은 import 제한 대상(B-22)이라 `ROOT_EXEMPT_FILES` 수정(`.claude/**`, C-19) 없이는 위반. 모듈 안(`presentation`)에 두면 `container`/infrastructure를 조립할 수 없음 |
+| 시크릿 | `ADMIN_PASSWORD`가 서버가 도는 동안 환경에 남는다(`JWT_SECRET_KEY`도 같은 수준). 예시값 거부로 완화 | 비밀번호를 프롬프트로 받으면 저장되지 않음. 그러나 CI·자동화에서는 결국 환경변수 |
+| 커밋 금지(R16) | `.env`는 gitignore. `.env.example`에는 **주석 처리한 예시값만**(C-18). 예시값(`change-me` 접두사, `get_auth_settings`와 같은 방식)이면 시작 실패 | 같음 |
+| 멱등 | `ensure_admin`이 이미 있으면 아무것도 안 함 | 같은 서비스 메서드 재사용 |
+| 운영 편의 | 개발·테스트 환경에서 `.env`만 채우면 끝. 비밀번호 변경은 반영되지 않음 | 실행을 잊으면 관리자가 없음. 비밀번호 재설정 명령을 같이 만들 수 있음 |
+| 테스트 | 서비스 단위 테스트(DB 없음)가 핵심. lifespan 자체는 `ASGITransport` 테스트에서 실행되지 않으므로 `seed_admin()`을 함수로 빼서 호출 | 서비스 테스트 같음. 스크립트 진입점은 얇아 따로 테스트할 것이 적음 |
+| 위험 | 설정 오류가 시작 실패로 드러남(좋은 점). 매 시작마다 조회 1회 | 별도 진입점이 하나 늘어남 |
+
+**임시 기본값: (A).** 이유: 계층 검사를 건드리지 않고(B-22), 새 의존성·진입점이 없으며, 기존 `get_auth_settings()` 시작 시 검증(`main.py` lifespan)과 같은 방식이다. (B)를 택하면 C-19의 `.claude/**` 수정이 선행돼야 한다. 사용자가 "비밀번호를 서버 환경에 남기지 않기"를 더 중시하면 (B)로 바꾼다(서비스 `ensure_admin`은 그대로 재사용).
+
+**도메인 (`domain/user.py`, R3)**
+| 항목 | 내용 |
+| --- | --- |
+| `User.register_admin(email, password_hash, name=None) -> User` | 신규 `classmethod`. `role=Role.ADMIN`, `users_point=0`, `created_at=now(UTC)`, 이메일·이름 검증은 `__init__`이 한다(재사용). `Role.for_signup`은 **바꾸지 않는다**(`register(role="ADMIN")`은 계속 `ValueError`) |
+| 비밀번호 | 서비스가 `User.validate_raw_password`(8자 이상, 72바이트 이하)로 검증한 뒤 해싱(회원가입과 같은 규칙) |
+| 판정 | 기존 사용자가 관리자인지는 `has_role(Role.ADMIN)` |
+
+**설정 (`infrastructure/settings.py`)**
+```python
+@dataclass(frozen=True)
+class AdminSeedSettings:
+    email: str
+    password: str
+
+def get_admin_seed_settings(env: Mapping[str, str] | None = None) -> AdminSeedSettings | None: ...
+```
+- `env=None`이면 `load_dotenv()` 후 `os.environ`을 읽는다. 테스트는 `env` 딕셔너리를 넘겨 개발자의 `.env`에 영향받지 않는다.
+- `ADMIN_EMAIL`·`ADMIN_PASSWORD` 둘 다 없거나 빈 문자열 -> `None`(건너뜀). 하나만 있음 -> `RuntimeError`. `ADMIN_PASSWORD`가 `PLACEHOLDER_PREFIX`(`change-me`)로 시작 -> `RuntimeError`. 오류 메시지에 비밀번호 값을 넣지 않는다(R16). 비밀번호 강도는 서비스(도메인 규칙)가 검증한다.
+- 캐시(`lru_cache`)는 쓰지 않는다(시작 때 한 번만 호출).
+
+**서비스 (`application/service.py`)** — 신규 메서드 1개
+| 메서드 | 시나리오 | commit |
+| --- | --- | --- |
+| `ensure_admin(email, password, name=None) -> tuple[User, bool]` | `User.validate_raw_password(password)` -> `users.find_by_email(User.normalize_email(email))` -> **있으면**: 관리자면 `(user, False)` 반환(해싱·쓰기 없음), 관리자가 아니면 `EmailDuplicatedError`(계정을 승격하지 않음) -> **없으면**: `hasher.hash` -> `User.register_admin` -> `users.save`. 경쟁으로 `EmailDuplicatedError`가 나면 `rollback` 후 다시 조회해 관리자면 `(user, False)`, 아니면 재raise -> 성공 시 `(user, True)` | 생성 시 1회, 이미 있으면 없음 |
+
+**조립 (`src/container.py`, auth 구역)**
+```python
+def build_auth_service(session: AsyncSession) -> AuthApplicationService:
+    """Depends 없이 서비스를 만든다(lifespan 등 요청 밖). create_auth_service와 같은 구현체를 쓴다."""
+    return create_auth_service(
+        session,
+        SqlAlchemyUserRepository(session),
+        SqlAlchemyPointLogRepository(session),
+        SqlAlchemyTokenBlacklistRepository(session),
+    )
+```
+- `wire_dependencies` 매핑 변경 없음(`provide_*` 추가 없음, R9).
+
+**`src/main.py`** (조립 지점, 오케스트레이터 승인 필요, C-19)
+```python
+async def seed_admin(session_factory=AsyncSessionLocal) -> bool:
+    """ADMIN_EMAIL/ADMIN_PASSWORD가 설정돼 있으면 관리자를 보장한다. 새로 만들었으면 True."""
+    settings = get_admin_seed_settings()
+    if settings is None:
+        return False
+    async with session_factory() as session:
+        _, created = await build_auth_service(session).ensure_admin(settings.email, settings.password)
+    return created
+# lifespan: create_all 다음 줄에서 await seed_admin()
+```
+- `lifespan`은 `get_auth_settings()` 다음, `create_all` 뒤에서 호출한다(테이블이 있어야 함). 로그에는 이메일만 남기고 비밀번호는 남기지 않는다.
+- 실패(`RuntimeError`, `ValueError`, `EmailDuplicatedError`)는 그대로 올라가 **서버 시작이 중단**된다(설정 오류를 숨기지 않음, 질문 15).
+
+**남은 선택 (질문 16):** 이미 있는 관리자의 비밀번호는 `.env`를 바꿔도 갱신하지 않는다(멱등, 임시 기본값). 비밀번호 재설정이 필요하면 별도 설계.
+
+#### 7.5.2 관리자 회원 조회 `GET /v1/admin/users/{user_id}` (D-관리자조회)
+
+| 항목 | 내용 |
+| --- | --- |
+| 권한 | `AdminUser`(`dependencies.py`에 이미 있음). 비로그인 401, ADMIN 아님 403(`RoleForbiddenError`, 메시지 `접근 권한이 없습니다.`, 질문 8 변경 없음) |
+| 요청 | 경로 `user_id: uuid.UUID`. 잘못된 UUID는 400 `VALIDATION_ERROR`. 단 **토큰이 없으면 401이 먼저**(B-23) |
+| 응답 | 200 `UserResponse` 재사용. 필드는 `id, email, name, phone, role, users_point, created_at`. **`password_hash`·`business_number`는 응답 스키마에 없다**(R15). `business_number`가 관리자에게 필요하면 별도 `AdminUserResponse`를 후속 결정 |
+| 404 | 서비스 `get_user`가 `UserNotFoundError` -> 전역 핸들러 404 `NOT_FOUND`(메시지 "회원을 찾을 수 없습니다.") |
+| 서비스 | 기존 `get_user(user_id)` 재사용. 읽기 전용이라 `commit()` 없음. 새 메서드 없음 |
+| 감사 | 조회 로그·감사 기록은 만들지 않는다(명세에 없음) |
+
+`UserResponse`를 재사용하는 이유: 새 스키마 없이 민감 정보 제외가 이미 보장돼 있고(`schemas.py:20-29`), `GET /v1/users/me`와 필드가 같아 클라이언트가 같은 모델을 쓴다. 관리자용 추가 필드가 생기면 그때 분리한다.
+
+#### 7.5.3 블랙리스트 만료 토큰 정리
+
+**비교**
+
+| 항목 | (A) 관리자 API `POST /v1/admin/token-blacklist/purge` | (B) 서버 시작 시 자동 실행 | (C) 둘 다 |
+| --- | --- | --- | --- |
+| 정리 시점 | 관리자가 호출할 때(자동화하려면 외부 cron이 관리자 토큰으로 호출해야 해 번거로움) | 재시작 때만. 장기 가동 서버는 정리되지 않음 | 둘의 합 |
+| 운영 위험 | 호출을 잊으면 행이 쌓임(행당 `jti`+만료시각, 로그아웃 1건당 1행으로 작음). 정확성 영향 없음 | 시작 경로에 DB 삭제가 하나 늘어 시작 실패 지점이 늘고, 다중 워커가 동시에 지울 수 있음(삭제는 멱등이라 안전) | 코드·테스트 두 배 |
+| 가시성 | 삭제 개수를 응답으로 확인 | 로그를 봐야 함 | |
+| 테스트 | DB 없는 API 테스트(fake)로 200·401·403 확인 가능, DB 테스트로 만료/비만료 행 확인 | lifespan은 `ASGITransport` 테스트에서 실행되지 않아 함수로 빼야만 검증 가능 | |
+| 변경 범위 | 라우터·스키마만. `main.py`·`container.py` 변경 없음 | `main.py` 변경 | 둘 다 |
+
+**임시 기본값: (A).** 이유: 만료된 jti는 `decode` 단계에서 이미 거부되므로(토큰 만료 30분, `ACCESS_TOKEN_EXPIRE_MINUTES`) 정리는 저장 공간 문제일 뿐이다. (A)는 시작 경로를 건드리지 않고 라우터·스키마만 추가하며 테스트가 가장 쉽다. 자동화가 필요해지면 (C)로 확장한다(서비스 메서드는 그대로 재사용, 질문 18).
+
+| 항목 | 내용 |
+| --- | --- |
+| 엔드포인트 | `POST /v1/admin/token-blacklist/purge`, 요청 본문 없음, `AdminUser`, 200 `PurgeTokensResponse{deleted_count: int}`, 에러 401·403 |
+| 서비스 | 기존 `purge_expired_tokens(now=None)` 재사용(1회 `commit`). 라우터는 `now`를 넘기지 않는다(현재 시각 사용, 테스트는 서비스에 `now`를 직접 전달) |
+| 응답 필드 이름 | `deleted_count`(질문 17에서 함께 확인, 명세에 없음) |
+
+**스키마 (`presentation/schemas.py`)**
+```python
+class PurgeTokensResponse(BaseModel):
+    deleted_count: int = Field(..., description="삭제된 만료 토큰 수")
+```
+
+**라우터 (`presentation/router.py`, 같은 `router` 사용 -> `main.py` 변경 없음)**
+```python
+@router.get("/admin/users/{user_id}", response_model=UserResponse, tags=["관리자"], summary="회원 조회(관리자)")
+async def admin_read_user(user_id: uuid.UUID, admin: AdminUser, service: Service):
+    return await service.get_user(user_id)
+
+@router.post("/admin/token-blacklist/purge", response_model=PurgeTokensResponse, tags=["관리자"],
+             summary="만료된 블랙리스트 토큰 정리")
+async def admin_purge_tokens(admin: AdminUser, service: Service):
+    return PurgeTokensResponse(deleted_count=await service.purge_expired_tokens())
+```
+- `AdminUser`를 `from auth.presentation.dependencies import ...`에 추가. `uuid` import 추가.
+
+#### 7.5.4 엔드포인트 표 (추가분)
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/v1/admin/users/{user_id}` | Bearer(ADMIN), 경로 UUID | `UserResponse` | 200 | 400(UUID 형식), 401, 403, 404 |
+| POST | `/v1/admin/token-blacklist/purge` | Bearer(ADMIN), 본문 없음 | `PurgeTokensResponse` | 200 | 401, 403 |
+
+관리자 생성은 EP가 없다(서버 시작 시 처리). 포인트 4종은 EP가 없다(D-포인트비공개, §6.1).
+
+#### 7.5.5 변경 파일 목록 (구현자용, **확정본** 2026-11-04, 사용자 결정 반영. C-19 허용)
+
+| 파일 | 변경 | 소유 |
+| --- | --- | --- |
+| `src/auth/domain/user.py` | `User.register_admin` 추가(`Role.for_signup`·`register` 불변) | auth 구현자 |
+| `src/auth/infrastructure/settings.py` | `AdminSeedSettings`, `get_admin_seed_settings(env=None)` 추가(`get_auth_settings` 불변) | auth 구현자 |
+| `src/auth/application/service.py` | `ensure_admin` 추가. 나머지 메서드 불변 | auth 구현자 |
+| `src/auth/presentation/schemas.py` | `PurgeTokensResponse` 추가 | auth 구현자 |
+| `src/auth/presentation/router.py` | 엔드포인트 2개 추가 | auth 구현자 |
+| `src/container.py` | auth 구역에 `build_auth_service` 추가. 매핑 변경 없음 | auth 구현자(자기 구역) |
+| `src/main.py` | `seed_admin()` 함수와 lifespan 호출, import(`AsyncSessionLocal`, `build_auth_service`, `get_admin_seed_settings`). 자기 모듈 두 줄 범위를 넘지만 **사용자가 허용**함(C-19, 발주서에 명시) | auth 구현자 |
+| `tests/auth/test_domain.py`, `test_service.py`, `test_api_db.py`, 신규 `test_admin_seed_settings.py`, `test_admin_api.py`, `tests/test_container.py`(auth 부분) | §7.5.6 | auth 구현자 |
+| `.env.example`, `README.md`, `docs/reference/auth.md`, `docs/reference/README.md` | C-16, C-18 | 오케스트레이터(구현자 범위 밖) |
+| `src/payments/**`, `docs/design/payments.md` | C-17 | payments 담당(이번 범위 밖) |
+
+신규 의존성 없음(B-21), 스키마 변경 없음(`users`·`token_blacklist`는 그대로, R14).
+
+#### 7.5.6 테스트 계획
+
+DB 없이 도는 테스트를 먼저 둔다(DB 테스트는 skip될 수 있어 R16 증거가 약해지지 않게).
+
+| # | 파일 | 종류 | 케이스 | 기대 |
+| --- | --- | --- | --- | --- |
+| T-D1 | `test_domain.py` | 단위 | `register_admin` 정상 | role `ADMIN`, 포인트 0, `created_at`에 tz, 이메일 정규화 |
+| T-D2 | 〃 | 〃 | `User.register(..., role="ADMIN")` / `Role.for_signup("ADMIN")` | 여전히 `ValueError`(회귀) |
+| T-S1 | `test_service.py` | 서비스(fake) | `ensure_admin` 신규 | `(user, True)`, role ADMIN, `hash` 1회, `commits == 1` |
+| T-S2 | 〃 | 〃 | 같은 이메일 관리자가 이미 있음 | `(user, False)`, `hash_calls == 0`, `commits == 0` |
+| T-S3 | 〃 | 〃 | 같은 이메일이 CUSTOMER | `EmailDuplicatedError`, 역할 CUSTOMER 유지(승격 없음) |
+| T-S4 | 〃 | 〃 | 약한 비밀번호(8자 미만, 공백) | `ValueError`, DB 조회 전에 거부 |
+| T-S5 | 〃 | 〃 | 경쟁(저장 시 `EmailDuplicatedError`) 후 상대가 관리자 | `(user, False)`, `rollback` 1회. fake `FakeUsers`에 "저장 후 다른 행이 보이는" 동작을 추가(기존 테스트 이름·동작 불변) |
+| T-S6 | 〃 | 〃 | `purge_expired_tokens` | 기존 `test_purge` 그대로(변경 없음) |
+| T-C1 | `test_admin_seed_settings.py` | 단위 | `env`에 둘 다 없음/빈 값 | `None` |
+| T-C2 | 〃 | 〃 | 둘 다 정상 | `AdminSeedSettings` |
+| T-C3 | 〃 | 〃 | 하나만 있음 | `RuntimeError`, 메시지에 비밀번호 값 없음 |
+| T-C4 | 〃 | 〃 | `ADMIN_PASSWORD=change-me-...` | `RuntimeError` |
+| T-A1 | `test_admin_api.py` | API(DB 없음) | 작은 `FastAPI()` 앱에 auth `router`를 포함, `provide_auth_service`를 fake 기반 서비스로 override(§7.4 구성과 같음). 관리자 토큰으로 `GET /v1/admin/users/{id}` | 200, 응답 키가 `id,email,name,phone,role,users_point,created_at`뿐(`password_hash`·`business_number` 없음) |
+| T-A2 | 〃 | 〃 | CUSTOMER·OWNER 토큰 | 403 `FORBIDDEN` |
+| T-A3 | 〃 | 〃 | 토큰 없음 / 로그아웃 토큰 | 401 `UNAUTHORIZED` / `TOKEN_REVOKED`, `WWW-Authenticate: Bearer` |
+| T-A4 | 〃 | 〃 | 없는 회원 UUID | 404 `NOT_FOUND` |
+| T-A5 | 〃 | 〃 | 관리자 + 잘못된 UUID | 400 `VALIDATION_ERROR` |
+| T-A6 | 〃 | 〃 | **토큰 없음 + 잘못된 UUID** | 401(B-23, 인증이 먼저) |
+| T-A7 | 〃 | 〃 | `POST /v1/admin/token-blacklist/purge` 관리자 / CUSTOMER / 토큰 없음 | 200 `{"deleted_count": n}`, fake blacklist의 `delete_expired` 1회 / 403 / 401 |
+| T-K1 | `tests/test_container.py` | 단위 | `build_auth_service(marker)` | `AuthApplicationService`, `hasher`·`tokens`가 추상 인스턴스. 기존 3건 불변, `provide_` 매핑 수 변화 없음 |
+| T-B1 | `test_api_db.py` | DB | `seed_admin(client.session_factory)`(환경에 `ADMIN_*` 설정) -> 로그인 -> `GET /v1/admin/users/{고객 id}` | 로그인 200, 조회 200, `users_point`가 DB 값과 같음 |
+| T-B2 | 〃 | DB | `seed_admin` 2회 | 두 번째는 `False`, `users` 행 1개 |
+| T-B3 | 〃 | DB | 같은 이메일이 가입된 CUSTOMER인 채 `seed_admin` | `EmailDuplicatedError`, 역할 그대로 |
+| T-B4 | 〃 | DB | 만료 행·비만료 행을 `SqlAlchemyTokenBlacklistRepository.add`로 넣고 purge API(관리자) | `deleted_count == 1`, 비만료 `jti`는 `exists` True, 만료는 False. 기존 `test_purge_expired_tokens`(서비스 직접 호출)는 그대로 |
+| T-B5 | 〃 | DB | 회원가입 `role="ADMIN"` | 여전히 400(기존 `test_signup_errors`가 확인하는 범위, 회귀) |
+
+- 테스트는 `main.seed_admin`을 `session_factory` 인자로 호출한다. 실제 `AsyncSessionLocal`(`DATABASE_URL`)을 쓰는 lifespan 자체는 테스트하지 않는다(테스트 DB와 다른 DB를 건드릴 수 있음). `test_api_db.py`의 `ADMIN_*`는 `monkeypatch.setenv`로 넣고 `get_admin_seed_settings`가 `.env`를 읽지 않도록 한다(`env` 인자 사용).
+- fake 재사용: `test_optional_user.py`의 fake 클래스를 복사할지 `tests/auth/` 공용 헬퍼로 옮길지는 구현자가 정하되 기존 테스트 이름·동작은 바꾸지 않는다.
+- 완료 게이트: `backend-invariants` §7. `check_layers.py` 위반이 기준선 2건(B-20)을 넘지 않고 auth 신규 위반 0, `import main` 성공, `uv run pytest -rs`에서 failed 0·db 마커 skip 0(오케스트레이터가 DB를 켜고 확인).
+
+#### 7.5.7 R1~R16 영향 (설계 판정, 공식 판정은 `layer-checker`)
+
+R1: `register_admin`은 표준 라이브러리만. R2: router는 service·schemas·dependencies만, `main.py`·`container.py`는 조립 지점. R3: 역할 판단은 `has_role`(도메인), 서비스는 흐름만(단 "이미 있으면" 분기는 서비스, 기존 `signup`과 같은 수준). R5: `commit()`은 `ensure_admin`·`purge_expired_tokens` 서비스만. R6: `UserNotFoundError`·`EmailDuplicatedError` 사용, `HTTPException` 없음. R7: 새 EP 에러는 전역 핸들러. R8·R9: `build_auth_service`는 container에만, 서비스 기본 구현체 없음. R15: 새 EP는 명세 밖이라 C-16으로 명세 반영 필요, 응답에 민감 정보 없음. R16: `.env`·시크릿 하드코딩 없음, 예시값 거부, 새 의존성 없음.
 
 ---
 
@@ -718,6 +974,15 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 
 교체 후 확인: `python3 .claude/skills/layer-check/check_layers.py`(기준선 2건 초과 없음), `import main`, `uv run pytest -rs`(DB 켜고 skip 0), `Grep "bearer_scheme\|provide_auth_service" src/catalog` 0건.
 
+### 12.5 관리자 기능 관련 (2026-11-04)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-16 | `docs/reference/auth.md`, `docs/reference/README.md` (오케스트레이터 소유, 설계자 수정 금지) | 명세에 관리자 EP 2개(`GET /v1/admin/users/{user_id}`, `POST /v1/admin/token-blacklist/purge`)가 없다. README 역할 표의 `ADMIN` 행은 "회원가입으로는 만들 수 없음"만 있고 생성 방법이 없다(R15) | 사용자 확정 후 EP 2개(요청·응답·에러 표)와 "ADMIN은 서버 시작 시 `ADMIN_EMAIL`/`ADMIN_PASSWORD`로 생성"을 명세에 추가. 확정 전까지 구현은 §7.5를 따르되 R15 차이로 보고 |
+| C-17 | payments (`src/payments/**`, `docs/design/payments.md`, payments 담당) | (1) 헤더 인증 `presentation/dependencies.py:14-19`(V-9)를 auth `CurrentUser`로 교체 (2) `service.py:44` `TODO(D-10)` 포인트 미구현(V-17) (3) `payments.md:347`의 `auth: AuthApplicationService \| None = None  # 같은 세션`은 D-타모듈주입·R8·R12와 어긋남 -> 필수 인자로 주입, container `create_payment_service`가 `create_auth_service`를 `Depends`로 연결 (4) `service.py:19-20` application -> infrastructure 위반 2건(기준선, B-20) | 이번 범위 아님. §6.1을 payments 설계 갱신 때 참조. 이 설계는 payments 파일을 수정하지 않았다 |
+| C-18 | `.env.example`, `README.md`(오케스트레이터 소유) | `ADMIN_EMAIL`·`ADMIN_PASSWORD` 키 추가. **주석 처리한 예시값만**(`# ADMIN_EMAIL=admin@example.com`, `# ADMIN_PASSWORD=change-me-to-a-strong-password`), 실제 비밀번호 금지(R16). README 로컬 실행에 "관리자가 필요하면 `.env`에 두 값을 채우고 서버를 시작" 한 줄 | 사용자 확정 후 |
+| C-19 | `src/main.py`·`src/container.py`(오케스트레이터가 범위 확정), `.claude/skills/layer-check/check_layers.py` | (A) 채택 시 `main.py`에 `seed_admin()`·lifespan 호출·import 추가, `container.py`에 `build_auth_service` 추가가 필요하다. `layer-implementer`의 기본 범위(`main.py` 자기 모듈 두 줄)를 넘으므로 **발주서에 명시**해야 한다. (B) 채택 시에는 `ROOT_EXEMPT_FILES`(`check_layers.py:35`)에 스크립트 파일 추가가 필요(B-22) | **결정됨: 허용** (사용자, 2026-11-04, 질문 14 = (A)). 구현자는 `src/main.py`(`seed_admin`, lifespan 호출, import)와 `src/container.py` **auth 구역**(`build_auth_service` 추가)만 수정할 수 있다. 다른 모듈 구역·`check_layers.py`는 금지 |
+
 ---
 
 ## 13. 질문 목록과 임시 기본값
@@ -731,7 +996,7 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | 3 | 상점주 승인 대기 상태 저장 위치 | `db-schema` §5-7, 명세 | 미구현(승인 검사 없음) | 컬럼 없음 | 스키마 변경 필요(stores 설계와 함께 결정) |
 | 4 | 잘못된 형식 요청의 상태 코드 | `docs/operations/orchestration.md` §6 | 400 `VALIDATION_ERROR` 통일 | 명세 | `error_handlers.py` |
 | 5 | 로그인 시도 제한 | - | 없음 | 명세에 없음 | `AuthApplicationService.login` |
-| 6 | 블랙리스트 만료 행 정리 방식 | `db-schema` §2 "만료가 지난 행은 지워도 됨" | 수동 호출(`purge_expired_tokens`)만 | 현 구현 | 스케줄러·lifespan 도입 시 결정 |
+| 6 | 블랙리스트 만료 행 정리 방식 | `db-schema` §2 "만료가 지난 행은 지워도 됨" | 수동 호출(`purge_expired_tokens`)만 -> **2026-11-04 갱신 제안: 질문 18** | 현 구현 | 스케줄러·lifespan 도입 시 결정 |
 | 7 | 추상 메서드 이름 정리(`add/exists/count_by_user/delete_expired` vs `find_*/save/delete`) | `layer-architecture` §5.1 | 현재 이름 유지 | D-추상메서드명, 변경 범위 최소화 | `domain/repository/*.py`와 구현체·fake 동시 변경 필요 |
 | 8 | (신규, C-11) 역할 불일치 403 메시지를 역할별로 낼지 | `docs/design/stores.md` C-S1, `docs/reference/stores.md` | 현재 `접근 권한이 없습니다.` 유지(미변경) | 현재 코드값 `user.py:111` | `User.require_role`, C-6 정리와 함께 |
 | 9 | (신규, C-12) 상점주 승인 상태를 `users`에 둘지 stores 소유 테이블에 둘지 (질문 3과 같은 주제) | `docs/design/stores.md` S-2, Q-6 | 미구현 유지(auth 변경 없음) | D-상점주승인 | 스키마 변경 시 R14: `models.py`, `schema.sql`, `db-schema/SKILL.md` 동시 |
@@ -739,6 +1004,12 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | 11 | (신규, D-선택인증-무효토큰) 로그인 선택 EP에 위조·만료·로그아웃·없는 회원 토큰이 오면 401로 거절할지 `None`(비로그인)으로 볼지. 명세에 공개 EP의 무효 토큰 규칙이 없음(C-15) | `docs/reference/README.md` 401 정의, `docs/reference/catalog.md` #2·#4 "공개" **결정됨(사용자, 2026-11-04): 401 거절**(현재 catalog 동작 유지, `CurrentUser`와 같은 error_code) | 현재 구현·`tests/catalog/test_api_db.py:168-170`, 보안(조용한 비로그인 처리 금지), 명세 401 정의 | `get_optional_user` 한 함수(§7.3 "검토한 대안") |
 | 12 | (신규, D-선택인증-스킴) `Basic ...` 등 Bearer가 아닌 헤더와 토큰 없는 `Bearer`를 401로 볼지 `None`으로 볼지 | B-17 | **결정됨(사용자, 2026-11-04): 401 `UNAUTHORIZED` "로그인이 필요합니다."**(catalog 현재 `None`과 다름) | 필수 인증과 같은 입력이 같은 결과여야 함(`test_basic_scheme_is_unauthorized`) | `get_optional_user`의 마지막 `raise` 한 줄 |
 | 13 | (신규, D-선택인증-범위, C-13) 이번에 auth의 `OptionalUser`만 구현할지, catalog 교체까지 함께 할지 | 사용자 요청 | **결정됨(사용자, 2026-11-04): auth만 구현**, catalog 교체는 변경 제안(C-13)으로 두고 catalog 담당자 승인 후 진행 | `catalog/**` 소유권 | C-13 변경 목록 |
+| 14 | (신규 2026-11-04, D-관리자생성) ADMIN 계정 생성 방법: (A) 서버 시작 시 `.env`로 생성 / (B) 관리 스크립트. 환경변수 이름 | 사용자 요청, B-22 | **(A)** `ADMIN_EMAIL`·`ADMIN_PASSWORD`, 둘 다 없으면 건너뜀. **결정됨(사용자, 2026-11-04): (A)** | (B)는 `check_layers.py` 루트 파일 제약 때문에 `.claude/**` 수정 선행. 기존 `JWT_SECRET_KEY` 시작 시 검증·예시값 거부와 같은 방식 | `main.py` `seed_admin`, `settings.py` `get_admin_seed_settings` |
+| 15 | (신규, D-관리자생성) `ADMIN_EMAIL`과 같은 이메일의 **비관리자 계정**이 이미 있을 때 | 사용자 요청 | 서버 시작 실패(`EmailDuplicatedError`), 계정 승격 안 함. **결정됨(사용자, 2026-11-04)** | 권한 상승을 시작 설정만으로 만들지 않음. 회원가입 ADMIN 금지 취지와 일치 | `ensure_admin` |
+| 16 | (신규, D-관리자생성) 이미 있는 관리자의 비밀번호를 `.env` 변경으로 갱신할지, 설정 오류·예시값일 때 시작을 막을지 | 사용자 요청 | 갱신하지 않음(멱등), 예시값·한쪽만 설정이면 시작 실패. **결정됨(사용자, 2026-11-04)** | R16, `get_auth_settings`와 같은 fail-fast | `get_admin_seed_settings` |
+| 17 | (신규, D-관리자조회, C-16) 관리자 회원 조회 EP 경로·응답, 정리 API 응답 필드 | 명세에 없음 | `GET /v1/admin/users/{user_id}` -> `UserResponse`(`business_number` 제외), 정리 응답 `{"deleted_count": n}`. **결정됨(사용자, 2026-11-04): 임시값대로** | 기존 `UserResponse` 재사용, 민감 정보 제외(R15) | `router.py`, `schemas.py` |
+| 18 | (신규, D-블랙리스트정리, 질문 6 갱신) 만료 토큰 정리 방식: (A) 관리자 API / (B) 시작 시 자동 / (C) 둘 다. 이전 값(수동 호출만)을 대체 | `db-schema` §2 | **(A)** `POST /v1/admin/token-blacklist/purge`. **결정됨(사용자, 2026-11-04): (A)**, 서버 시작 시 자동 정리 없음 | 정리는 정확성이 아닌 저장 공간 문제, 시작 경로 불변, 테스트 쉬움 | `router.py`. (C)로 확장 시 `main.py` |
+| 19 | (신규, D-포인트비공개) 포인트 수동 조정(관리자 지급·회수) API가 필요한지 | 사용자 요청 | 만들지 않음. 포인트 변경은 payments 내부 호출뿐. **이번 범위 아님**(사용자가 선택하지 않음, 2026-11-04). 만들지 않음 상태 유지 | 공개하면 포인트 임의 증가 위험, 명세는 결제·환불 시점 처리만 정의 | 필요 시 별도 설계(사유·감사 기록 포함) |
 
 현재 코드값 확인(1~7번은 건드리지 않고 상태만 유지): 1번 `Role.OWNER = "OWNER"`(`user.py:8`), 2번 `SignupRequest`에 `business_number` 없음(`schemas.py:7-12`), 3번 `users`에 승인 컬럼 없음(`models.py:13-28`), 4번 `error_handlers.py:33-43`이 400 `VALIDATION_ERROR`, 5번 `login`에 시도 제한 없음(`service.py:80-88`), 6번 `purge_expired_tokens`가 수동 메서드(`service.py:171-174`)이고 호출하는 곳이 없음, 7번 추상 메서드 이름 그대로(`add`, `exists`, `count_by_user`, `delete_expired`). 모두 표의 임시 기본값과 같다.
 
