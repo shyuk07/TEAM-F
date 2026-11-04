@@ -41,6 +41,7 @@
 | 설계 (`docs/design/`만 씀) | `.claude/agents/layer-architect.md` |
 | 구현 (맡은 모듈만 씀) | `.claude/agents/layer-implementer.md` |
 | 계층 규칙 점검 (읽기 전용) | `.claude/agents/layer-checker.md` |
+| 변경 코드 정확성 리뷰 (읽기 전용) | `.claude/agents/layer-reviewer.md` |
 | 실행·보안·머지 전 검증 (읽기 전용) | `.claude/agents/verifier.md` |
 
 ### 실행 아티팩트

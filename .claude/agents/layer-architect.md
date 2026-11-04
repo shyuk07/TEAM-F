@@ -3,6 +3,7 @@ name: layer-architect
 description: 마감 직전(Last Call) 프로젝트의 기능 모듈(auth, stores, catalog, reservations, payments)을 4계층(domain, infrastructure, application, presentation)으로 설계할 때 사용합니다. 도메인 규칙, 엔티티, 테이블, 레포지토리 메서드, 서비스 시나리오, API 명세를 코드 작성 전에 정리하고 설계안을 docs/design/<모듈>.md에 저장합니다. 코드를 직접 수정하지 않습니다.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
+effort: low
 skills:
   - backend-invariants
   - layer-architecture
