@@ -118,7 +118,7 @@ http://127.0.0.1:8001/health/db
 
 ## Claude Code 개발 도구
 
-`.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델로 동작합니다.
+`.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델, 사고 수준(effort) `low`로 동작합니다.
 
 ### 에이전트 (`.claude/agents/`)
 
@@ -127,6 +127,7 @@ http://127.0.0.1:8001/health/db
 | `layer-architect` | 모듈의 도메인 규칙, 테이블, 레포지토리, 서비스, API 명세 설계. 설계안을 `docs/design/<모듈>.md`에 저장 (코드 수정 안 함) |
 | `layer-implementer` | 모듈 하나의 4계층 코드 구현과 검사 |
 | `layer-checker` | 프로젝트 전체 4계층 규칙 점검 (읽기 전용) |
+| `layer-reviewer` | 변경 코드의 정확성 리뷰: 동시성·원자성·불변식·명세 일치·테스트 단언 (읽기 전용) |
 | `verifier` | 서버 실행, smoke·보안 점검 스크립트, 테스트, 머지 전 점검 실행과 결과 보고 (코드 수정 안 함) |
 
 ### 스킬 (`.claude/skills/`)

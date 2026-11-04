@@ -20,12 +20,15 @@
 | 모듈 설계 (엔티티·레포·시나리오·API) | `layer-architect` | `docs/design/<모듈>.md`만 | 모듈이 다르면 가능 |
 | 모듈 구현·수정 | `layer-implementer` | 맡은 모듈, `tests/<모듈>/`, `src/main.py`의 자기 모듈 두 줄, `src/container.py`의 자기 모듈 구역 | 모듈이 다르고 서로 의존이 없을 때만 |
 | 계층 규칙 정성 점검 | `layer-checker` | 없음 (읽기 전용) | 가능 |
+| 변경 코드 정확성 리뷰 | `layer-reviewer` | 없음 (읽기 전용, pytest·서버 실행 안 함) | 가능 |
 | 실행·보안·머지 전 검증 | `verifier` | 없음 (scratchpad만) | 서버 포트가 겹치지 않을 때만 |
 
 선택 순서:
 1. 설계안이 없거나 결정 표에 차단 항목이 남아 있으면 `layer-architect`. 구현자를 부르지 않는다.
 2. 의존 대상 모듈이 비어 있으면 그 모듈부터 진행한다. 동시에 진행해야 하면 포트와 fake로 도메인·서비스까지만 한다.
-3. 구현이 끝나면 `check_layers.py`(자동) + `layer-checker`(정성) → `verifier`(실행) 순으로 점검한다.
+3. 구현이 끝나면 `check_layers.py`(자동) + `layer-checker`(정성) + `layer-reviewer`(정확성) → `verifier`(실행) 순으로 점검한다.
+   - `layer-checker`와 `layer-reviewer`는 읽기 전용이라 함께 돌릴 수 있다. `pytest`를 돌리는 에이전트는 테스트 DB를 같이 쓰므로 한 번에 하나만 돌린다.
+   - 이 저장소의 `.claude/agents/` 밖 에이전트(전역·플러그인)는 쓰지 않는다. 맞는 에이전트가 없으면 사용자에게 묻는다.
 4. **수정자 ≠ 점검자.** 구현한 에이전트에게 자기 결과를 점검시키지 않는다.
 5. 점검에서 결함이 나오면 같은 모듈의 `layer-implementer`에게 결함 원문을 붙여 재발주한다.
 
@@ -82,7 +85,7 @@
 3. 설계 검토     오케스트레이터 ─ git status, 차단·정합·결정 항목 정리 → 사용자 결정
 4. 설계 갱신     결정 반영이 있으면 layer-architect
 5. 구현          layer-implementer ─ 선행 모듈부터, 독립 모듈은 병렬
-6. 점검          check_layers.py + layer-checker
+6. 점검          check_layers.py + layer-checker + layer-reviewer
 7. 검증          verifier (fastapi-run / pre-merge-check)
 8. 보고·커밋     사용자 요청 시에만
 ```

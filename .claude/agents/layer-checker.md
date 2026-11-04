@@ -3,6 +3,7 @@ name: layer-checker
 description: 마감 직전(Last Call) 프로젝트 전체가 4계층 규칙을 지키는지 읽기 전용으로 점검할 때 사용합니다. 폴더·__init__.py 구조, 계층 간 import 방향, 순수 도메인 여부, 레포지토리의 도메인 객체 변환, 서비스·라우터·인증 의존성 책임 분리, 전역 예외 핸들러와 공통 에러 응답 형식을 확인하고 위반 목록을 보고합니다. 코드를 수정하지 않습니다.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: low
 skills:
   - backend-invariants
   - layer-architecture
