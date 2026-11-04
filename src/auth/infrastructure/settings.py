@@ -1,4 +1,5 @@
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -36,3 +37,25 @@ def get_auth_settings() -> AuthSettings:
     if minutes <= 0:
         raise RuntimeError("ACCESS_TOKEN_EXPIRE_MINUTES는 1 이상이어야 합니다.")
     return AuthSettings(secret_key=secret, algorithm=algorithm, access_token_expire_minutes=minutes)
+
+
+@dataclass(frozen=True)
+class AdminSeedSettings:
+    email: str
+    password: str
+
+
+def get_admin_seed_settings(env: Mapping[str, str] | None = None) -> AdminSeedSettings | None:
+    """ADMIN_EMAIL/ADMIN_PASSWORD를 읽는다. 둘 다 없으면 None(건너뜀). 오류 메시지에 값을 넣지 않는다."""
+    if env is None:
+        load_dotenv()
+        env = os.environ
+    email = (env.get("ADMIN_EMAIL") or "").strip()
+    password = env.get("ADMIN_PASSWORD") or ""
+    if not email and not password:
+        return None
+    if not email or not password:
+        raise RuntimeError("ADMIN_EMAIL과 ADMIN_PASSWORD는 함께 설정해야 합니다.")
+    if password.startswith(PLACEHOLDER_PREFIX):
+        raise RuntimeError("ADMIN_PASSWORD가 .env.example의 예시값입니다. 임의의 값으로 바꾸세요.")
+    return AdminSeedSettings(email=email, password=password)

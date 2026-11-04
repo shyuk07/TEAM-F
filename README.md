@@ -56,6 +56,14 @@ Copy-Item .env.example .env
 
 이미 `.env`가 있다면 덮어쓰지 않습니다.
 
+복사한 뒤 `.env`의 `JWT_SECRET_KEY`를 **반드시 임의의 값으로 바꿉니다**(32자 이상). `.env.example`의 예시값(`change-me...`)을 그대로 두면 서버가 시작하지 않습니다. 임의의 값은 다음 명령으로 만들 수 있습니다.
+
+```powershell
+uv run python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+관리자 계정이 필요하면 `.env`에 `ADMIN_EMAIL`과 `ADMIN_PASSWORD`를 함께 설정합니다(선택). 서버 시작 시 관리자가 없으면 만들어집니다. 자세한 규칙은 `docs/reference/auth.md`의 "관리자 계정 생성"을 봅니다.
+
 ### 4. PostgreSQL 실행
 
 Docker Desktop을 켜고 실행합니다.

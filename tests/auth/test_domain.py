@@ -162,3 +162,16 @@ def test_user_not_found_error_is_lookup_error():
     assert issubclass(UserNotFoundError, LookupError)
     assert str(UserNotFoundError()) == "회원을 찾을 수 없습니다."
     assert str(UserNotFoundError("x")) == "x"
+
+
+def test_register_admin():
+    u = User.register_admin(email="  Admin@B.Com ", password_hash="h", name="관리자")
+    assert u.role is Role.ADMIN and u.users_point == 0 and u.name == "관리자"
+    assert u.email == "admin@b.com" and u.created_at.tzinfo is not None and u.id is None
+
+
+def test_signup_still_rejects_admin():
+    with pytest.raises(ValueError, match="관리자"):
+        User.register(email="a@b.com", password_hash="h", role="ADMIN")
+    with pytest.raises(ValueError, match="관리자"):
+        Role.for_signup("ADMIN")

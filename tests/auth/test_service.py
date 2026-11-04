@@ -58,6 +58,7 @@ class FakeUsers(UserRepository):
     def __init__(self, race=False):
         self.items = {}
         self.race = race
+        self.race_row = None  # 경쟁 시 저장 실패 뒤에 보이게 되는 다른 요청의 행
 
     async def find_by_id(self, user_id, for_update=False):
         return self.items.get(user_id)
@@ -70,6 +71,8 @@ class FakeUsers(UserRepository):
 
     async def save(self, user):
         if self.race:
+            if self.race_row is not None:
+                self.items[self.race_row.id] = self.race_row
             raise EmailDuplicatedError()
         if user.id is None:
             user.id = uuid.uuid4()
@@ -234,3 +237,72 @@ async def test_missing_user_raises_user_not_found_error():
         await svc.earn_points(uuid.uuid4(), 100)
     with pytest.raises(UserNotFoundError, match="회원을 찾을 수 없습니다."):
         await svc.get_user(uuid.uuid4())
+
+
+# ── ensure_admin (T-S1~S5) ──
+def seeded(svc, parts, role="CUSTOMER", email="admin@b.com"):
+    u = User(email=email, password_hash="h", role=Role(role))
+    u.id = uuid.uuid4()
+    parts["users"].items[u.id] = u
+    return u
+
+
+async def test_ensure_admin_creates():
+    svc, db, parts = build()
+    user, created = await svc.ensure_admin("Admin@B.com", "password1", name="관리자")
+    assert created is True and user.role is Role.ADMIN and user.email == "admin@b.com"
+    assert user.id in parts["users"].items
+    assert parts["hasher"].hash_calls == 1 and db.commits == 1
+
+
+async def test_ensure_admin_existing_admin_is_noop():
+    svc, db, parts = build()
+    existing = seeded(svc, parts, "ADMIN")
+    user, created = await svc.ensure_admin("admin@b.com", "another-password")
+    assert created is False and user is existing
+    assert parts["hasher"].hash_calls == 0 and db.commits == 0
+    assert existing.password_hash == "h"
+
+
+async def test_ensure_admin_does_not_promote_non_admin():
+    svc, db, parts = build()
+    existing = seeded(svc, parts, "CUSTOMER")
+    with pytest.raises(EmailDuplicatedError):
+        await svc.ensure_admin("admin@b.com", "password1")
+    assert existing.role is Role.CUSTOMER and db.commits == 0
+
+
+@pytest.mark.parametrize("pw", ["short", "        ", ""])
+async def test_ensure_admin_weak_password_rejected_before_lookup(pw):
+    svc, db, parts = build()
+    seeded(svc, parts, "ADMIN")
+    with pytest.raises(ValueError):
+        await svc.ensure_admin("admin@b.com", pw)
+    assert parts["hasher"].hash_calls == 0 and db.commits == 0
+
+
+async def test_ensure_admin_race_other_is_admin():
+    svc, db, parts = build(race=True)
+    other = User(email="admin@b.com", password_hash="h", role=Role.ADMIN)
+    other.id = uuid.uuid4()
+    parts["users"].race_row = other
+    user, created = await svc.ensure_admin("admin@b.com", "password1")
+    assert created is False and user is other
+    assert db.rollbacks == 1 and db.commits == 0
+
+
+async def test_ensure_admin_race_other_is_customer():
+    svc, db, parts = build(race=True)
+    other = User(email="admin@b.com", password_hash="h", role=Role.CUSTOMER)
+    other.id = uuid.uuid4()
+    parts["users"].race_row = other
+    with pytest.raises(EmailDuplicatedError):
+        await svc.ensure_admin("admin@b.com", "password1")
+    assert db.rollbacks == 1
+
+
+async def test_ensure_admin_race_without_row_reraises():
+    svc, db, _ = build(race=True)
+    with pytest.raises(EmailDuplicatedError):
+        await svc.ensure_admin("admin@b.com", "password1")
+    assert db.rollbacks == 1

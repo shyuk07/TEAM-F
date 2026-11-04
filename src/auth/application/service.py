@@ -80,6 +80,34 @@ class AuthApplicationService:
         await self.session.commit()
         return user
 
+    async def ensure_admin(
+        self, email: str, password: str, name: str | None = None
+    ) -> tuple[User, bool]:
+        """관리자를 보장한다. (user, 새로 만들었는지). 기존 계정은 승격·비밀번호 갱신을 하지 않는다."""
+        User.validate_raw_password(password)
+        existing = await self.users.find_by_email(User.normalize_email(email))
+        if existing is not None:
+            return self._existing_admin(existing), False
+        admin = User.register_admin(
+            email=email, password_hash=self.hasher.hash(password), name=name
+        )
+        try:
+            await self.users.save(admin)
+        except EmailDuplicatedError:
+            await self.session.rollback()
+            existing = await self.users.find_by_email(admin.email)
+            if existing is None:
+                raise
+            return self._existing_admin(existing), False
+        await self.session.commit()
+        return admin, True
+
+    @staticmethod
+    def _existing_admin(user: User) -> User:
+        if not user.has_role(Role.ADMIN):
+            raise EmailDuplicatedError("같은 이메일의 관리자가 아닌 계정이 있어 관리자를 만들 수 없습니다.")
+        return user
+
     async def login(self, email: str, password: str) -> str:
         user = await self.users.find_by_email(User.normalize_email(email))
         if user is None:
