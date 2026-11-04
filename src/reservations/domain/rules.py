@@ -1,0 +1,13 @@
+"""바뀔 수 있는 임시 기본값 모음 (설계 1.7절, Q-1~Q-16). 확정이 아니라 제안값이다."""
+
+from datetime import timedelta
+
+PAYMENT_TIMEOUT: timedelta | None = None  # Q-2: 결제 제한 시간 없음
+PICKUP_WINDOW_ENFORCED = False  # Q-5: 픽업 시간 밖에서도 처리 가능
+ALLOW_OWNER_SELF_RESERVATION = True  # Q-3: 상점주 자기 매장 예약 허용
+PICKUP_CODE_CASE_SENSITIVE = False  # Q-4
+PICKUP_CODE_LETTERS = 1  # Q-4: 예) A12345
+PICKUP_CODE_DIGITS = 5
+CUSTOMER_CANCEL_REASON = "고객 요청 취소"  # Q-7
+LIST_DEFAULT_SIZE = 20  # Q-9
+LIST_MAX_SIZE = 100

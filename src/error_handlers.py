@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from auth.domain.exceptions import AuthenticationError, EmailDuplicatedError
+from reservations.domain.exceptions import ReservationConflictError
 
 _HTTP_CODES = {
     401: "UNAUTHORIZED",
@@ -28,6 +29,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(EmailDuplicatedError)
     async def email_duplicated(request: Request, exc: EmailDuplicatedError):
+        return _response(409, exc.error_code, str(exc))
+
+    @app.exception_handler(ReservationConflictError)
+    async def reservation_conflict(request: Request, exc: ReservationConflictError):
         return _response(409, exc.error_code, str(exc))
 
     @app.exception_handler(RequestValidationError)

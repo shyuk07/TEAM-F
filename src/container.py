@@ -40,6 +40,21 @@ from catalog.presentation.dependencies import (
     provide_store_port,
 )
 from database import get_db
+from reservations.application.interim_stock_port import ReadOnlyOfferStockPort
+from reservations.application.lifecycle_service import ReservationLifecycleService
+from reservations.application.ports import RefundPort, StockPort
+from reservations.application.service import ReservationApplicationService
+from reservations.domain.repository import ReservationRepository
+from reservations.domain.service import Clock as ReservationsClock
+from reservations.domain.service import PickupCodeGenerator
+from reservations.infrastructure.clock import SystemClock as ReservationsSystemClock
+from reservations.infrastructure.payment_refund_stub import NoPaymentRefund
+from reservations.infrastructure.pickup_code import SecretsPickupCodeGenerator
+from reservations.infrastructure.repositories import SqlAlchemyReservationRepository
+from reservations.presentation.dependencies import (
+    provide_reservation_lifecycle_service,
+    provide_reservation_service,
+)
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
 from stores.domain.service import Clock as StoresClock
@@ -54,6 +69,9 @@ _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
 _reservation_lookup: ReservationLookupPort = NoReservationLookup()  # 임시 (CI-10)
 _reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI-11)
+_reservations_clock: ReservationsClock = ReservationsSystemClock()
+_pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
+_payment_refund: RefundPort = NoPaymentRefund()  # 임시 (D-15, C-4)
 
 
 # ── auth ─────────────────────────────
@@ -149,6 +167,52 @@ def create_catalog_service(
     )
 
 
+# ── reservations ─────────────────────
+def create_reservation_repository(session: AsyncSession = Depends(get_db)) -> ReservationRepository:
+    return SqlAlchemyReservationRepository(session)
+
+
+def create_stock_port(
+    offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
+    products: ProductRepository = Depends(create_product_repository),
+    stores: StorePort = Depends(create_store_port),
+) -> StockPort:
+    # 임시 읽기 전용 구현 (D-25). catalog의 재고 서비스(C-1)가 생기면 교체한다.
+    return ReadOnlyOfferStockPort(offers=offers, products=products, stores=stores)
+
+
+def create_refund_port() -> RefundPort:
+    return _payment_refund
+
+
+def create_reservation_lifecycle_service(
+    session: AsyncSession = Depends(get_db),
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+    stock: StockPort = Depends(create_stock_port),
+) -> ReservationLifecycleService:
+    return ReservationLifecycleService(
+        session=session, reservations=reservations, stock=stock, clock=_reservations_clock
+    )
+
+
+def create_reservation_service(
+    session: AsyncSession = Depends(get_db),
+    lifecycle: ReservationLifecycleService = Depends(create_reservation_lifecycle_service),
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+    stock: StockPort = Depends(create_stock_port),
+    refunds: RefundPort = Depends(create_refund_port),
+) -> ReservationApplicationService:
+    return ReservationApplicationService(
+        session=session,
+        lifecycle=lifecycle,
+        reservations=reservations,
+        stock=stock,
+        refunds=refunds,
+        clock=_reservations_clock,
+        code_generator=_pickup_code_generator,
+    )
+
+
 def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
@@ -159,5 +223,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_catalog_service: create_catalog_service,
             provide_reservation_lookup: create_reservation_lookup,
             provide_reservation_cancel: create_reservation_cancel,
+            provide_reservation_service: create_reservation_service,
+            provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
         }
     )
