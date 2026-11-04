@@ -202,10 +202,11 @@ async def test_t8_non_bearer_scheme(client, env):
     assert env.service.calls == 0
 
 
-@pytest.mark.parametrize("value", ["Bearer", "Bearer "])
-async def test_t9_bearer_without_token(client, value):
+@pytest.mark.parametrize("value", ["Bearer", "Bearer ", "Bearer   ", "Bearer\ttok"])
+async def test_t9_bearer_without_token(client, env, value):
     r = await client.get("/probe", headers={"Authorization": value})
     assert_401(r, "UNAUTHORIZED", "로그인이 필요합니다.")
+    assert env.service.calls == 0
 
 
 async def test_t10_lowercase_scheme(client, env):
