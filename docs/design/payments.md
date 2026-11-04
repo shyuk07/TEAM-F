@@ -710,3 +710,283 @@ payments 모듈 안에서만 영향이 있는 항목은 담당자가 확정했�
 | | `schemas.py`, `router.py` | 4개 엔드포인트, `/v1`, try/except 제거 |
 | 모듈 밖 | `src/error_handlers.py` | 409 핸들러 한 줄 |
 | tests | `tests/payments/{fakes.py, test_domain.py, test_service.py, test_api.py, test_api_db.py}` | 기존 `test_payments_api.py` 대체 |
+
+---
+
+## 9. 2차 작업 분석 (2026-11-04)
+
+- 기준: 브랜치 `feature/payments` (1차 구현 7b9257a, 테스트 의존성 수정 1a58af9, Store·Catalog는 main에 머지됨).
+- 이 절은 분석이며 코드는 바꾸지 않았습니다. 1~8절과 8.1·8.2절의 결정 기록은 그대로 두었고, 8.1·8.2절이 확정 기준입니다.
+- **번호 규칙**: 새 결정 항목은 D-21부터, 새 정합 이슈는 C-6부터(C-1~C-5는 4.2.3절 동시성 지점이 이미 사용 중), 새 차단·확인 항목은 B-9부터, 기존 문서 갱신 항목은 U-번호입니다.
+- 이 절의 "제안"과 "임시 기본값"은 확정이 아닙니다. 확정된 것은 8.1·8.2절뿐입니다.
+
+### 9.0 확인한 사실 (실행 결과)
+
+| # | 확인 | 명령 / 위치 | 결과 |
+| --- | --- | --- | --- |
+| B-9 | 현재 코드가 불러와지는지 | `(cd src && uv run python -c "import main")` | `import main OK` |
+| B-10 | 계층 규칙 | `python .claude/skills/layer-check/check_layers.py` | **위반 2건**: `payments/application/service.py:19`, `:20`에서 `payments.infrastructure`를 import (`[의존방향]`, R2). 1차 설계 B-4의 4건 중 2건이 남음. 경고 3건은 `error_handlers.py` 광역 예외(모듈 밖, 기존) |
+| B-11 | DB 없는 테스트 | `uv run pytest -m "not db" -q -rs` | `329 passed, 90 deselected` (전 모듈 합계) |
+| B-12 | DB 테스트 | **실행하지 않음** | `tests/conftest.py:51`의 fixture가 `drop_all`을 하므로 이 작업 범위(읽기 전용)에서 제외. 호스트 5433 포트는 열려 있음(소켓 연결 확인) |
+| B-13 | 개발 DB `lastcall` 현재 모양(읽기 전용 트랜잭션으로 `information_schema` 조회만) | `asyncpg` 읽기 전용 조회 | 테이블은 `payments, point_log, refunds, token_blacklist, users` 5개뿐(stores·catalog 테이블은 아직 없음, 서버를 다시 켜면 `create_all`이 추가). `payments`는 1차 모양: 컬럼 `id, reservation_id, user_id(NOT NULL), amount(NOT NULL), status varchar(NOT NULL), paid_at`, **`ix_payments_reservation_id`와 `ix_refunds_payment_id`가 UNIQUE 인덱스**, `ix_payments_user_id`. `provider_payment_id`·`created_at`·`failed_*`·`refunds.created_at`·`refund_reason` 컬럼 없음 |
+| B-14 | 예약 모듈 | `wc -c src/reservations/**/*.py` | **모든 `.py`가 0바이트**(폴더만 있음). `docs/design/reservations.md`도 없음 |
+| B-15 | catalog 서비스가 예약에 쓸 재고 메서드를 제공하는지 | `grep "async def" src/catalog/application/service.py` | 공개 메서드에 `deduct_stock`/`restore_stock`이 **없음**(`adjust_stock`은 상점주용 수동 조정). `docs/design/catalog.md` 6.4절 "후속"에 "reservations 설계 때 확정"이라고만 적혀 있음 |
+| B-16 | 새 의존성 | 1차 설계 B-2와 같음 | 추가 없음. JWT 인증은 auth의 `CurrentUser`를 import만 하면 됨(`python-multipart` 불필요) |
+
+### 9.1 Store·Catalog·Auth와 결제 1차 구조 비교 (분석 1)
+
+| 항목 | Auth / Stores / Catalog (정본: `layer-architecture` §5~6) | 결제 1차 | 차이와 영향 |
+| --- | --- | --- | --- |
+| 추상 레포지토리 | domain에 ABC (`stores/domain/repository.py:8` `StoreRepository(ABC)`, `catalog/domain/repository/*`, `auth/domain/repository/*`). 구현체는 `SqlAlchemy*Repository`(infrastructure) | domain에 추상 없음. infrastructure에 구체 클래스 `PaymentRepository`, `RefundRepository`(`infrastructure/repositories.py:23,84`) | R8 위반. 이름도 `SqlAlchemy*`가 아님 |
+| 서비스 생성자 | 추상만 받고 **전부 필수**, 기본 생성 없음 (`create_catalog_service`가 모든 인자를 주입, `container.py:131-149`) | `payments or PaymentRepository(db)`, `gateway or MockPaymentGateway()` 등 기본 생성(`service.py:36-39`) | R8 위반. `service.py:19-20`이 layer-check 위반 2건의 원인 |
+| 세션 | 서비스가 `session` 키워드로 받음 | 첫 위치 인자 `db` | 이름만 다름. 호출 코드가 바뀌므로 정리 권장 |
+| 기술 의존 기능 | 해셔·토큰·시계는 domain `service.py`의 ABC + infrastructure 구현(`stores/infrastructure/clock.py`, `catalog/infrastructure/clock.py`) | `PaymentGateway`는 `application/ports.py`의 Protocol, 시각은 `datetime.now(UTC)`를 서비스와 도메인에서 직접 호출(`service.py:120`) | 위약금 규칙이 시간 기반으로 바뀌면 테스트에서 시각을 고정해야 하므로 `Clock` 추상(domain) 도입 권장. `PaymentGateway`는 기술 의존이라 R8상 domain ABC가 맞음(제안, 확인 필요) |
+| 다른 모듈 연결 | **쓰는 쪽이 포트를 정의**: `catalog/application/ports.py`의 `StorePort`·`ReservationLookupPort`·`ReservationCancelPort`(Protocol). container가 `create_store_port(stores_service)`처럼 상대 서비스나 임시 구현을 돌려줌(`container.py:117-128`) | `application/ports.py`에 `ReservationPort`·`PaymentGateway`(Protocol)가 있어 방향은 같음. 포인트는 포트 없이 미구현(`service.py:44` TODO) | 포인트용 포트(`PointPort`)를 같은 방식으로 정의하고 container가 `AuthApplicationService`를 주입 |
+| 임시 구현 위치 | catalog의 임시 포트는 **infrastructure**(`catalog/infrastructure/reservation_cancel.py`, `reservation_lookup.py`), 구조적 타이핑, container 싱글턴(`container.py:55-56`) | 임시 예약은 **application**(`application/reservation_stub.py`)에 모듈 전역 dict | 둘 다 layer-check는 통과하지만 위치가 다름. 팀 규칙에 맞추면 infrastructure로 이동(또는 container 소유) |
+| 플레이스홀더 | `presentation/dependencies.py`에 `provide_*`(`catalog/presentation/dependencies.py:17-34`, `stores/...:5-12`, `auth/...:13-15`) | `get_payment_service`가 `Depends(get_db)`로 서비스를 **직접 만듦**(`dependencies.py:29-34`), `provide_*` 없음 | R9 위반(`provide_*`가 없고 `wire_dependencies`에 없음). `tests/test_container.py`·`tests/*/test_wiring.py` 같은 배선 테스트 대상이 아님 |
+| 인증 | `auth.presentation.dependencies`의 `CurrentUser`/`OwnerUser` 별칭 (`catalog` router) | 헤더 `X-User-Id`/`X-User-Role`로 흉내(`dependencies.py:17-26`), 자체 `CurrentUser`/`UserRole`(`ports.py:19-28`) | JWT로 교체 필요(9.5절) |
+| 라우터 | `APIRouter(prefix="/v1")`, try/except 없음 | `prefix="/api/v1"`(`router.py:13`), `PaymentConflictError`를 `HTTPException(409)`로 변환(`router.py:30-33`) | R6·R7·R15 위반. 409 응답이 `error_code: "CONFLICT"`로 나가 `PAYMENT_ALREADY_EXISTS`가 아님 |
+| 예외 | 모듈 전용 도메인 예외, 409는 `Exception` 상속 + `error_handlers.py` 한 줄(auth `EmailDuplicatedError`) | 도메인 예외 구조는 맞음(`domain/exceptions.py`). 409 핸들러만 없음 | `error_handlers.py` 한 줄 추가가 필요(모듈 밖) |
+| container | auth·stores·catalog 구역과 `wire_dependencies` 매핑 있음(`container.py:59-163`) | **payments 구역·매핑 없음** | 9.6절 |
+| main.py | 모듈마다 models import + router 등록 | payments도 models import(`main.py:13`)와 router 등록(`:43`)이 이미 있음 | 변경 불필요(확인함). 단 순서·주석 정리는 오케스트레이터 |
+| 모델 | `id`에 `default=uuid.uuid4, server_default=gen_random_uuid()`, `schema.sql` 일치 | `id`에 default 없음, 레포가 `uuid.uuid4()` 생성(`repositories.py:49`), schema 불일치 | 9.7절 |
+| 테스트 | fake 주입 서비스 테스트 + `test_wiring.py` + `*_api_db.py` | fake 서비스 테스트는 있음(`tests/payments/{fakes,test_domain,test_service,test_payments_api}.py`), 배선 테스트·DB 테스트 없음 | 9.12절 |
+
+잘 맞는 점(유지): 도메인 예외 계층(400/403/404/409 구분), `Payment`·`Refund` 도메인 메서드와 전이, 락 순서 주석, `commit()`이 서비스에만 있음(`service.py:71,130`), 레포가 도메인 객체만 반환.
+
+### 9.2 설계안·명세와 현재 코드의 불일치 (분석 2)
+
+기존 1~8절은 지우지 않고, 아래 항목을 "갱신 필요"로 기록합니다. 어긋날 때 우선순위는 8.1·8.2절 > 이 절 > 1~7절입니다.
+
+| # | 위치 | 내용 | 갱신 필요점 |
+| --- | --- | --- | --- |
+| U-1 | 5.3절, 4.3절 서비스 시그니처, 6.3절 | `get_payment_service(db)`가 서비스를 만들고, 서비스가 레포지토리·게이트웨이 기본값을 만들며, `ReservationAdapter`를 application 계층에 둔다고 적음 | `layer-architecture` §5~6과 실제 auth·stores·catalog 코드는 **추상 필수 주입 + `provide_*` + container**. 이 절 9.6이 대체 |
+| U-2 | 0절 B-4~B-7 | 위반 4건, 73 passed, 예약·카탈로그·상점이 모두 0바이트라고 적음 | 현재는 위반 2건, 329 passed(전 모듈), catalog·stores는 구현됨, **reservations만 0바이트**(B-10, B-11, B-14) |
+| U-3 | 4.1.2 `Payment` 속성, 4.3.1 `Payment.request(reservation_id, total_price, use_point, now)` | `user_id` 없음, `use_point` 있음 | 코드는 `request(reservation_id, user_id, total_price)`(`payment.py:75-94`)이고 `use_point` 없음. 8.2절(S-1 추가 방향) 때문에 `user_id`가 도메인에 있는 쪽이 맞음. 설계의 시그니처를 코드에 맞춰 `use_point` 추가만 하면 됨 |
+| U-4 | 4.2.2 레포 메서드 | `find_active_by_reservation`, `find_paid_by_reservation` | 코드는 `find_by_reservation_id` 하나(`repositories.py:36`). S-2(부분 UNIQUE)를 반영할 때 두 메서드로 나눔 |
+| U-5 | 4.3.1 7단계(결제 실패 시 `FAILED` 저장) | 설계는 `FAILED`를 저장 | 1차는 저장하지 않고 rollback 후 400(`service.py:56-62`). `reservation_id` UNIQUE 때문. D-11로 운영 경로에서는 실패가 나지 않음. → D-23 |
+| U-6 | 5.2절 `RefundResponse`가 POST·GET 공용(`completed_at` 포함) | 8.1절 D-13이 **POST 응답에서 `completed_at` 제외**로 확정 | 스키마 2개로 분리: `RefundCreatedResponse`(id, payment_id, refund_amount, penalty_amount, status), `RefundResponse`(+`completed_at`). 현재 `schemas.py:33-42`는 둘 다 아니고 `reason`까지 포함 |
+| U-7 | 5.1절·`docs/reference/payments.md:53-61` | 결제 요청 에러 표에 403이 없음 | D-12(403 확정)에 따라 명세에 403 추가 필요(`docs/reference/**`는 오케스트레이터가 사용자 승인 후 수정). 같은 문서의 `use_point`(1절 확인 필요)도 요청 본문 표에 아직 없음 |
+| U-8 | 5.1절 "422 대신 400" | `docs/reference/payments.md`의 422 | D-17 이견 없음 → 명세의 422를 400 `VALIDATION_ERROR`로 고치는 것은 reference 쪽 갱신 |
+| U-9 | 6.4절 #1~#17 | "예약 없이 가능/불가" 표 | 이 절 9.3·9.4가 현재 코드 기준으로 대체 |
+| U-10 | 6.1절 R-3, R-4, R-7 (호출 방향) | payments가 `refund_for_cancelled_reservation`을 노출하고 reservations·catalog가 호출 | catalog는 이미 **자기 포트** `ReservationCancelPort`를 정의함(`catalog/application/ports.py:32-41`). 연결 경로는 catalog → reservations(어댑터) → payments가 되므로 C-7, C-8로 정리 |
+
+### 9.3 예약 모듈 없이 지금 구현할 수 있는 것 (분석 3)
+
+현재 `ReservationPort`는 임시 메모리 구현(`application/reservation_stub.py`)으로 채워져 있어 아래는 예약 모듈이 없어도 됩니다.
+
+| # | 작업 | 필요한 것 | 비고 |
+| --- | --- | --- | --- |
+| 1 | `payments/domain`에 추상 레포지토리 `PaymentRepository`/`RefundRepository`(ABC), `PaymentGateway`(ABC), `Clock`(ABC) 추가 | 없음 | R8. 파일: `domain/repository/{payment_repository,refund_repository}.py` 또는 `domain/repository.py`(stores 방식) |
+| 2 | infrastructure 구현체 이름 변경 `SqlAlchemy*Repository`, 서비스 기본 생성 제거, `service.py:19-20` import 제거 | 없음 | layer-check 위반 2건 해소 |
+| 3 | `presentation/dependencies.py`에 `provide_payment_service`, `container.py`에 payments 구역, `wire_dependencies` 매핑 | container 구역은 payments 담당이 수정 가능(오케스트레이션 §4) | 9.6절 |
+| 4 | JWT 인증 교체(`CurrentUser`), `/v1` 접두사 | auth는 main에 있음 | 9.5절 |
+| 5 | 환불 요청 API `POST /v1/payments/{payment_id}/refunds` | 서비스 `refund()`는 1차에 이미 있음 | 예약 `CANCELLED` 처리(D-6)는 호출하지 않는 상태로 시작 |
+| 6 | 409 핸들러 | `error_handlers.py` 한 줄(모듈 밖 승인) | 승인 전에는 router 변환 유지 |
+| 7 | 포인트 `USE/EARN/RESTORE/REVOKE` (`use_point`) | auth 서비스에 `commit=False` 메서드가 이미 있음(`auth/application/service.py:134-169`). `use_points`는 100P 단위·잔액 검증이 `User.use_points`에 있음(`user.py:122-128`) | D-10 일부 합의(추가 방향). 단위·적립률은 미정이라 임시 100P·1%를 `rules.py`에 모음 |
+| 8 | 모델 정렬(컬럼 추가, 제약, `server_default`), 레포 매핑 | 개발 DB 반영 방식 결정(D-24) | 9.7절 |
+| 9 | `payments.user_id`(S-1) 기반 조회 API 본인 확인 | `schema.sql`·`SKILL.md` 반영(`.claude/**`는 오케스트레이터) | 조회 2개가 예약 의존 없이 동작 |
+| 10 | DB 테스트(`tests/payments/test_api_db.py`) | 로컬 PostgreSQL, 예약은 fake 포트 override | `reservation_id`는 FK 없이 임의 UUID로 가능 |
+| 11 | 배선 테스트 `tests/payments/test_wiring.py` | 없음 | catalog·stores 방식 |
+| 12 | 위약금 정책 클래스 교체 구조 | 없음 | 규칙은 미정이라 `FullRefundPolicy`(0원) 유지 |
+
+### 9.4 예약 담당자 구현이 있어야 진행되는 것 (분석 3, 7)
+
+| # | 작업 | 막는 것 |
+| --- | --- | --- |
+| 1 | 실제 `ReservationPort` 구현(`get`, `mark_paid`, `cancel_for_refund`) | `reservations/**` 0바이트(B-14) |
+| 2 | `payments.reservation_id → pickup_reservations.id` FK | `PickupReservationModel` 없음. FK를 먼저 쓰면 `create_all`이 실패(`main.py`에 reservations models import도 필요) |
+| 3 | 결제·환불 시 예약 행 `FOR UPDATE`(C-1, C-4, C-5) | 예약 레포의 잠금 조회 |
+| 4 | 예약 취소 → 환불 자동 호출(D-6, R-3) | reservations 취소 서비스 |
+| 5 | 환불 API가 예약을 `CANCELLED`로 바꾸고 재고 복구(D-6, R-4) | 예약 취소 메서드 + catalog 재고 복구 메서드(B-15) |
+| 6 | 상점주 판매 중단 일괄 환불(D-16, R-7) | catalog `ReservationCancelPort` 실제 구현(C-8). 현재는 `NoReservationCancel`이 0을 돌려줌(`catalog/infrastructure/reservation_cancel.py`, `container.py:56`) |
+| 7 | 위약금 계산용 `pickup_start`(또는 `cancellable_until`) | `pickup_reservations`에 픽업 시각 컬럼이 없음(`schema.sql:91-107`). 예약이 offer를 거쳐 채워야 함(C-10) |
+| 8 | 교차 모듈 DB 테스트, 계약 테스트(7.6절) | 위 전부 |
+
+### 9.5 JWT 인증, `/v1` API 4개, 환불 요청 API에 필요한 변경 (분석 4)
+
+| 파일 | 변경 | 근거 |
+| --- | --- | --- |
+| `payments/presentation/router.py` | `prefix="/api/v1"` → `"/v1"`(`:13`). `create_payment`의 `try/except HTTPException` 제거(`:30-33`). `UserDep`를 `from auth.presentation.dependencies import CurrentUser`로 교체. 서비스 호출은 `user.id`를 넘김 | R6, R7, 명세 URI |
+| 같은 파일 | 엔드포인트 추가: `POST /payments/{payment_id}/refunds`, 요청 `RefundCreateRequest`, 응답 `RefundCreatedResponse`, 상태 201, `service.refund(user.id, payment_id, body.reason)` | 명세 3절, D-13 |
+| `payments/presentation/schemas.py` | `PaymentCreate`에 `use_point: int = Field(0, ge=0)`(D-10 일부 합의), `RefundCreate` 이름은 유지 가능, `RefundCreatedResponse`(completed_at 제외) 추가, `RefundResponse`에서 `reason` 제거(`:40`) | 명세 3·4절, D-13, V-18 |
+| `payments/presentation/dependencies.py` | `get_current_user`, `get_payment_service` 삭제하고 `provide_payment_service()` 플레이스홀더만 둠 | R9 |
+| `payments/application/ports.py` | 자체 `UserRole`·`CurrentUser` 삭제(`:17-28`). `ReservationPort`에 `cancel_for_refund` 추가(D-6 확정 뒤), `PointPort` 추가 | V-9 |
+| `payments/application/service.py` | `pay(user_id, reservation_id, use_point=0)`에 포인트 사용·적립 추가, `refund()` 유지(락 순서·검사 순서 그대로). 환불 시 `RESTORE`/`REVOKE` 처리 추가 | 1.2절 포인트 정책, 4.3.3 |
+| `src/error_handlers.py` (**모듈 밖**) | `@app.exception_handler(PaymentConflictError)` 409 한 줄. 지금은 409가 `HTTP_ERROR`가 아니라 `CONFLICT`로 나감(`error_handlers.py:8-13`, `router.py:21`) | R7, D-17 |
+| `tests/payments/test_payments_api.py` | `X-User-Id`/`/api/v1`을 쓰는 16개 테스트를 모두 다시 작성. 인증은 `app.dependency_overrides[auth.presentation.dependencies.get_current_user] = lambda: User(...)`, 서비스는 `provide_payment_service` override. 401 테스트(토큰 없음) 추가 | testing.md |
+
+역할 제한 없음(사용자 결정)이므로 `CustomerUser`가 아니라 `CurrentUser`를 씁니다. 소유권 확인은 계속 도메인 메서드(`ReservationSnapshot.ensure_*`)가 하며 의존성에서 하지 않습니다.
+
+### 9.6 container.py·main.py에 결제 모듈 연결 (분석 5)
+
+**main.py (확인 결과)**: `main.py:13-14`에 `payments.infrastructure.models` import와 `payments_router` import가 있고, `main.py:43`에서 `app.include_router(payments_router)`를 이미 호출합니다. `wire_dependencies(app)`는 `:38`에서 라우터 등록 전에 호출됩니다. 1차 연결은 끝났으므로 **추가 수정은 없습니다**. 다만 아래 두 경우에는 `main.py`를 건드려야 합니다(오케스트레이터와 조정).
+- 예약 구현 시: `reservations.infrastructure.models` import를 `payments` import **앞**으로(FK 대상이 먼저 등록돼야 하므로). 지금 payments import는 stores·catalog보다 앞에 있어, FK를 `ForeignKey("pickup_reservations.id")`로 바꾸는 시점에 순서를 정리해야 합니다.
+- `payments.user_id` FK(`users.id`)는 auth가 맨 위에 import돼 있어 문제없습니다.
+
+**container.py (추가할 구역, 제안)**: 아래는 1차 구조를 catalog 패턴으로 옮긴 모양입니다. 구현은 `layer-implementer`가 합니다.
+
+```python
+# ── payments ─────────────────────────
+_payment_gateway: PaymentGateway = MockPaymentGateway()     # 상태 없는 유틸은 싱글턴
+_payments_clock: PaymentsClock = PaymentsSystemClock()
+_reservation_port: ReservationPort = InMemoryReservationPort()  # 임시 (C-7), 예약 구현 시 어댑터로 교체
+
+def create_payment_repository(session=Depends(get_db)) -> PaymentRepository: return SqlAlchemyPaymentRepository(session)
+def create_refund_repository(session=Depends(get_db)) -> RefundRepository: return SqlAlchemyRefundRepository(session)
+def create_point_port(auth: AuthApplicationService = Depends(create_auth_service)) -> PointPort: return auth
+def create_reservation_port() -> ReservationPort: return _reservation_port
+def create_payment_service(session=Depends(get_db), payments=Depends(create_payment_repository),
+        refunds=Depends(create_refund_repository), reservations=Depends(create_reservation_port),
+        points=Depends(create_point_port)) -> PaymentApplicationService:
+    return PaymentApplicationService(session=session, payments=payments, refunds=refunds, reservations=reservations,
+        points=points, gateway=_payment_gateway, policy=DEFAULT_CANCELLATION_POLICY, clock=_payments_clock)
+```
+
+`wire_dependencies`에 `provide_payment_service: create_payment_service`(필요하면 `provide_reservation_port` 등 포트용 `provide_*`)를 추가합니다.
+
+- Auth 연결은 catalog가 stores를 연결한 방식(`create_store_port`가 `stores_service`를 돌려줌, `container.py:117-120`)과 같습니다. payments가 쓰는 메서드(`use_points`, `earn_points`, `restore_points`, `revoke_points`)만 `PointPort`에 선언해 R10을 지킵니다.
+- `PointPort`를 쓰면 `payments`는 `auth.application`을 import하지 않습니다(R11). 반환 타입이 `User`·`int`로 다르므로 포트에는 payments가 쓰는 시그니처만 적습니다.
+- `tests/test_container.py:14`의 `DEPENDENCY_MODULES`는 stores·auth만 있고 catalog도 빠져 있습니다(catalog는 `tests/catalog/test_wiring.py`가 따로 검사). payments는 `tests/payments/test_wiring.py`를 만들어 같은 방식으로 검사합니다(`tests/test_container.py`는 모듈 밖 파일이라 오케스트레이터 승인).
+- container 수정 범위: 오케스트레이션 §4에 따라 payments 구현자는 **자기 구역(`── payments ──`)과 `wire_dependencies` 매핑만** 수정합니다. 예약과의 모듈 간 연결(C-7)은 오케스트레이터가 조정합니다.
+
+### 9.7 models.py와 schema.sql의 차이, 실제 DB 테스트 준비 (분석 6)
+
+| # | 항목 | 현재 `models.py` | `schema.sql` (R14 기준) | 조치 |
+| --- | --- | --- | --- | --- |
+| 1 | `payments.user_id` | `UUID NOT NULL`, 인덱스, FK 없음(`models.py:18`) | 없음 | S-1(8.2절 추가 방향 합의). `schema.sql`·`SKILL.md`에 `user_id UUID NOT NULL REFERENCES users(id)` 반영 후 모델에 FK 추가. **그 전까지 R14 불일치** |
+| 2 | `payments.reservation_id` | `unique=True, index=True`, FK 없음 | NOT NULL, FK→`pickup_reservations`, 일반 인덱스 | UNIQUE 제거 + S-2 부분 UNIQUE(`WHERE status <> 'FAILED'`)로 대체(D-23). FK는 예약 모델 이후 |
+| 3 | `payments.id`, `refunds.id` | default 없음(레포가 `uuid4()`) | `DEFAULT gen_random_uuid()` | `default=uuid.uuid4, server_default=text("gen_random_uuid()")` |
+| 4 | `status` | `String(20)` NOT NULL | `VARCHAR(30)` | 30으로 |
+| 5 | `payments` 누락 컬럼 | 없음 | `provider_payment_id VARCHAR(255)`, `created_at NOT NULL DEFAULT now()`, `failed_at`, `failed_response JSONB` | 모델·레포 매핑 추가(도메인 필드는 이미 있고 현재 **저장이 안 됨**) |
+| 6 | `refunds` 누락 컬럼 | 없음 | `created_at NOT NULL DEFAULT now()`, `refund_reason JSONB`(비워 둠, D-14) | 추가. `Refund.created_at`도 저장 |
+| 7 | `refunds.payment_id` | `unique=True` | 일반 인덱스 | S-3(부분 환불 없음, D-5 확정) 승인 시 `schema.sql`에 UNIQUE 반영. 지금은 모델이 스키마보다 엄격 |
+| 8 | CHECK | 없음 | `amount>=0`, `refund_amount>=0`, `penalty_amount>=0` | `ck_payments_amount` 등 추가 |
+| 9 | NULL 허용 | `amount`, `status`, `refund_amount`, `penalty_amount`, `reason`, `status` NOT NULL | 모두 NULL 허용 | 모델이 더 엄격(도메인이 항상 값 보장). S-5(스키마 쪽 NOT NULL 승격)와 함께 정리 |
+
+**개발 DB와 기존 테이블 재생성 금지 조건**: B-13에서 확인했듯이 개발 DB의 `payments`·`refunds`는 1차 모양입니다. `Base.metadata.create_all`은 **이미 있는 테이블을 바꾸지 않으므로**, 모델을 위처럼 바꿔도 개발 DB에는 반영되지 않습니다. 테이블을 지우고 다시 만들지 않는 조건이면 아래 변경은 수동 `ALTER`가 필요합니다(제안이며 이 작업에서는 실행하지 않았습니다. DB 소유 담당 확인 필요, D-24).
+
+| 대상 | 필요한 변경 |
+| --- | --- |
+| `payments` | `ADD COLUMN provider_payment_id VARCHAR(255)`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `failed_at TIMESTAMPTZ`, `failed_response JSONB`; `status` 길이를 `VARCHAR(30)`; `DROP INDEX ix_payments_reservation_id` 후 일반 인덱스 + 부분 UNIQUE 재생성; `id`에 `DEFAULT gen_random_uuid()`; CHECK 추가 |
+| `refunds` | `ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `refund_reason JSONB`; `status` 길이; CHECK 추가 (`ix_refunds_payment_id` UNIQUE는 S-3 승인 시 유지) |
+| FK | `payments.reservation_id` FK는 `pickup_reservations`가 생긴 뒤에 `ADD CONSTRAINT` |
+
+**DB 테스트 준비 (실행하지 않음)**:
+- 테스트는 별도 DB `lastcall_test`를 쓰고(`tests/conftest.py:25-31`), fixture가 테스트마다 `drop_all`/`create_all`을 합니다(`:51-52,57`). 개발 DB `lastcall`은 건드리지 않지만, **`TEST_DATABASE_URL`을 개발 DB로 지정하면 전체가 지워집니다**. 지정하지 않습니다.
+- 호스트 포트는 5433(`compose.yaml`의 `5433:5432`), `.env.example`의 `DATABASE_URL`도 5433입니다. conftest 기본값이 같은 포트를 씁니다. DB 컨테이너가 떠 있어야 하고 `lastcall_test`가 없으면 fixture가 만듭니다(`:43-49`).
+- `drop_all`/`create_all`은 `Base.metadata` 전체이므로, 모델이 `main`에서 모두 import돼 있어야 하고(`conftest.py:17`), 새 FK(`pickup_reservations`)를 추가하면 reservations 모델이 먼저 import되지 않은 상태에서는 `create_all`이 실패합니다. 따라서 **FK 추가는 예약 모델과 같은 시점에** 합니다.
+- **주의(C-14)**: `tests/conftest.py:53`은 `except Exception`으로 모든 실패를 skip 처리합니다. `testing.md:124-127`은 `OSError`로 좁히라고 합니다. 이대로면 모델·FK 오류가 skip으로 가려져 "통과"로 보일 수 있으므로 DB 테스트는 항상 `-rs`로 이유를 확인하고, conftest 수정은 발주서에 명시된 경우에만 합니다(소유권).
+- 실행 순서(구현 후): `docker compose up -d` → `uv run pytest tests/payments -rs` → `uv run pytest -m db -rs`. `db` 마커 skip이 0이어야 완료입니다(R16).
+
+### 9.8 예약 취소·환불 연동에 필요한 인터페이스와 예약 담당자 확인 사항 (분석 7)
+
+catalog가 예약 쪽에 정의해 둔 것(쓰는 쪽이 포트를 정의, R11):
+
+| 포트 | 정의 | 현재 구현 | provide / create |
+| --- | --- | --- | --- |
+| `ReservationLookupPort.has_reservations_for_offer(offer_id) -> bool` | `catalog/application/ports.py:26-29` | `NoReservationLookup`(항상 False) | `provide_reservation_lookup`(`catalog/presentation/dependencies.py:27`) / `create_reservation_lookup`(`container.py:123`) |
+| `ReservationCancelPort.cancel_all_for_offer(offer_id, *, reason) -> int` | `catalog/application/ports.py:32-41`. 계약: 취소한 수 반환, 이미 취소된 예약은 세지 않음, 픽업 완료가 있으면 **취소 전에** `PickedUpReservationExistsError`, commit 금지, 같은 세션, **재고 복구 안 함** | `NoReservationCancel`(항상 0) | `provide_reservation_cancel`(`:32`) / `create_reservation_cancel`(`container.py:127`) |
+
+payments는 **같은 방식**으로 자기 쪽 포트를 정의하고(`ReservationPort`), reservations는 payments에 환불을 요청하는 포트(`RefundPort`, reservations가 정의)를 정의하는 것이 팀 규칙에 맞습니다(제안). 이어서 예약 담당과 맞춰야 하는 정합 이슈를 정리합니다.
+
+#### 정합 이슈 (C-6부터)
+
+| # | 이슈 | 양쪽 근거 | 제안(확정 아님) / 확인할 사람 |
+| --- | --- | --- | --- |
+| C-6 | **결제 1차 구조가 팀 DI 규칙과 다름**(application이 infrastructure를 import, `provide_*`·container 구역 없음) | `check_layers.py` 위반 2건(`service.py:19-20`), `dependencies.py:29-34`, `container.py:152-163`에 payments 없음 | 9.3·9.6절대로 정렬. 결제 담당 |
+| C-7 | **payments ↔ reservations 생성 순환(R12)**: payments는 `ReservationPort`(예약 조회·상태 변경·취소)가 필요하고, reservations는 환불을 위해 payments가 필요함. 둘 다 서비스로 주입하면 `Depends` 체인이 순환 | catalog도 같은 구조를 겪어 `docs/design/catalog.md` CI-10(`create_reservation_lookup`은 reservations **레포지토리만** 받는다), CI-11/C12(어댑터 경로에서 catalog 서비스 금지)로 정리함 | 선택지 A: payments의 `ReservationPort` 어댑터를 reservations **레포지토리·도메인 엔티티**로 만들고(서비스 금지) reservations 서비스가 payments 서비스를 주입받음. 선택지 B: `docs/design/catalog.md` 9.3절의 읽기/쓰기 분리 패턴. 어느 쪽이든 어댑터는 reservations 쪽 또는 container가 소유(payments가 reservations를 import하지 않음). **예약 담당·오케스트레이터 확인 필요** → D-25 |
+| C-8 | **catalog `cancel_all_for_offer` ↔ payments 환불 호출 규약**: 상점주 일괄 취소는 payments를 `commit=False`, `waive_penalty=True`로 호출해야 하고, 이미 환불된 결제는 건너뛰어야(멱등) 함 | catalog 계약 `ports.py:36-39`(멱등·commit 금지·재고 복구 없음), payments D-16(전액 환불), 4.3.4 `refund_for_cancelled_reservation` | 어댑터가 예약별로 취소 후 payments의 내부 메서드를 부르는 구조. payments는 이 내부 메서드를 `commit` 인자와 함께 제공(현재 1차에는 없음). 예약 담당 확인: 취소 사유 저장 위치, 상점주 사유 구분 값(catalog Q28) |
+| C-9 | catalog 취소 정책 약속과 payments 환불 정책의 정합 | 9.9절에 양쪽 근거를 나란히 적음 | **판정하지 않음**. D-21 |
+| C-10 | **위약금·취소 기준 시각의 출처**: payments의 `ReservationSnapshot.pickup_start`가 필요한데 `pickup_reservations`에는 컬럼이 없고(`schema.sql:91-107`) `discount_offers.pickup_start`에만 있음. catalog는 이미 `DiscountOffer.cancel_policy().cancellable_until`을 계산함(`discount_offer.py:181-185`) | payments는 catalog를 import할 수 없음(R11) | 예약 어댑터가 스냅샷에 `pickup_start`(또는 계산된 `cancellable_until`)를 채워 줌. payments가 `CANCEL_LEAD_TIME`을 중복 정의하지 않도록 `cancellable_until`을 받는 쪽을 권장(catalog C14 요구) → D-21과 함께 결정 |
+| C-11 | **재고 복구 메서드 부재(B-15)**: 예약 취소·환불 API가 재고를 되돌리려면 catalog 서비스(또는 reservations가 정의하는 포트)의 `restore_stock(commit=False)`+`stock_log` 양수 기록이 필요함 | `catalog.md` 6.4 "후속"은 설계 때 확정이라고만 함. `reservations.md:144`는 취소 시 재고 복구 구현 참고 | reservations·catalog 담당 확인. payments는 재고를 직접 만지지 않고 예약 쪽에 맡김(R11) |
+| C-12 | **409 핸들러(모듈 밖)와 `error_code`**: 지금은 router에서 `HTTPException(409)`로 바꿔 `CONFLICT`가 나감 | `router.py:21,30-33`, `error_handlers.py:8-13` | `PaymentConflictError`를 `error_handlers.py`에 한 줄 등록(오케스트레이터/발주서 명시). 다른 모듈의 409도 필요하면 `common` 공통 `ConflictError`로 합치는 방안도 있음 |
+| C-13 | **main.py·container.py·test_container 순서·범위**: payments import가 stores·catalog보다 앞(`main.py:13-14`), FK 도입 시 순서 조정 필요. `DEPENDENCY_MODULES`에 catalog·payments 없음 | `main.py:13-21`, `tests/test_container.py:14` | 9.6절. 순서 조정과 루트 테스트 수정은 오케스트레이터 |
+| C-14 | **conftest `except Exception: pytest.skip`**로 DB 테스트 설정 오류가 숨음 | `tests/conftest.py:53`, `testing.md:124-127` | 발주서에 명시해 `OSError`로 좁힘. 지금은 `-rs` 확인으로 대응 |
+| C-15 | **개발 DB와 모델 불일치**: `create_all`은 기존 테이블을 못 바꿈 | 9.7절 B-13 | 수동 `ALTER` 목록(9.7절)을 DB 담당이 승인해 적용, 또는 로컬 DB를 각자 재생성(팀 공용 DB가 아닐 때만). D-24 |
+| C-16 | **R14 불일치 지속**: `models.py`에 `user_id`가 있으나 `schema.sql`에 없음 | `models.py:18` vs `schema.sql:112-122` | S-1이 합의된 방향이므로 `schema.sql`·`SKILL.md` 반영 승인(오케스트레이터, `.claude/**`) |
+| C-17 | **명세 갱신 필요**: 결제 요청 403(D-12), `use_point`, 환불 POST 응답 `completed_at` 제외 확정(D-13), 422→400 | U-7, U-8 | `docs/reference/payments.md` 수정(오케스트레이터, 사용자 승인 후) |
+
+#### 예약 담당자에게 확인할 사항
+
+1. **예약 상태 값**(D-9, R-2): `PENDING_PAYMENT → RESERVED`가 결제 완료인지, `mark_paid(commit=False)`를 어느 이름·시그니처로 제공하는지.
+2. **예약 취소와 환불 순서**(D-6, R-3, R-4): 예약 취소가 환불을 자동 호출하는지, 환불 API가 예약을 취소하는지, 둘 다 있다면 취소 메서드의 멱등 처리(이미 `CANCELLED`면 통과).
+3. **위약금 계산 담당**(D-2): payments가 계산하면 reservations는 `pickup_start`/`cancellable_until`만 제공.
+4. **스냅샷 제공**: `id, user_id, total_price, status, pickup_start(또는 cancellable_until)`와 `for_update` 조회.
+5. **잠금 순서**: 예약 → 결제 → 환불 INSERT → 회원(포인트). catalog 쪽은 상품 → 할인 → 예약(C9). 예약 서비스가 이 순서를 따를 수 있는지.
+6. **취소 제한**(D-22): 픽업 1시간 전 이후 취소를 reservations가 막는지.
+7. **결제 제한 시간·픽업 코드**(D-15, D-18).
+8. **FK와 models import 순서**: `PickupReservationModel` 위치와 `main.py` import 순서.
+
+### 9.9 Catalog '픽업 1시간 전 취소 제한'과 결제·환불 정책의 충돌 여부 (분석 8)
+
+**판정하지 않습니다.** 양쪽 근거를 나란히 놓고 결정 항목으로 올립니다(D-21, D-22, C-9).
+
+| 구분 | Catalog 쪽 | Payments 쪽 |
+| --- | --- | --- |
+| 값 | 취소 가능 시각 = `pickup_start − 1시간` (`catalog/domain/discount_offer.py:18-19` `CANCEL_LEAD_TIME = timedelta(hours=1)`, `:181-185` `cancel_policy()`) | 시간 기준 규칙 없음. `FullRefundPolicy.penalty()`는 항상 0(`payments/domain/cancellation_policy.py:21-25`), 기본 정책 `rules.py:14`, 환불 서비스에 시간 검사 없음(`service.py:99-121`) |
+| 사용자에게 보이는 문구 | "픽업 시작 1시간 전까지 취소할 수 있습니다. 이후에는 **취소가 제한되거나 위약금이 부과될 수 있습니다**."(`discount_offer.py:27-30`, `docs/reference/catalog.md:452-454`) | 확정: D-1 위약금 우선 0원(8.2절), D-7 환불 가능 조건에 **시간 제한 없음**(8.1절, `payments.md` 639행 표) |
+| 규범적 문장 | `docs/reference/catalog.md:440` "환불 위약금 규칙은 `cancellable_until`과 같은 기준을 따릅니다." `discount_offer.py:18` 주석 "payments 위약금 기준도 이 값을 따른다 (C14)". `docs/design/catalog.md` D55, C14: payments·reservations 설계에 "경계는 `cancel_policy().cancellable_until`에서 가져오고 별도 상수를 두지 않는다"는 요구사항을 전달 | 1차 설계에는 C14가 반영돼 있지 않음. 4.1.5절은 "catalog `cancel_policy`도 같은 정책 클래스를 써야 한다(확인 필요)"고만 적음 |
+| 예외 | - | D-16 점주 사유 취소는 전액 환불(`waive_penalty=True`). 시각과 무관하게 정책을 호출하지 않으므로 catalog 문구와 부딪히지 않음 |
+| 담당 미정 | "취소가 제한된다"를 누가 집행하는지(reservations 취소 409 "취소 불가 상태", `docs/reference/reservations.md:177`) | D-2 위약금 계산 담당 미정 |
+
+겹치는 지점(판단 없이 기술):
+- (a) 1시간 전 **이후**에 고객이 취소·환불을 요청하면, catalog 문구는 "제한되거나 위약금"을 예고하지만 payments는 현재 위약금 0원·시간 제한 없음이라 **전액 환불이 됩니다**. 문구는 "할 수 있다"(가능성) 형태라 모순으로 단정할 수 없지만, `catalog.md:440`은 payments 위약금이 같은 기준을 따른다고 적었습니다.
+- (b) 위약금이 0원인 동안에는 경계 시각이 payments 동작에 영향을 주지 않습니다. 영향이 생기는 것은 D-1이 바뀌거나 D-22(취소 제한)가 정해질 때입니다.
+- (c) 환불 API(`POST /v1/payments/{id}/refunds`)와 예약 취소 API 중 어느 쪽이 시간 제한을 집행하는지 정해지지 않았습니다. 환불 API만 직접 호출하면 예약 취소의 제한을 우회할 수 있습니다(D-6과 연결).
+- (d) 픽업 시작 이후(픽업 시간 중·후) 환불은 D-7이 "시간 제한 없음"이라 허용되는 반면, catalog는 `cancellable_until`이 이미 지난 시각도 그대로 돌려줍니다(`design/catalog.md` 196행). 즉 지난 뒤의 동작은 어느 문서에도 정해져 있지 않습니다.
+
+### 9.10 새 결정 항목 (D-21부터) — 모두 미정
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값(제안) | 근거 |
+| --- | --- | --- | --- | --- |
+| D-21 | **환불 경계 시각과 위약금**: `cancellable_until`(픽업 1시간 전) 이후 환불에 위약금을 부과하는지. 부과한다면 규칙(정액·정률)과, 경계값을 payments가 catalog에서 어떻게 받는지(`cancellable_until`을 스냅샷으로 전달 vs 상수 중복) | catalog D55·C14, `catalog.md:440`, payments D-1·D-7·D-2 | 지금 값 유지(위약금 0원, 시간 제한 없음). 경계값은 `ReservationSnapshot`에 `cancellable_until` 필드를 두고 어댑터가 채우되 정책 클래스는 `FullRefundPolicy` 유지 | 8.1·8.2절 확정(D-1, D-7)을 바꾸지 않음. 규칙을 지어내지 않음. 정책 교체점(`rules.py`)에만 영향 |
+| D-22 | **예약 취소 제한을 누가 집행하는가**: 1시간 전 이후 고객 취소(예약 취소 API, 환불 요청 API)를 막는지, 허용하고 위약금만 매기는지 | catalog 문구, `reservations.md:177` 409 | 제한 없음(D-7과 동일) | D-7 "시간 제한 없음" |
+| D-23 | **결제 실패(`FAILED`) 저장**: 1차는 저장하지 않음(`reservation_id` UNIQUE 때문). S-2 부분 UNIQUE가 승인되면 저장·재시도가 가능 | 1차 구현 보고, S-2, D-11 | 저장하지 않음 유지(D-11로 운영에서는 실패가 없음). S-2가 `schema.sql`에 반영될 때 재검토 | D-11 확정 |
+| D-24 | **개발 DB 반영 방식**: 모델 정렬(9.7절) 후 기존 `payments`/`refunds`를 수동 `ALTER`로 맞출지, 팀원 각자 로컬 DB를 재생성할지 | B-13, "기존 테이블 재생성 금지" 조건 | `ALTER` 목록을 DB 담당이 적용. 재생성은 하지 않음 | 사용자 조건 |
+| D-25 | **payments ↔ reservations 연결 방식(C-7)**: 어댑터를 reservations 레포·엔티티 기반으로 만들지, 읽기/쓰기 분리 패턴을 쓸지, 어댑터 소유 위치 | catalog CI-10·CI-11·C12, `layer-architecture` §4 | 임시: payments는 `ReservationPort`(Protocol)만 정의하고 container가 임시 메모리 구현을 연결. 실제 연결은 예약 설계가 나온 뒤 결정 | R12 순환 금지, 지금 구현 가능한 범위 유지 |
+
+기존 미정 항목 D-2, D-9/R-2, D-6/R-3/R-4, D-15/D-18, D-10(단위·적립률)은 8.2절 그대로 미정이며 임시 기본값만 `rules.py`와 container 구역에 모읍니다.
+
+### 9.11 2차 구현 시 수정할 파일과 승인자 (보고 4)
+
+**payments 모듈 안 (`layer-implementer`, 한 번에 한 명)**
+
+| 계층 | 파일 | 변경 |
+| --- | --- | --- |
+| domain | `repository/{payment_repository,refund_repository}.py` 또는 `repository.py`(신규, ABC), `service.py`(신규: `PaymentGateway`, `Clock` ABC), `payment.py`(`use_point`, `earn_point_amount`), `reservation_snapshot.py`(`cancellable_until` 선택 필드, D-21 확정 시), `rules.py`(포인트 상수 추가) | 신규·수정 |
+| infrastructure | `repositories.py`(`SqlAlchemy*` 이름, 누락 컬럼 매핑), `models.py`(9.7절), `mock_gateway.py`(ABC 구현 표시), `clock.py`(신규), 임시 예약 구현 이동(선택) | 수정 |
+| application | `service.py`(추상 필수 주입, 포인트·환불 연동), `ports.py`(`ReservationPort` 확장, `PointPort`), `reservation_stub.py` | 수정 |
+| presentation | `dependencies.py`(`provide_payment_service`), `router.py`, `schemas.py` | 수정 |
+| tests | `tests/payments/{fakes,test_domain,test_service,test_payments_api}.py` 수정, `test_wiring.py`·`test_api_db.py` 신규 | 수정·신규 |
+
+**모듈 밖 (소유권 규칙, `docs/operations/orchestration.md` §4)**
+
+| 파일 | 변경 | 누가 승인·수정 |
+| --- | --- | --- |
+| `src/container.py` | payments 구역 `create_*` 팩토리 + `wire_dependencies` 매핑 (**자기 구역만**). 예약과의 연결(C-7)은 별도 | payments 구현자(자기 구역), 모듈 간 연결·충돌은 오케스트레이터 |
+| `src/main.py` | 지금은 변경 없음(확인). FK 도입·예약 구현 시 import 순서 조정 | 오케스트레이터 |
+| `src/error_handlers.py` | `PaymentConflictError` 409 핸들러 한 줄 | 발주서에 명시한 경우만(오케스트레이터) |
+| `.claude/skills/db-schema/{SKILL.md,schema.sql}` | S-1(`payments.user_id`) 반영, 승인된 S-2·S-3 | 오케스트레이터(사용자 승인 후) |
+| `docs/reference/payments.md` | 결제 요청 403, `use_point`, 환불 응답 필드, 422→400 | 오케스트레이터(사용자 승인 후) |
+| `tests/conftest.py`, `tests/test_container.py` | `except Exception` → `OSError`, `DEPENDENCY_MODULES` 추가 | 발주서에 명시한 경우만 / 오케스트레이터 |
+| 개발 DB 수동 `ALTER`(9.7절) | 컬럼 추가·인덱스 교체 | DB 담당 확인(D-24) |
+| `docs/design/catalog.md` | C14 응답(D-21 확정 뒤) | `layer-architect`(오케스트레이터 경유) |
+
+### 9.12 추천 구현 순서와 테스트 (보고 5)
+
+1. **(결정 요청)** 사용자: D-21~D-25 중 구현을 막는 것이 있는지 확인. 없으면 임시 기본값으로 진행.
+2. 도메인: 추상 레포·`PaymentGateway`·`Clock` ABC, `Payment.request`에 `use_point`. 도메인 단위 테스트부터 수정.
+3. 인프라: 모델 정렬(9.7절), `SqlAlchemy*` 이름, 누락 컬럼 매핑, 레포 왕복 테스트(DB는 4단계 후).
+4. 응용: 서비스를 추상 필수 주입으로 바꾸고(`service.py:19-20` 제거), 포인트(`PointPort`)와 환불 연동 추가. fake 서비스 테스트.
+5. 표현: `provide_payment_service`, `CurrentUser`, `/v1`, 환불 요청 API, 응답 스키마 분리.
+6. 조립: container payments 구역과 `wire_dependencies` 매핑, `test_wiring.py`. (409 핸들러는 승인 후)
+7. DB 준비: D-24 결정 후 `ALTER` 적용 또는 로컬 DB 정리 → `docker compose up -d` → `uv run pytest tests/payments -rs`, `uv run pytest -m db -rs`.
+8. 예약 모듈 완성 뒤(2단계): FK, 실제 `ReservationPort` 어댑터(C-7), 취소·환불 연동(C-8), 계약 테스트(7.6절).
+
+완료 게이트(R 기준, `backend-invariants` §7):
+```
+python .claude/skills/layer-check/check_layers.py   # 위반 0건 (현재 2건)
+(cd src && uv run python -c "import main")
+uv run pytest -rs                                    # failed 0, db 마커 skip 0
+```
