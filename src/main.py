@@ -21,6 +21,10 @@ from stores.presentation.router import router as stores_router
 from catalog.infrastructure import models as catalog_models  # noqa: F401
 from catalog.presentation.router import router as catalog_router
 
+# reservations의 FK 대상(users, discount_offers)이 먼저 등록돼야 하므로 catalog 뒤에 둔다.
+from reservations.infrastructure import models as reservations_models  # noqa: F401
+from reservations.presentation.router import router as reservations_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,6 +43,7 @@ wire_dependencies(app)  # 라우터 등록 전에
 app.include_router(auth_router)
 app.include_router(stores_router)
 app.include_router(catalog_router)
+app.include_router(reservations_router)
 
 app.include_router(payments_router)
 
