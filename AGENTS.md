@@ -23,7 +23,7 @@
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
-| 도메인 요구 조건 초안 작성(사용자 검토·기입용, 확정 아님) | `.claude/skills/domain-requirements/SKILL.md` | 모듈·기능의 비즈니스 규칙을 설계 전에 정리할 때. 초안은 `docs/requirements/<모듈>.md`에 저장 |
+| 도메인 요구 조건 문서 작성(초안 → 사용자 기입·재검토 → 확정) | `.claude/skills/domain-requirements/SKILL.md` | 모듈·기능의 비즈니스 규칙을 설계 전에 정리할 때. 문서는 `docs/requirements/<모듈>.md`에 저장 |
 | 백엔드 불변 규칙(R1~R16)·코드 완료 게이트 | `.claude/skills/backend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
 | 4계층 책임·DDD 원칙·DI(container) 구조 | `.claude/skills/layer-architecture/SKILL.md` | 모듈 설계, 추상화·주입, 모듈 간 의존 판단, container.py 수정 시 |
 | DB 스키마·관계·SQLAlchemy 매핑 | `.claude/skills/db-schema/SKILL.md`, `schema.sql` | 테이블·컬럼·FK·조인·시드를 다룰 때 |
@@ -49,7 +49,7 @@
 
 | 관심사 | 위치 |
 |--------|------|
-| 모듈 도메인 요구 조건 초안 (REQ-번호, 사용자 검토 대상) | `docs/requirements/<모듈>.md` |
+| 모듈 도메인 요구 조건 (REQ-번호, 상태: 초안·검토 중·확정) | `docs/requirements/<모듈>.md` |
 | 모듈 설계안 (결정 표 D-번호, 정합 이슈 C-번호) | `docs/design/<모듈>.md` |
 
 ## 작업 원칙
