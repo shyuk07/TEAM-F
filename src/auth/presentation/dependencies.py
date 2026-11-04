@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from auth.application.service import AuthApplicationService, AuthenticatedPrincipal
@@ -30,6 +30,21 @@ async def get_current_user(
     return principal.user
 
 
+async def get_optional_user(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    service: Annotated[AuthApplicationService, Depends(provide_auth_service)],
+) -> User | None:
+    """로그인 선택: 인증 정보가 없으면 None, 있는데 유효하지 않으면 401."""
+    if credentials is not None and credentials.credentials:
+        return (await service.authenticate(credentials.credentials)).user
+    raw = request.headers.get("authorization")
+    if raw is None or not raw.strip():
+        return None
+    # HTTPBearer는 헤더 없음과 Bearer가 아닌 헤더를 구분하지 못하므로 raw 헤더로 가른다.
+    raise AuthenticationError("로그인이 필요합니다.")
+
+
 def require_roles(*roles: Role):
     async def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
         user.require_role(*roles)
@@ -43,3 +58,4 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 CustomerUser = Annotated[User, Depends(require_roles(Role.CUSTOMER))]
 OwnerUser = Annotated[User, Depends(require_roles(Role.OWNER))]
 AdminUser = Annotated[User, Depends(require_roles(Role.ADMIN))]
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
