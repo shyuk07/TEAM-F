@@ -1,0 +1,584 @@
+# admin 모듈 설계안 (관리자 기능 9개 EP)
+
+- 대상: 새 모듈 `src/admin` + 기존 `auth`·`stores`·`catalog`에 생기는 관리자용 도메인 규칙·서비스 메서드·스키마 변경
+- 작성: 2026-11-04, `layer-architect`
+- 명세 원문: 사용자가 대화에서 제공한 "관리자 API 명세" 9개 EP. 아직 `docs/reference/`에 없다(이 문서의 C2에서 반영 제안). 이 설계안의 EP 번호는 명세의 1~9번이다.
+- 기준: `backend-invariants`(R1~R16), `layer-architecture`(§3.4, §4, §5, §6), `layer-implementation`, `db-schema`(`schema.sql`), 기존 설계안 `docs/design/{auth,stores,catalog,payments}.md`, 실제 코드 `src/{auth,stores,catalog,container.py,main.py,error_handlers.py}`
+- 상태: 설계 제안. **"임시 기본값"은 확정이 아니라 제안이다.** 2026-11-04 사용자가 **D2, D4, D10, D12, D13, D35, D39를 확정**했다(11절 표에 "확정"으로 표시. D35·D39는 임시 기본값에서 바뀜). 나머지 D는 임시다. 기존 설계안의 확정 결정(auth D-서비스생성자·D-포인트트랜잭션, stores D13·D14, catalog D13·D21·D25~D58 등)은 그대로 유지하고 인용만 한다.
+- 이 문서는 설계만 담는다. 코드·테스트·reference·다른 설계안은 수정하지 않았다. 다른 문서에 바꿀 점은 8절(정합 이슈)과 10절(모듈 밖 변경 제안)에만 적는다.
+
+| EP | Method | URI (명세) | 한 줄 |
+| --- | --- | --- | --- |
+| 1 | PATCH | `/admin/owners/{owner_id}/approve` | 상점주 계정 승인 (PENDING → APPROVED) |
+| 2 | PATCH | `/admin/owners/{owner_id}/reject` | 상점주 계정 거부 (PENDING → REJECTED, 사유 필수) |
+| 3 | PATCH | `/admin/users/{user_id}/suspend` | 회원 정지 (+ 상점주면 소유 상점 정지) |
+| 4 | DELETE | `/admin/users/{user_id}` | 강제 탈퇴 (soft delete, RESERVED 예약 취소, 상점주면 상점 폐점) |
+| 5 | PATCH | `/admin/stores/{store_id}/suspend` | 상점 정지 |
+| 6 | PATCH | `/admin/stores/{store_id}/close` | 상점 강제 폐점 (+ 판매 중 할인 종료) |
+| 7 | PATCH | `/admin/offers/{offer_id}/suspend` | 할인 상품 정지 |
+| 8 | GET | `/admin/users/{user_id}/points` | 회원 포인트 잔액·이력 조회 |
+| 9 | POST | `/admin/users/{user_id}/points` | 회원 포인트 지급 |
+
+---
+
+## 0. 차단 이슈 (실행으로 확인)
+
+| # | 확인 명령 | 결과 | 판정 / 해결 |
+| --- | --- | --- | --- |
+| B-1 | `(cd src && uv run python -c "import main")` | **실패**: `RuntimeError: DATABASE_URL 환경변수가 설정되지 않았습니다.` (`src/database.py:19`). 저장소 루트에 `.env`가 없음(`ls -a` → `.env.example`만) | 코드 결함이 아니라 로컬 환경 문제. `.env.example`을 `.env`로 복사하면 해결(README 3단계). 설계 차단 아님 |
+| B-1b | 같은 명령에 `DATABASE_URL`·`JWT_SECRET_KEY`를 인라인 지정 | `main ok (with inline env)` | 현재 코드(auth, stores, catalog, payments 포함)는 불러와진다 |
+| B-2 | `uv run python -c "import jwt, passlib, sqlalchemy, asyncpg, fastapi"` | `pkgs ok 0.162.0` | 새 의존성 필요 없음. `pyproject.toml` 변경 없음 |
+| B-3 | `uv run python -c "import multipart"` | `ModuleNotFoundError` | 이 설계는 `Form`·`File`·`OAuth2PasswordRequestForm`을 쓰지 않는다(전부 JSON). `python-multipart` 불필요 |
+| B-4 | `.env.example` 키 확인 | `DATABASE_URL`, `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` | 설계가 요구하는 새 키 없음 |
+| B-5 | `PYTHONIOENCODING=utf-8 uv run python .claude/skills/layer-check/check_layers.py` | **기존 위반 2건**: `payments\application\service.py:19`, `:20` (application → payments.infrastructure). 경고 3건(`error_handlers.py` 넓은 예외) | admin 범위 밖(payments). 기준선으로 기록. 참고: 시스템 `python`(3.11)으로 실행하면 `catalog\application\views.py:9` 파싱 실패가 추가로 나온다(3.12+ 문법). **반드시 `uv run python`(3.13)으로 실행**한다. 이 환경에는 `python3`가 없다 |
+| B-6 | `src/reservations/**` 파일 크기 확인 | **전부 0바이트** (`application/service.py`, `domain/*.py`, `infrastructure/*.py`, `presentation/*.py`) | **EP 4·6은 예약 모듈을 필요로 한다**(RESERVED 예약 취소·존재 확인). 예약 모듈이 비어 있으므로 admin이 정의하는 포트(5.2절)와 임시 구현 `NoReservationAdmin`(항상 0건/False)으로 먼저 구현한다. 임시 구현이 남아 있는 동안 EP 4의 `cancelled_reservation_count`는 항상 0이고 EP 6의 예약 검사는 항상 통과한다(C10) |
+| B-7 | `Grep admin src` | `src/auth/presentation/dependencies.py:45`의 `AdminUser`만 있음. admin 모듈·관리자 시드·ADMIN 계정 생성 경로 없음 | `Role.ADMIN`은 회원가입으로 만들 수 없다(`Role.for_signup`). **ADMIN 계정을 만들 방법이 없어 API 수동 확인이 불가능**하다. 테스트는 fixture로 직접 insert(D29). 시연용 시드는 별도 결정 |
+| B-8 | 에러 핸들러 동작 실험 (scratchpad 없이 `-c`): `reason: str = Field(min_length=1)` 본문에 `""`, 경로에 잘못된 UUID | 둘 다 **400** `VALIDATION_ERROR` (`reason: String should have at least 1 character`, `path.i: Input should be a valid UUID...`) | 명세의 요청 검증 오류는 400이고 핸들러도 400이라 **상태 코드는 일치**한다(422 아님). 단 **메시지는 명세 문구("정지 사유를 입력해 주세요.")와 다르다** → 문구는 도메인 `ValueError`에서 내도록 `reason`에 Pydantic 길이 제약을 두지 않는다(D26) |
+| B-9 | `httpx.Client.delete` 시그니처 / FastAPI DELETE + 본문 | `delete(url, params, headers, cookies, auth, follow_redirects, timeout, extensions)`에 본문 인자 없음. `client.request("DELETE", url, json=...)`는 FastAPI에서 본문을 받음(`{'r': 'x'}`) | EP 4는 DELETE에 JSON 본문이 있다. 라우터는 문제없고, **테스트는 `client.delete(..., json=)`이 아니라 `client.request("DELETE", ..., json=)`을 써야 한다** |
+| B-10 | 개발 DB 마이그레이션 | Alembic은 `pyproject.toml` 의존성에만 있고 폴더(`alembic*`, `migrations`)는 없음. `create_all` 방식 | 2절의 컬럼 추가는 이미 만들어진 개발 DB에 반영되지 않는다. 로컬 DB를 다시 만들거나 2.4절의 `ALTER` SQL을 수동 실행해야 한다(스키마 변경을 승인받은 뒤) |
+
+차단 이슈 요약: **설계를 막는 것은 없다.** 단 (1) 예약 모듈 미구현(B-6)으로 EP 4·6의 예약 연동은 임시 포트로 시작하고, (2) 구현 전에 사용자가 2절 스키마 변경과 D3을 승인해야 한다(D4 "상점주 가입 시 PENDING"은 2026-11-04 확정). D4는 기존 `signup` 동작과 기존 테스트(`"OWNER"` 가입 14곳)에 영향을 준다(C3).
+
+---
+
+## 1. 모듈 배치 비교와 구성
+
+### 1.1 비교 (결정 D1)
+
+| | A. 별도 `src/admin` (오케스트레이션) | B. 각 컨텍스트에 관리자 유스케이스 분산 (auth·stores·catalog에 admin 라우터) |
+| --- | --- | --- |
+| 도메인 규칙 위치 | 상태 전이 규칙은 **소유 컨텍스트**의 엔티티(`User`, `Store`, `DiscountOffer`)에 둔다(R3). admin은 흐름만 조합 | 같음 |
+| 다중 모듈 흐름 (3: 회원→상점, 4: 회원→예약·상점·할인, 6: 상점→할인·예약) | admin 한 곳에서 조합. admin이 **맨 위**에 있어 아무도 admin에 의존하지 않는다 | auth가 stores·reservations를 알아야 한다. auth는 모든 모듈이 의존하는 **맨 아래**(reservations·payments → auth)인데 위쪽을 부르면 방향이 뒤집힌다 |
+| 생성 순환 (R12) | 없음. `create_admin_service`는 `create_auth/stores/catalog_service`를 `Depends`로 받기만 한다 | `create_auth_service → (예약 포트) → reservations 서비스 → create_auth_service`(포인트 복구) 순환 위험. stores.md D15·catalog.md D22가 이미 겪는 문제를 auth에서 반복 |
+| 권한·URI | `/admin` 라우터 한 파일에서 `AdminUser` 일괄 적용. 목록·문서가 한 곳 | 라우터가 3곳에 흩어지고 권한 누락 위험 |
+| 단점 | 모듈이 하나 늘고, 각 컨텍스트가 관리자용 application 메서드를 노출해야 한다 | 모듈 경계는 그대로지만 위 순환·방향 문제 |
+| layer-check | 기능 모듈은 4계층 폴더를 모두 가져야 한다(`check_layers.py`) → admin도 `domain/`이 필요 | 해당 없음 |
+
+**임시 기본값: A.** 근거: `layer-architecture` §3.4(상대 상태를 바꿀 때 상대 application 서비스 호출, 호출자가 한 번 commit), §4(순환 금지), R11·R12·R13. admin 안에는 엔티티가 없다(빈약한 엔티티를 만들지 않는다, R3). admin의 domain은 `Clock` 추상 하나뿐이다(D31). 비즈니스 규칙(상태 전이·검증)은 전부 소유 컨텍스트 도메인에 있다.
+
+admin은 다른 모듈을 **쓰는 쪽이 정의한 포트(Protocol)**로 받는다(§3.4 2행, catalog `StorePort`와 같은 방식, D30). 다른 모듈의 application 클래스·domain을 import하지 않는다(R11, catalog D23과 같은 선택).
+
+### 1.2 구성
+
+```
+src/admin/
+  __init__.py
+  domain/
+    __init__.py
+    service.py          # Clock (ABC)                                          [R8, D31]
+  infrastructure/
+    __init__.py
+    clock.py            # SystemClock(Clock)
+    reservation_admin.py# NoReservationAdmin — 임시 구현 (B-6, C10)
+  application/
+    __init__.py
+    ports.py            # AccountAdminPort, StoreAdminPort, OfferAdminPort, ReservationAdminPort (Protocol) + 결과 Protocol
+    service.py          # AdminApplicationService (9개 유스케이스)
+  presentation/
+    __init__.py
+    schemas.py
+    dependencies.py     # provide_admin_service
+    router.py           # APIRouter(prefix=ADMIN_PREFIX), 전부 AdminUser
+```
+
+models 없음(새 테이블 없음, D28). `src/main.py`에는 router 등록만 추가한다.
+
+---
+
+## 2. 스키마 변경 제안 (`schema.sql`·`db-schema/SKILL.md`는 이 문서가 고치지 않는다, R14)
+
+현재 `schema.sql`·모델에는 아래 컬럼이 **하나도 없다**(`src/auth/infrastructure/models.py`, `stores/infrastructure/models.py`, `catalog/...`와 대조). 구현 시 `schema.sql`·`db-schema/SKILL.md`·`models.py`를 함께 고친다(R14).
+
+### 2.1 users
+
+| # | 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- | --- |
+| S1 | `status` | `VARCHAR(20) NOT NULL DEFAULT 'APPROVED'`, `CONSTRAINT ck_users_status CHECK (status IN ('PENDING','APPROVED','REJECTED','SUSPENDED','WITHDRAWN'))` | 계정 상태. DEFAULT가 `APPROVED`라 기존 행(기존 상점주 포함)은 승인 상태로 유지된다(D4) |
+| S2 | `approved_at` | `TIMESTAMPTZ NULL` | EP 1 |
+| S3 | `rejected_reason` / `rejected_at` | `VARCHAR(500) NULL` / `TIMESTAMPTZ NULL` | EP 2 |
+| S4 | `suspended_reason` / `suspended_at` / `suspended_until` | `VARCHAR(500) NULL` / `TIMESTAMPTZ NULL` / `TIMESTAMPTZ NULL` | EP 3. `suspended_until IS NULL`이면 무기한 |
+| S5 | `deleted_at` / `deleted_reason` | `TIMESTAMPTZ NULL` / `VARCHAR(500) NULL` | EP 4 (soft delete). `deleted_reason`은 명세에 컬럼이 없어 **추가 제안**(D14) |
+
+### 2.2 point_log
+
+| # | 컬럼·변경 | 내용 |
+| --- | --- | --- |
+| S6 | `point_type` CHECK에 `'GRANT'` 추가 | `CHECK (point_type IN ('EARN','USE','RESTORE','REVOKE','GRANT'))`, 제약 이름 `ck_point_log_type` 유지. 관리자 지급 전용 값 (D23) |
+| S7 | `reason` | `VARCHAR(500) NULL`. 지급 사유(EP 9). 시스템 이벤트(EARN/USE/RESTORE/REVOKE)는 NULL |
+| S8 | `balance_after` | `INTEGER NULL`. 이후 **모든 신규 기록**이 채운다. 이미 있는 행은 NULL(소급 계산 안 함, D23) |
+| S9 | `created_by` | `UUID NULL REFERENCES users (id)`, 인덱스 불필요. 관리자 ID. 시스템 이벤트는 NULL |
+
+### 2.3 stores / discount_offers
+
+| # | 대상 | 변경 | 내용 |
+| --- | --- | --- | --- |
+| S10 | `stores` | `suspended_reason VARCHAR(500) NULL`, `suspended_at TIMESTAMPTZ NULL`, `closed_reason VARCHAR(500) NULL` | `closed_at`은 이미 있음. **`status` 컬럼은 추가하지 않는다**(D16): `status`는 `closed_at`(CLOSED) > `suspended_at`(SUSPENDED) > 그 외(ACTIVE)로 계산. 대안 B(`status VARCHAR(20) CHECK` 컬럼 추가)는 `closed_at`과 이중 상태가 되어(catalog S5와 같은 문제) 채택하지 않음 |
+| S11 | `discount_offers` | `suspended_reason VARCHAR(500) NULL`, `suspended_at TIMESTAMPTZ NULL`, `status` CHECK에 `'SUSPENDED'` 추가 | `CHECK (status IN ('SCHEDULED','ON_SALE','SOLD_OUT','CLOSED','SUSPENDED'))`. `is_active`는 건드리지 않는다(D19) |
+| S12 | `stores.approval_at` | **변경 없음** | 이름과 달리 "개설 시각"이다(stores.md D5, `Store.open`). 상점주 계정 승인(`users.approved_at`)과 **별개**다(D6, C1) |
+
+### 2.4 개발 DB 수동 반영용 SQL (제안, 실행하지 않음)
+
+```sql
+ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'APPROVED';
+ALTER TABLE users ADD CONSTRAINT ck_users_status CHECK (status IN ('PENDING','APPROVED','REJECTED','SUSPENDED','WITHDRAWN'));
+ALTER TABLE users ADD COLUMN approved_at TIMESTAMPTZ, ADD COLUMN rejected_reason VARCHAR(500), ADD COLUMN rejected_at TIMESTAMPTZ,
+  ADD COLUMN suspended_reason VARCHAR(500), ADD COLUMN suspended_at TIMESTAMPTZ, ADD COLUMN suspended_until TIMESTAMPTZ,
+  ADD COLUMN deleted_at TIMESTAMPTZ, ADD COLUMN deleted_reason VARCHAR(500);
+ALTER TABLE point_log DROP CONSTRAINT ck_point_log_type;
+ALTER TABLE point_log ADD CONSTRAINT ck_point_log_type CHECK (point_type IN ('EARN','USE','RESTORE','REVOKE','GRANT'));
+ALTER TABLE point_log ADD COLUMN reason VARCHAR(500), ADD COLUMN balance_after INTEGER, ADD COLUMN created_by UUID REFERENCES users (id);
+ALTER TABLE stores ADD COLUMN suspended_reason VARCHAR(500), ADD COLUMN suspended_at TIMESTAMPTZ, ADD COLUMN closed_reason VARCHAR(500);
+ALTER TABLE discount_offers DROP CONSTRAINT <기존 status CHECK 이름>;   -- 이름은 DB에서 확인 (models.py의 CheckConstraint 이름)
+ALTER TABLE discount_offers ADD CONSTRAINT ck_offer_status CHECK (status IN ('SCHEDULED','ON_SALE','SOLD_OUT','CLOSED','SUSPENDED'));
+ALTER TABLE discount_offers ADD COLUMN suspended_reason VARCHAR(500), ADD COLUMN suspended_at TIMESTAMPTZ;
+```
+
+주의: 기존 `status` CHECK 제약 이름은 이 설계가 확인하지 않았다(catalog `models.py` 구현을 구현자가 읽고 맞춘다).
+
+---
+
+## 3. 도메인 (domain/)
+
+모든 도메인은 순수 파이썬(R1). 새 예외는 모듈 전용 클래스이고 `HTTPException`을 만들지 않는다(R6). **모든 사유(reason) 검증은 공백 제거 후 빈 값이면 명세 문구의 `ValueError`, 500자 초과면 "사유는 500자 이하여야 합니다."**(D27). 사유 검증 상수·함수는 모듈 간 공유 코드를 만들지 않으려고 각 도메인에 따로 둔다(`REASON_MAX_LENGTH = 500`이 세 곳에 중복. 값이 바뀌면 세 곳을 함께 고친다).
+
+### 3.1 auth 도메인 확장 (`src/auth/domain/`)
+
+#### 3.1.1 `UserStatus` / `User` 속성 추가
+
+`UserStatus(StrEnum)`: `PENDING, APPROVED, REJECTED, SUSPENDED, WITHDRAWN`.
+
+| 추가 속성 | 타입 | 규칙 |
+| --- | --- | --- |
+| `status` | `UserStatus` | 기본 `APPROVED` |
+| `approved_at`, `rejected_at`, `suspended_at`, `suspended_until`, `deleted_at` | `datetime \| None` | 있으면 tz-aware |
+| `rejected_reason`, `suspended_reason`, `deleted_reason` | `str \| None` | |
+
+생성자 불변식(저장된 데이터에도 참): `PENDING`/`REJECTED`는 `role == OWNER`일 때만; `REJECTED`는 `rejected_reason`·`rejected_at` 필수; `SUSPENDED`는 `suspended_reason`·`suspended_at` 필수, `suspended_until`이 있으면 `suspended_at`보다 뒤; `WITHDRAWN`은 `deleted_at` 필수. 위반 시 `ValueError`. (`OWNER`의 `APPROVED`는 `approved_at` NULL을 허용한다: 기존 상점주 행.)
+
+`User.register(...)`: `status = PENDING if role == OWNER else APPROVED` (D4). 그 외 입력 검증 불변.
+
+#### 3.1.2 상태 전이표
+
+| 현재 | 이벤트 | 다음 | 메서드 |
+| --- | --- | --- | --- |
+| PENDING (OWNER) | 승인 | APPROVED (`approved_at`) | `approve_owner(now)` |
+| PENDING (OWNER) | 거부 | REJECTED (`rejected_reason`, `rejected_at`) | `reject_owner(reason, now)` |
+| APPROVED | 정지 | SUSPENDED (`suspended_*`) | `suspend(reason, until, now)` |
+| SUSPENDED | `suspended_until` 경과 | **APPROVED로 간주** (조회 시 계산, 저장은 다음 쓰기 때) | `effective_status(now)` |
+| PENDING / APPROVED / REJECTED / SUSPENDED | 강제 탈퇴 | WITHDRAWN (`deleted_at`, `deleted_reason`) | `withdraw(reason, now)` |
+| REJECTED | 승인·거부 | 불가 (종단. 재심사 없음) | |
+| WITHDRAWN | 모든 변경 | 불가 (종단) | |
+| (없음) | 정지 해제 | **EP 없음**(D10). 무기한 정지는 해제할 수단이 없다 | |
+
+정지는 `APPROVED`만 가능하다(D36): 한 컬럼(`status`)이 승인 상태와 정지를 함께 나타내므로, 정지가 끝났을 때 돌아갈 상태를 `APPROVED` 하나로 고정하려는 선택이다.
+
+#### 3.1.3 행위 메서드와 예외 (검사 순서가 곧 우선순위. 명세 에러 순서를 따른다)
+
+| 메서드 | 동작 | 예외 (순서대로) |
+| --- | --- | --- |
+| `approve_owner(now)` | `status=APPROVED`, `approved_at=now` | ① `role != OWNER` → `OwnerNotFoundError`(404 "상점주를 찾을 수 없습니다.", D7) ② `status != PENDING` → `OwnerNotPendingError`(400 `OWNER_NOT_PENDING` "승인 대기 중인 상점주가 아닙니다.") ③ naive `now` → ValueError |
+| `reject_owner(reason, now)` | `status=REJECTED`, `rejected_reason`(공백 제거), `rejected_at=now` | ① 사유: 비면 ValueError "거부 사유를 입력해 주세요." ② `OwnerNotFoundError` ③ `OwnerNotPendingError`. 명세 에러 순서(거부 사유 → 대기 아님)에 맞춰 사유 검사가 먼저 |
+| `suspend(reason, until, now)` | `status=SUSPENDED`, `suspended_reason`, `suspended_at=now`, `suspended_until=until` | ① 사유 비면 "정지 사유를 입력해 주세요." ② `until`이 naive면 ValueError, `until <= now`면 `InvalidSuspensionEndError`(400 `INVALID_SUSPENSION_END` "정지 종료 시각은 현재 이후여야 합니다.") ③ `is_suspended(now)` → `UserAlreadySuspendedError`(400 `USER_ALREADY_SUSPENDED` "이미 정지된 회원입니다.") ④ `WITHDRAWN` → `UserWithdrawnError`(400 `USER_WITHDRAWN` "탈퇴한 회원입니다.") ⑤ `role == ADMIN` → `AdminAccountProtectedError`(400 `ADMIN_ACCOUNT_PROTECTED` "관리자 계정은 정지할 수 없습니다.") ⑥ `status` 가 `PENDING`/`REJECTED` → `UserNotSuspendableError`(400 `USER_NOT_SUSPENDABLE` "승인된 회원만 정지할 수 있습니다.", **명세에 없는 에러, D36**). 만료된 정지(`effective_status == APPROVED`)는 재정지 가능 |
+| `ensure_withdrawable(reason)` | 부수 효과 없음 | ① 사유 비면 "탈퇴 사유를 입력해 주세요." ② `WITHDRAWN` → `UserAlreadyWithdrawnError`(400 `USER_ALREADY_WITHDRAWN` "이미 탈퇴한 회원입니다.") ③ `ADMIN` → `AdminAccountProtectedError`("관리자 계정은 탈퇴시킬 수 없습니다.") |
+| `withdraw(reason, now)` | `ensure_withdrawable` 후 `status=WITHDRAWN`, `deleted_at=now`, `deleted_reason` | 위와 같음 |
+| `grant_points(amount, reason)` | `users_point += amount`. 정규화된 사유를 돌려준다 | ① `amount < 1`(또는 bool/비정수) → ValueError "지급 포인트는 1 이상이어야 합니다." ② 사유 비면 "지급 사유를 입력해 주세요." ③ `WITHDRAWN` → `UserWithdrawnError` ④ `users_point + amount > POINT_MAX_BALANCE(2_147_483_647)` → ValueError "포인트 잔액이 한도를 넘습니다."(DB `INTEGER` 상한 방어, D24) |
+| `effective_status(now) -> UserStatus` | `SUSPENDED`이고 `suspended_until`이 있고 `<= now`면 `APPROVED`, 아니면 `status` | |
+| `is_suspended(now)` | `effective_status(now) == SUSPENDED` | |
+| `ensure_can_login(now)` | 로그인 허용 확인 | `WITHDRAWN` → `InvalidCredentialsError`(401, 역할 무관, 존재하지 않는 계정처럼 보이게, D9); `is_suspended`이고 **`role != OWNER`** → `AccountSuspendedError`(403 `FORBIDDEN` "정지된 계정입니다.", D8). **정지된 OWNER는 로그인 허용**(D39 확정: 정지 기간에도 픽업 처리를 계속하기 위함, D35). **PENDING·REJECTED는 허용**(D5). 정지된 ADMIN은 정지 자체가 불가(3.1.3 `suspend`) |
+| `ensure_can_authenticate(now, *, allow_suspended: bool = False)` | 보호 API 허용 확인 | `WITHDRAWN` → `AuthenticationError("유효하지 않은 토큰입니다.")`(기존 "회원 없음" 문구와 동일, `allow_suspended`와 무관하게 항상); `is_suspended`이고 `allow_suspended`가 False → `AccountSuspendedError`. **기본값 False라 모든 기존 보호 API는 정지 회원을 막는다. True는 정지된 상점주의 픽업 EP 하나만 쓴다(D35 확정, 5.5절)** |
+| `ensure_approved_owner()` | 상점 개설·폐점 전 확인 | `role != OWNER` → 기존 `require_role`이 먼저 403; `PENDING` → `OwnerNotApprovedError`(403 `FORBIDDEN` "승인 대기 중인 상점주 계정입니다."); `REJECTED` → `OwnerNotApprovedError("승인이 거부된 상점주 계정입니다.")`(문구는 임시, 명세에 없음). `APPROVED`와 `SUSPENDED`는 통과(정지 회원은 `ensure_can_authenticate`에서 이미 차단) |
+
+새 예외(auth, R6): `UserNotFoundError(LookupError)` 404 "회원을 찾을 수 없습니다."(신규 admin 경로 전용. 기존 `LookupError("회원을 찾을 수 없습니다.")`는 auth.md C-6대로 후속 정리), `OwnerNotFoundError(LookupError)`, `InvalidPageError(ValueError)`(400 `INVALID_PAGE` "페이지 값이 올바르지 않습니다.") 외 위 표의 클래스. `AccountSuspendedError`·`OwnerNotApprovedError`는 `PermissionError` 하위(→ 403 `FORBIDDEN` 고정이라 `error_handlers.py` 변경 없음).
+
+#### 3.1.4 PointLog 확장
+
+- `PointType.GRANT` 추가. 규칙: `GRANT`는 금액 양수(EARN·RESTORE와 같은 그룹).
+- 속성 추가: `reason: str | None`, `balance_after: int | None`, `created_by: uuid.UUID | None`. 여전히 불변(영속화 시 `id`·`created_at` 채우기만 허용).
+- `PointLog.record(user_id, point_type, amount, balance_after, reason=None, created_by=None)`: **`balance_after`는 신규 기록에서 필수**(변경 후 `user.users_point`). 기존 호출 4곳(`use/earn/restore/revoke_points`)이 이 값을 넘기도록 auth 서비스 내부를 고친다(외부 시그니처 불변, C3). `balance_after < 0` → ValueError.
+
+### 3.2 stores 도메인 확장 (`src/stores/domain/`)
+
+`StoreStatus(StrEnum)`: `ACTIVE, SUSPENDED, CLOSED`.
+
+| 추가 속성 | 타입 | 규칙 |
+| --- | --- | --- |
+| `suspended_reason`, `suspended_at` | `str \| None`, `datetime \| None` | 둘 다 있거나 둘 다 없음. `suspended_at` tz-aware |
+| `closed_reason` | `str \| None` | `closed_at`이 있을 때만 값 가능 |
+| `status` (property) | `StoreStatus` | `closed_at` → `CLOSED`, 아니면 `suspended_at` → `SUSPENDED`, 아니면 `ACTIVE` (D16). 저장하지 않음 |
+
+기존 불변식 유지: `closed_at`이 있으면 `approval_at`도 있고 `closed_at >= approval_at`.
+
+| 메서드 | 동작 | 예외 (순서대로) |
+| --- | --- | --- |
+| `suspend(reason, now)` | `suspended_reason`, `suspended_at = now` | ① 사유 비면 "정지 사유를 입력해 주세요." ② 폐점 → `StoreClosedError`(400 `STORE_CLOSED` "폐점된 상점입니다.") ③ 이미 정지 → `StoreAlreadySuspendedError`(400 `STORE_ALREADY_SUSPENDED` "이미 정지된 상점입니다."). 명세 나열 순서는 "이미 정지 → 폐점"이지만 둘이 겹치는 경우(정지 후 폐점된 상점)는 `status == CLOSED`이므로 폐점 문구를 우선한다 |
+| `suspend_if_active(reason, now) -> bool` | 회원 정지의 연쇄 정지용. 폐점 또는 이미 정지면 **오류 없이 False**, 아니면 `suspend` 후 True | 사유·naive `now` 검증만 (D11) |
+| `ensure_force_closable(reason)` | 부수 효과 없음 | ① 사유 비면 "폐점 사유를 입력해 주세요." ② 이미 폐점 → 기존 `StoreAlreadyClosedError`(400 `STORE_ALREADY_CLOSED` "이미 폐점된 상점입니다.") |
+| `force_close(reason, now, has_reserved_reservations: bool)` | `closed_at = now`, `closed_reason` | ① `ensure_force_closable` ② `has_reserved_reservations` → `StoreHasReservedReservationsError`(400 `STORE_HAS_RESERVED_RESERVATIONS` "처리되지 않은 예약이 있는 상점은 폐점할 수 없습니다.") ③ 미승인 상점 → 기존 ValueError "승인되지 않은 상점은 폐점할 수 없습니다."(D37) ④ `now < approval_at` → 기존 ValueError. 정지된 상점도 폐점 가능 |
+| `close(now)` (기존, 상점주 폐점) | 변경: **정지된 상점이면** `StoreSuspendedError`(400 `STORE_SUSPENDED` "관리자에 의해 정지된 상점입니다.") 추가 | 순서: 이미 폐점 → 정지 → 미승인 (D17) |
+
+전이표 (`status` 기준):
+
+| 현재 | 이벤트 | 다음 |
+| --- | --- | --- |
+| ACTIVE | `suspend` / `suspend_if_active` | SUSPENDED |
+| SUSPENDED | `suspend` | 불가 (`StoreAlreadySuspendedError`) |
+| ACTIVE / SUSPENDED | `force_close` (관리자) | CLOSED |
+| ACTIVE | `close` (상점주, 기존) | CLOSED |
+| SUSPENDED | `close` (상점주) | 불가 (`StoreSuspendedError`, D17) |
+| CLOSED | 모든 정지·폐점 | 불가 (`StoreClosedError` / `StoreAlreadyClosedError`) |
+| SUSPENDED | 정지 해제 / 재개점 | **EP 없음**(D10, stores.md D6 재개점 후속) |
+
+stores 새 예외: `StoreClosedError`, `StoreAlreadySuspendedError`, `StoreSuspendedError`, `StoreHasReservedReservationsError`(전부 `ValueError`, `error_code` 보유 → 400, `error_handlers.py` 변경 없음).
+
+### 3.3 catalog 도메인 확장 (`src/catalog/domain/`)
+
+| 변경 | 내용 |
+| --- | --- |
+| `OfferStatus.SUSPENDED` 추가 | |
+| `DiscountOffer` 속성 | `suspended_reason: str \| None`, `suspended_at: datetime \| None` (둘 다 있거나 없음, tz-aware). `is_suspended` property |
+| `effective_status(now)` 우선순위 (catalog.md 3.4 표 수정) | 1. `not is_active` → CLOSED, **2. `is_suspended` → SUSPENDED**, 3. `now >= sales_end` → CLOSED, 4. `now < sales_start` → SCHEDULED, 5. 재고 0 → SOLD_OUT, 6. ON_SALE. (C6) |
+| `is_open(now)` | **변경 없음**(`is_active and now < sales_end`). 정지된 할인도 "진행 중"으로 센다 → 같은 상품에 중복 등록·상점주 폐점을 우회하지 못한다(D22). 단 catalog.md 10절의 "`OPEN_OFFER_STATUSES`가 `is_open`이 참인 effective_status 집합과 같음" 테스트는 SUSPENDED가 추가되어 깨진다(C6) |
+| `suspend(reason, now)` | `suspended_reason`, `suspended_at = now`, `status = SUSPENDED`(저장값). `is_active`는 바꾸지 않는다(D19) |
+| `suspend` 예외 (명세 순서) | ① 사유 비면 "정지 사유를 입력해 주세요." ② 이미 정지 → `OfferAlreadySuspendedError`(400 `OFFER_ALREADY_SUSPENDED` "이미 정지된 상품입니다.") ③ 판매 종료(`not is_active` 또는 `now >= sales_end`) → `OfferSalesEndedError`(400 `OFFER_SALES_ENDED` "판매가 종료된 상품입니다."). `SCHEDULED`·`SOLD_OUT`은 정지 가능(D21) |
+| `end_sale(now) -> bool` | 관리자 상점 폐점용. `is_active=False`, `status=CLOSED`, 이미 `not is_active`면 아무 것도 안 하고 False. 정지된 할인도 종료한다(정지 정보는 이력으로 남김). 재고·`stock_log` 불변(catalog D40과 같은 방식) |
+| 상점주 조작 가드 | `pause`, `resume`, `close`(#12), `apply_changes`(#11), `adjust_stock`(#14), `ensure_relistable`(#13)은 **정지된 할인이면 `OfferSuspendedError`**(400 `OFFER_SUSPENDED` "관리자에 의해 정지된 상품입니다.")를 가장 먼저 낸다(D20). 상점주가 `is_active:true` 재개나 재등록으로 관리자 정지를 우회하지 못하게 한다 |
+| `StoreRef`(catalog) | `suspended: bool`(`StoreInfo.suspended_at is not None`) 추가. `ensure_can_register`의 순서를 폐점 → **정지(`StoreSuspendedError`, 400 `STORE_SUSPENDED`)** → 미승인으로 확장. `ensure_visible_to(viewer_id)`: 정지된 상점이고 `viewer_id`가 소유자가 아니면 `StoreNotFoundError`(404) |
+
+허용 전이(저장 `status` 기준 추가분): SCHEDULED/ON_SALE/SOLD_OUT --`suspend`--> SUSPENDED. SUSPENDED --`end_sale`--> CLOSED(상점 강제 폐점). SUSPENDED에서 되돌리는 전이는 **없다**(해제 EP 없음, D10). 기존 `CLOSED`/비활성 할인은 정지 불가.
+
+예약 가능 판정은 catalog.md 3.4 후속 메모대로 `effective_status(now) == ON_SALE`이므로 SUSPENDED는 신규 예약이 자동으로 막힌다. **기존 RESERVED 예약은 할인 상태와 무관하게 진행**되어야 한다(catalog.md C9, 6절 요구).
+
+### 3.4 admin 도메인
+
+엔티티 없음. `domain/service.py`의 `Clock(ABC).now() -> datetime`(tz-aware UTC)만 둔다(D31, stores D13·catalog D21과 같은 모듈별 Clock). 규칙은 전부 소유 컨텍스트에 있다.
+
+---
+
+## 4. 인프라 (infrastructure/)
+
+### 4.1 모델 변경 (2절 스키마와 1:1, R14)
+
+| 모델 | 변경 |
+| --- | --- |
+| `UserModel` | S1~S5 컬럼. `status`는 `String(20)`, `server_default="APPROVED"`, `ck_users_status`. 시간은 `DateTime(timezone=True)` |
+| `PointLogModel` | S6~S9. `created_by`는 `ForeignKey("users.id")`(같은 모듈이라 문자열 FK 그대로). `ck_point_log_type`에 `GRANT` 추가 |
+| `StoreModel` | S10 컬럼 3개 |
+| `DiscountOfferModel` | S11. status CHECK에 `SUSPENDED` 추가 |
+| admin | 모델 없음 |
+
+### 4.2 레포지토리 (추상은 각 `domain/repository*`, 구현체는 `SqlAlchemy*`. 도메인 객체만 주고받고 `flush()`까지, R4·R5)
+
+| 모듈 | 추상 메서드 변경 | 구현 메모 |
+| --- | --- | --- |
+| auth `UserRepository` | 시그니처 변경 없음. `save`가 새 컬럼 9개를 쓰고 `_to_domain`이 읽는다 | `find_by_id(for_update=True)`는 이미 있음(`SELECT ... FOR UPDATE`). `status` 문자열 → `UserStatus` |
+| auth `PointLogRepository` | `add`가 `reason`, `balance_after`, `created_by`를 쓴다. `find_by_user(user_id, *, point_type, offset, limit)`·`count_by_user`는 그대로 재사용(최신순 `created_at desc, id desc`) | EP 8은 `offset=(page-1)*size` |
+| stores `StoreRepository` | `find_by_owner_id(owner_id, for_update: bool = False)`로 **인자 추가**. `find_by_id(store_id, for_update)`는 이미 있음 | `save`의 UPDATE 대상에 `suspended_reason`, `suspended_at`, `closed_reason`, `closed_at` 추가(기존은 `approval_at`·`closed_at`만) — stores.md D10 "개설 후 이름·주소·좌표·owner는 갱신하지 않음"은 유지 |
+| catalog `ProductRepository` | `find_all_by_store_for_update(store_id) -> list[Product]` 추가 (`id` 오름차순, `FOR UPDATE`) | 상점 폐점 시 상품 행을 먼저 잠그려는 용도(product → offer 순서, catalog.md 5.3) |
+| catalog `DiscountOfferRepository` | `find_open_by_store_for_update(store_id, now) -> list[DiscountOffer]` 추가 (`is_active AND sales_end > now`, `id` 오름차순, `FOR UPDATE` + `populate_existing`). `_status_clause`·`save`·`_to_domain`에 `SUSPENDED`·`suspended_*` 반영 | `_status_clause(CLOSED/SCHEDULED/ON_SALE/SOLD_OUT)`는 `effective_status` 우선순위와 같게 "`suspended_at IS NULL`" 조건을 추가하고, `SUSPENDED`는 `is_active AND suspended_at IS NOT NULL`(CI-5 일관성 테스트 확대). 공개 목록의 `status` 허용 값에는 SUSPENDED를 넣지 않는다(D20) |
+| admin | 레포지토리 없음 | `SystemClock`, `NoReservationAdmin` |
+
+### 4.3 동시성과 잠금 순서 (D34)
+
+**전역 잠금 순서: `stores` → `products` → `discount_offers` → `pickup_reservations` → `payments` → `users`. 같은 종류 안에서는 `id` 오름차순.** 근거: catalog.md 5.3(product → offer), payments.md 4.2.3 C-4(예약 → 결제 → 환불 → 회원), db-schema §7(offer 먼저). 어긋나면 교착이 난다.
+
+| EP | 잠금 | 위험 / 대응 |
+| --- | --- | --- |
+| 1, 2 | `users` 행 `FOR UPDATE` | 동시 승인·거부(둘 다 PENDING을 보고 통과) → 행 잠금 후 상태 재확인(도메인이 다시 검사) |
+| 3 | (OWNER면) `stores` 행 → `users` 행 | 3과 4가 같은 상점주에 동시에 오면 순서가 다르면 교착 → **둘 다 store → user 순서** |
+| 4 | `stores`(소유 상점) → `products` → `discount_offers`(상점 폐점) → `pickup_reservations`·`payments`(본인 예약 취소, 예약 모듈 담당) → `users` | 4에서 상점 쪽을 **예약 취소보다 먼저** 하는 이유: 상점주가 자기 상점 할인을 예약했을 때(reservations.md "자기 상점 예약 가능?" 미정) 예약 취소가 offer를 잠근 뒤 상점의 product를 잠그면 catalog 쪽 `product → offer`와 역순이 되어 교착한다 |
+| 5 | `stores` 행 | 동시 정지 → 행 잠금 후 상태 재확인 |
+| 6 | `stores` → `products` → `discount_offers` → `pickup_reservations`(RESERVED 조회를 `FOR UPDATE`) | 할인을 먼저 종료해 신규 예약을 막은 **뒤에** RESERVED를 조회한다(순서가 반대면 조회 직후 새 예약이 끼어든다). RESERVED 행 `FOR UPDATE`는 결제 확정(`PENDING_PAYMENT → RESERVED`, 예약 행을 잠금)과 직렬화하려는 것이다. 이 계약은 reservations 설계가 지켜야 한다(C10) |
+| 7 | `products` → `discount_offers` | 정지와 동시에 들어오는 #11·#12·#14와 직렬화(catalog 기존 패턴: offer를 무잠금으로 읽어 `product_id`를 얻고 → product → offer) |
+| 9 | `users` 행 `FOR UPDATE`(`_locked_user`) | 지급과 결제 포인트 사용이 겹쳐도 잔액이 틀리지 않게. 이력 insert와 잔액 변경은 같은 트랜잭션 |
+| 8 | 없음 | 읽기 전용. 잔액(`users_point`)과 이력은 별도 SELECT라 순간적 불일치는 허용 |
+| 로그인·인증 | 없음 | 정지·탈퇴 확인은 이미 하는 `users` 조회에 얹는다(추가 쿼리 없음) |
+
+---
+
+## 5. 응용 (application/)
+
+### 5.1 원칙
+
+- 쓰기 EP는 **admin 서비스가 마지막에 한 번 `session.commit()`** 한다(R5, R13). 호출하는 다른 모듈 서비스 메서드는 모두 `commit=False`로 부른다. 예외가 나면 커밋되지 않고 세션이 닫힐 때 롤백된다.
+- 모든 흐름은 `now = self.clock.now()`를 **한 번** 얻어 각 모듈에 넘긴다(한 요청의 `suspended_at`·`closed_at`이 같은 시각).
+- 시나리오의 "조회 → 도메인 메서드 → save → commit"은 각 모듈 서비스 안에서 일어난다. admin 서비스는 호출 순서와 commit만 정한다(R3).
+- 현재 어느 서비스도 R13의 `commit` 인자를 가진 관리자 메서드가 없다. 아래 5.3절이 각 모듈에 **새로 생기는 메서드**다.
+
+### 5.2 포트 (`admin/application/ports.py`, `typing.Protocol`, 쓰는 쪽이 정의, D30)
+
+```python
+class AccountAdminPort(Protocol):               # AuthApplicationService가 구조적으로 만족
+    async def get_account(self, user_id) -> AccountInfo: ...                           # 404, 무잠금. AccountInfo: id, role(str), status(str)
+    async def approve_owner(self, user_id, *, now, commit: bool = True) -> UserAdminInfo: ...
+    async def reject_owner(self, user_id, reason, *, now, commit: bool = True) -> UserAdminInfo: ...
+    async def suspend_user(self, user_id, reason, suspended_until, *, now, commit: bool = True) -> UserAdminInfo: ...
+    async def check_withdrawable(self, user_id, reason) -> None: ...                    # 부수 효과 없음, 무잠금
+    async def withdraw_user(self, user_id, reason, *, now, commit: bool = True) -> UserAdminInfo: ...
+    async def grant_points(self, user_id, amount, reason, admin_id, *, now, commit: bool = True) -> PointLogInfo: ...
+    async def list_points(self, user_id, page, size) -> PointHistoryInfo: ...
+
+class StoreAdminPort(Protocol):                 # StoresApplicationService가 구조적으로 만족
+    async def lock_store(self, store_id) -> StoreAdminInfo: ...                         # 404, FOR UPDATE
+    async def lock_store_of_owner(self, owner_id) -> StoreAdminInfo | None: ...         # 없으면 None, FOR UPDATE
+    async def suspend_store(self, store_id, reason, *, now, commit: bool = True) -> StoreAdminInfo: ...
+    async def suspend_stores_of_owner(self, owner_id, reason, *, now, commit: bool = True) -> StoreAdminInfo | None: ...  # 연쇄 정지, 폐점·이미 정지·상점 없음은 건너뜀
+    async def check_force_closable(self, store_id, reason) -> None: ...                 # lock + 사유·이미 폐점 검사 (명세 에러 순서 유지용)
+    async def close_store_by_admin(self, store_id, reason, *, has_reserved_reservations: bool, now, commit: bool = True) -> StoreAdminInfo: ...
+
+class OfferAdminPort(Protocol):                 # CatalogApplicationService가 구조적으로 만족
+    async def suspend_offer(self, offer_id, reason, *, now, commit: bool = True) -> OfferAdminInfo: ...
+    async def end_all_sales_of_store(self, store_id, *, now, commit: bool = True) -> int: ...   # 종료한 할인 수
+
+class ReservationAdminPort(Protocol):           # 예약 모듈 미구현 → NoReservationAdmin (B-6)
+    async def cancel_reserved_for_user(self, user_id, *, reason: str) -> int: ...
+    async def has_reserved_for_store(self, store_id) -> bool: ...
+```
+
+- 결과 타입(`UserAdminInfo`, `StoreAdminInfo`, `OfferAdminInfo`, `PointLogInfo`, `PointHistoryInfo`)은 필요한 속성만 선언한 Protocol이다. 도메인 객체(`User`, `Store`, `OfferView`, `PointLog`)가 속성 이름만 맞으면 구조적으로 만족한다(catalog `StoreInfo`와 같은 방식). 응답 스키마는 `from_attributes=True`로 읽는다.
+- `ReservationAdminPort` 계약(예약 설계에 전달, C10): ① `cancel_reserved_for_user`는 해당 회원의 **RESERVED** 예약만 취소하고 재고를 복구하며(stock_log 양수) 결제된 금액을 **전액 환불·사용 포인트 복구**를 payments에 요청한다(위약금 면제, payments.md 4.3.4 `waive_penalty=True`). `commit` 금지(R5), 같은 세션(R13), 취소 수를 반환, 중복 호출 멱등. ② `has_reserved_for_store`는 상점의 모든 할인에 걸린 RESERVED 예약이 하나라도 있는지, RESERVED 행을 `FOR UPDATE`로 잠가 읽는다. catalog `ReservationCancelPort`(catalog.md 6.4)와는 **별개 포트**다(쓰는 쪽이 각자 정의, 어댑터는 reservations 구현 PR에서 같이 교체).
+- 포트를 쓰므로 admin은 `auth`·`stores`·`catalog`·`reservations`를 import하지 않는다(R2, R11). 연결은 container만 안다.
+
+### 5.3 각 모듈에 생기는 application 메서드 (R13 `commit` 인자, 도메인 메서드 호출 + `save()`)
+
+| 모듈 | 메서드 | 시나리오 |
+| --- | --- | --- |
+| auth | `get_account(user_id)` | `users.find_by_id` → 없으면 `UserNotFoundError`. 읽기 |
+| auth | `approve_owner(user_id, *, now, commit)` | `_locked_user`(FOR UPDATE) → `user.approve_owner(now)` → `users.save` → `_finish(commit)` |
+| auth | `reject_owner(user_id, reason, *, now, commit)` | 같은 패턴, `user.reject_owner(reason, now)` |
+| auth | `suspend_user(user_id, reason, suspended_until, *, now, commit)` | `_locked_user` → `user.suspend(reason, until, now)` → `save` → `_finish` |
+| auth | `check_withdrawable(user_id, reason)` | `find_by_id`(무잠금) → `user.ensure_withdrawable(reason)` |
+| auth | `withdraw_user(user_id, reason, *, now, commit)` | `_locked_user` → `user.withdraw(reason, now)` → `save` → `_finish` |
+| auth | `grant_points(user_id, amount, reason, admin_id, *, now, commit)` | `_locked_user` → `normalized = user.grant_points(amount, reason)` → `users.save` → `point_logs.add(PointLog.record(user.id, GRANT, amount, user.users_point, reason=normalized, created_by=admin_id))` → `_finish`. 이력과 잔액이 한 트랜잭션(명세 9) |
+| auth | `list_points(user_id, page, size)` | `page < 1` 또는 `size`가 1~100 밖이면 `InvalidPageError` → `find_by_id`(404 `UserNotFoundError`) → `point_logs.find_by_user(offset=(page-1)*size, limit=size)` + `count_by_user`. 응답 `balance = user.users_point` |
+| auth | **기존 메서드 변경** | `login`: 비밀번호 검증 **성공 후** `user.ensure_can_login(now)`(틀린 비밀번호는 상태와 무관하게 `INVALID_CREDENTIALS`, 계정 열거 방지, D8). 정지된 CUSTOMER는 403, **정지된 OWNER는 토큰을 발급**(D39), 탈퇴는 역할 무관 401. 서비스에 역할 분기를 두지 않고 규칙은 `ensure_can_login`에 있다(R3). `authenticate(token, *, allow_suspended: bool = False)`: `user.ensure_can_authenticate(now, allow_suspended=allow_suspended)`(D35, 5.5절). `use/earn/restore/revoke_points`: `PointLog.record`에 `balance_after` 전달. 생성자에 **`clock: Clock` 필수 인자 추가**(D33) |
+| stores | `lock_store`, `lock_store_of_owner` | `find_by_id(for_update=True)` / `find_by_owner_id(for_update=True)`. 없으면 `StoreNotFoundError`(owner 조회는 None) |
+| stores | `suspend_store(store_id, reason, *, now, commit)` | `find_by_id(for_update=True)` → 404 → `store.suspend(reason, now)` → `save` → `_finish` |
+| stores | `suspend_stores_of_owner(owner_id, reason, *, now, commit)` | `find_by_owner_id(for_update=True)` → 없으면 None → `store.suspend_if_active(reason, now)` → True면 `save` |
+| stores | `check_force_closable(store_id, reason)` | `find_by_id(for_update=True)` → 404 → `store.ensure_force_closable(reason)` |
+| stores | `close_store_by_admin(store_id, reason, *, has_reserved_reservations, now, commit)` | `find_by_id(for_update=True)` → 404 → `store.force_close(reason, now, has_reserved_reservations)` → `save` → `_finish` |
+| catalog | `suspend_offer(offer_id, reason, *, now, commit)` | 할인을 무잠금으로 읽어 `product_id` 확보(404 `OfferNotFoundError`) → 상품 `FOR UPDATE` → 할인 `FOR UPDATE` → `offer.suspend(reason, now)` → `offers.save` → `_finish`. 응답용으로 `OfferView`(상점명은 `StorePort`) |
+| catalog | `end_all_sales_of_store(store_id, *, now, commit)` | `products.find_all_by_store_for_update(store_id)` → `offers.find_open_by_store_for_update(store_id, now)` → 각 `offer.end_sale(now)` → `offers.save` → 종료 수 반환. 재고·`stock_log` 불변(D18) |
+| catalog | **기존 읽기 메서드 변경** | `list_products`·`get_product`·`list_offers_by_store`·`get_offer_detail`: `_load_store` 뒤 `store.ensure_visible_to(viewer_id)`(D17). `get_offer_detail`에 `viewer_id`를 추가하고 할인이 정지(`effective_status == SUSPENDED`)이면 소유자 외 `OfferNotFoundError`(D20). `create_product`·`register_offer`·`relist_offer`는 `ensure_can_register`가 정지 상점을 막음 |
+
+`commit` 인자 규칙(R13): `commit=True`가 기본이라 기존 호출자에는 영향이 없다. admin은 항상 `commit=False`로 부른다.
+
+### 5.5 정지된 상점주의 픽업 허용 (D35 확정)
+
+명세 5("기존 RESERVED 예약은 유지되어 픽업 처리가 가능")를 명세 3("정지된 회원은 보호 API를 사용할 수 없다")보다 우선한다. 정지 확인은 계속 공통 `authenticate` 한 곳에 있고(기본 차단), **픽업 EP만 예외 의존성을 쓰는 방식**으로 공존시킨다.
+
+| 위치 | 설계 |
+| --- | --- |
+| auth application | `authenticate(token, *, allow_suspended: bool = False)`. 기본 호출은 그대로 정지 회원을 막는다. 규칙 자체(정지·탈퇴 판정)는 `User.ensure_can_authenticate`에 있다(R3). 탈퇴·토큰 폐기·위조 검사는 `allow_suspended`와 무관하게 동일 |
+| auth presentation | `dependencies.py`에 `get_current_principal_allow_suspended`(내부에서 `service.authenticate(token, allow_suspended=True)`)와 별칭 `SuspendedAllowedOwnerUser = Annotated[User, Depends(require_roles_allow_suspended(Role.OWNER))]`를 **새로 추가**한다. `require_roles`·`CurrentUser`·`OwnerUser` 등 기존 별칭은 불변(전부 정지 차단). `provide_auth_service`를 그대로 쓰므로 새 `provide_*` 없음(R9) |
+| reservations presentation | **`POST /v1/reservations/{reservation_id}/pickup` 한 EP만** `OwnerUser` 대신 `SuspendedAllowedOwnerUser`를 쓴다. 해당 매장 소유 확인(403)·`pickup_code` 검증은 reservations 서비스·도메인이 기존대로 한다 |
+| 허용 범위 | 정지된 상점주는 **픽업 처리만** 가능하다. 상점 정보 변경·상품·할인 등록·재고 조정·폐점·로그아웃·포인트 조회 등 나머지 보호 API는 명세 3대로 403 `FORBIDDEN` "정지된 계정입니다."이다. 정지된 상점의 상품·할인 숨김, 신규 예약 차단(D17)은 그대로 |
+| 탈퇴 | 강제 탈퇴된 상점주는 `WITHDRAWN`이라 픽업도 401이다(탈퇴 시 RESERVED는 취소되거나 폐점이 거부되므로 픽업할 예약이 남지 않는다, D12·D13) |
+
+고객 쪽 영향은 없다(정지된 고객은 계속 차단, 고객의 예약 취소 EP도 `CurrentUser` 그대로 차단). **D39 확정: 정지된 OWNER는 로그인할 수 있다**(`ensure_can_login`의 OWNER 예외). 그래서 정지 기간 내내 새 토큰을 받아 픽업 EP를 쓸 수 있다. 로그인 후에도 픽업 EP 외 보호 API는 403이다(`allow_suspended` 기본 False). 정지된 CUSTOMER는 D8대로 로그인 403, 탈퇴는 역할 무관 401(D9)이다.
+
+미결 문제(결정하지 않음, C17): 로그인 응답은 토큰만 주므로 클라이언트가 정지 상태를 알 수 없다. 정지된 OWNER는 로그인에 성공한 뒤 다른 API에서 403 "정지된 계정입니다."를 받고서야 알게 된다. 응답에 `status`를 넣을지, 토큰 클레임에 넣을지, 그대로 둘지는 사용자 결정 대기.
+
+### 5.4 admin 서비스 `AdminApplicationService` — EP별 시나리오
+
+```python
+class AdminApplicationService:
+    def __init__(self, session: AsyncSession, accounts: AccountAdminPort, stores: StoreAdminPort,
+                 offers: OfferAdminPort, reservations: ReservationAdminPort, clock: Clock): ...   # 전부 필수 (R8)
+```
+
+인증은 router의 `AdminUser`가 처리하고, 서비스에는 `admin_id: UUID`만 넘긴다(catalog D23과 같은 선택: application이 auth 도메인을 import하지 않음).
+
+| EP | 메서드 | 흐름 (commit은 마지막 1회) |
+| --- | --- | --- |
+| 1 | `approve_owner(owner_id)` | `now` → `accounts.approve_owner(owner_id, now=now, commit=False)` → `commit` → 반환. 404 `OwnerNotFoundError`, 400 `OwnerNotPendingError` |
+| 2 | `reject_owner(owner_id, reason)` | 같은 패턴. 사유 검증이 상태 검사보다 먼저 |
+| 3 | `suspend_user(user_id, reason, suspended_until)` | ① `acct = accounts.get_account(user_id)`(404, 무잠금) ② `acct.role == "OWNER"`이면 `stores.lock_store_of_owner(user_id)`(상점 행 먼저, 4와 같은 순서) ③ `user = accounts.suspend_user(..., commit=False)`(여기서 모든 400 검증) ④ OWNER면 `stores.suspend_stores_of_owner(user_id, reason, now=now, commit=False)`(이미 정지·폐점·상점 없음은 건너뜀, D11) ⑤ `commit`. ③이 실패하면 ④는 실행되지 않고 롤백 |
+| 4 | `withdraw_user(user_id, reason)` | ① `acct = accounts.get_account(user_id)`(404) ② `accounts.check_withdrawable(user_id, reason)`(사유·이미 탈퇴·관리자 400을 **무거운 작업 전에** 확인) ③ OWNER면 `store = stores.lock_store_of_owner(user_id)` ④ 상점이 있고 `status != "CLOSED"`면 `offers.end_all_sales_of_store(store.id, now=now, commit=False)` ⑤ `cancelled = reservations.cancel_reserved_for_user(user_id, reason=reason)` ⑥ 상점이 있고 폐점 전이면 `reserved = reservations.has_reserved_for_store(store.id)` → `stores.close_store_by_admin(store.id, reason, has_reserved_reservations=reserved, now=now, commit=False)` ⑦ `accounts.withdraw_user(user_id, reason, now=now, commit=False)` ⑧ `commit` → `{id, status, deleted_at, cancelled_reservation_count=cancelled}`. ⑥에서 타 고객의 RESERVED 예약이 남아 있으면 `StoreHasReservedReservationsError`(400)로 **전체 롤백**(탈퇴도 취소되지 않음)(D13). 자기 상점을 자기가 예약한 경우는 ⑤에서 먼저 취소되어 ⑥을 막지 않는다 |
+| 5 | `suspend_store(store_id, reason)` | `stores.suspend_store(store_id, reason, now=now, commit=False)` → `commit`. 응답 `owner_id`·`name`은 상점에서 |
+| 6 | `close_store(store_id, reason)` | ① `stores.check_force_closable(store_id, reason)`(상점 행 잠금, 404 → 사유 → 이미 폐점 순서 보장) ② `offers.end_all_sales_of_store(store_id, now=now, commit=False)`(신규 예약 차단) ③ `reserved = reservations.has_reserved_for_store(store_id)` ④ `stores.close_store_by_admin(store_id, reason, has_reserved_reservations=reserved, now=now, commit=False)`(예약이 있으면 400, 모든 변경 롤백) ⑤ `commit` |
+| 7 | `suspend_offer(offer_id, reason)` | `offers.suspend_offer(offer_id, reason, now=now, commit=False)` → `commit` |
+| 8 | `get_user_points(user_id, page, size)` | `accounts.list_points(user_id, page, size)`. 읽기, commit 없음 |
+| 9 | `grant_points(admin_id, user_id, amount, reason)` | `accounts.grant_points(user_id, amount, reason, admin_id, now=now, commit=False)` → `commit` → 지급 이력 반환(201) |
+
+트랜잭션 경계 정리:
+
+| 흐름 | 한 트랜잭션에 묶이는 것 | 롤백 조건 |
+| --- | --- | --- |
+| 3 | 회원 정지 + 상점 정지 | ③ 검증 실패(상점 정지 미실행), ④ 중 예외 → 회원 정지도 취소 |
+| 4 | 할인 종료 + 예약 취소(+재고 복구·환불·포인트 복구는 예약·결제 모듈) + 상점 폐점 + 회원 탈퇴 | ⑥ 예약 남음 400, 포트 예외 → 전체 롤백 |
+| 6 | 할인 종료 + 상점 폐점 | 예약 남음 400 → 할인 종료도 롤백 |
+| 9 | 잔액 + 이력 | `users_point` UPDATE와 `point_log` INSERT는 같은 세션의 같은 commit |
+
+**재고 복구·환불의 책임**: admin은 재고나 결제를 직접 만지지 않는다. `ReservationAdminPort.cancel_reserved_for_user`가 예약 모듈 안에서 `catalog`(재고 복구)·`payments`(환불)를 호출한다(생성 순환 회피는 catalog.md 9.3, C12를 따른다). 이 어댑터가 구현되기 전에는 `NoReservationAdmin`이라 재고·환불 연동은 없다(B-6).
+
+---
+
+## 6. 표현 (presentation/)
+
+### 6.1 의존성·조립 (R9)
+
+- `presentation/dependencies.py`: `provide_admin_service() -> AdminApplicationService` 플레이스홀더만 선언.
+- 라우터는 `Annotated[AdminApplicationService, Depends(provide_admin_service)]`만 쓴다. 모든 EP에 `AdminUser`(auth, 401·403)를 건다.
+- URI 접두사는 `presentation/router.py`의 상수 `ADMIN_PREFIX = "/admin"` 한 곳(D2). 명세 URI가 `/admin/...`이고 R15가 명세를 따르라고 하므로 `/v1`을 붙이지 않는다. 다른 모듈은 `/v1`을 쓰므로 팀이 통일하려면 이 상수만 `/v1/admin`으로 바꾼다.
+- 라우터는 서비스만 호출하고 예외를 잡지 않는다(R6, R7).
+
+### 6.2 엔드포인트 표 (명세 필드명 그대로, R15)
+
+| # | Method | URI | 요청 스키마 | 응답 스키마 | 성공 | 에러 (명세 문구 / `error_code`) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | PATCH | `/admin/owners/{owner_id}/approve` | 없음 | `OwnerApprovalResponse` `{id, email, name, role, status, approved_at}` | 200 | 400 `OWNER_NOT_PENDING` 승인 대기 중인 상점주가 아닙니다. / 401 / 403 / 404 상점주를 찾을 수 없습니다. |
+| 2 | PATCH | `/admin/owners/{owner_id}/reject` | `ReasonRequest {reason}` | `OwnerRejectionResponse` `{id, email, name, role, status, rejected_reason, rejected_at}` | 200 | 400 거부 사유를 입력해 주세요.(`VALIDATION_ERROR`) / 400 `OWNER_NOT_PENDING` / 401 / 403 / 404 |
+| 3 | PATCH | `/admin/users/{user_id}/suspend` | `UserSuspendRequest {reason, suspended_until: datetime \| null}` | `UserSuspensionResponse` `{id, email, role, status, suspended_reason, suspended_at, suspended_until}` | 200 | 400 정지 사유를 입력해 주세요. / 400 `INVALID_SUSPENSION_END` / 400 `USER_ALREADY_SUSPENDED` / 400 `USER_WITHDRAWN` / 400 `ADMIN_ACCOUNT_PROTECTED` / (추가) 400 `USER_NOT_SUSPENDABLE`(D36) / 401 / 403 / 404 회원을 찾을 수 없습니다. |
+| 4 | DELETE | `/admin/users/{user_id}` | `ReasonRequest {reason}` (DELETE 본문, B-9) | `UserWithdrawalResponse` `{id, status, deleted_at, cancelled_reservation_count}` | 200 | 400 탈퇴 사유를 입력해 주세요. / 400 `USER_ALREADY_WITHDRAWN` / 400 `ADMIN_ACCOUNT_PROTECTED` / (추가) 400 `STORE_HAS_RESERVED_RESERVATIONS`(D13) / 401 / 403 / 404 |
+| 5 | PATCH | `/admin/stores/{store_id}/suspend` | `ReasonRequest` | `StoreSuspensionResponse` `{id, owner_id, name, status, suspended_reason, suspended_at}` | 200 | 400 정지 사유를 입력해 주세요. / 400 `STORE_ALREADY_SUSPENDED` / 400 `STORE_CLOSED` / 401 / 403 / 404 상점을 찾을 수 없습니다. |
+| 6 | PATCH | `/admin/stores/{store_id}/close` | `ReasonRequest` | `StoreClosureResponse` `{id, owner_id, name, status, closed_reason, closed_at}` | 200 | 400 폐점 사유를 입력해 주세요. / 400 `STORE_ALREADY_CLOSED` / 400 `STORE_HAS_RESERVED_RESERVATIONS` / 401 / 403 / 404 |
+| 7 | PATCH | `/admin/offers/{offer_id}/suspend` | `ReasonRequest` | `OfferSuspensionResponse` `{id, store_id, title, status, suspended_reason, suspended_at}` (`title` = 상품명) | 200 | 400 정지 사유를 입력해 주세요. / 400 `OFFER_ALREADY_SUSPENDED` / 400 `OFFER_SALES_ENDED` / 401 / 403 / 404 상품을 찾을 수 없습니다.(catalog 기존 문구 "할인 판매를 찾을 수 없습니다."와 다름, D32) |
+| 8 | GET | `/admin/users/{user_id}/points?page=1&size=20` | 쿼리 `page`, `size` | `PointHistoryPageResponse` `{user_id, balance, history[{id, amount, type, reason, balance_after, created_by, created_at}], page, size, total}` | 200 | 400 `INVALID_PAGE` 페이지 값이 올바르지 않습니다. / 401 / 403 / 404 회원을 찾을 수 없습니다. |
+| 9 | POST | `/admin/users/{user_id}/points` | `PointGrantRequest {amount: int, reason}` | `PointGrantResponse` `{id, user_id, amount, type, reason, balance_after, created_by, created_at}` | **201** | 400 지급 포인트는 1 이상이어야 합니다. / 400 지급 사유를 입력해 주세요. / 400 `USER_WITHDRAWN` / 401 / 403 / 404 |
+
+공통:
+- 경로의 잘못된 UUID와 본문 필드 누락·타입 오류는 전역 핸들러가 **400 `VALIDATION_ERROR`**(B-8, 422 아님). 메시지는 `필드: 오류` 형식이라 명세 문구와 다르다.
+- 요청 스키마에 `min_length`를 두지 않는다. `reason: str`, `amount: int`는 타입만 검증하고 값 검증(빈 사유·1 미만)은 도메인에서 명세 문구로 낸다(D26). `suspended_until`은 `datetime | None = None`. naive datetime은 도메인이 거부한다.
+- 401·403 문구는 현재 `AdminUser`의 "로그인이 필요합니다."·"접근 권한이 없습니다."이고 명세("인증이 필요합니다.", "관리자 권한이 필요합니다.")와 다르다(D32). 상태 코드는 일치.
+- 응답의 `status`는 EP 1·2·3·4는 `UserStatus` 값, 5·6은 `StoreStatus`, 7은 `OfferStatus` 값 문자열이다. EP 3의 `status`는 항상 `SUSPENDED`, EP 4는 `WITHDRAWN`.
+- EP 8 `type`은 `point_type` 값을 그대로 낸다(`EARN/USE/RESTORE/REVOKE/GRANT`). 명세의 `GRANT | USE`는 부분집합이다(D23). 기존 행의 `reason`·`balance_after`·`created_by`는 null일 수 있어 스키마를 `str | None`, `int | None`, `UUID | None`로 둔다.
+
+### 6.3 목록 쿼리 (EP 8 하나)
+
+`page: int = 1`(1부터), `size: int = 20`. 검색·필터·정렬 없음, 정렬은 최신순 고정(`created_at desc, id desc`). 범위 검증은 `Query(ge=..)`가 아니라 서비스에서 한다(명세 문구 "페이지 값이 올바르지 않습니다."를 내려고. `Query` 제약을 쓰면 `page: Input should be greater than or equal to 1`이 나온다). `size` 최대 100. 숫자가 아닌 값은 전역 핸들러의 일반 400.
+
+---
+
+## 7. 조립 — `src/container.py` / `src/main.py` (모듈 밖 변경 제안)
+
+```python
+# ── admin ────────────────────────────
+_admin_clock: AdminClock = AdminSystemClock()
+_reservation_admin: ReservationAdminPort = NoReservationAdmin()   # 임시 (B-6, C10)
+
+def create_reservation_admin() -> ReservationAdminPort:
+    return _reservation_admin
+
+def create_admin_service(
+    session: AsyncSession = Depends(get_db),
+    accounts: AuthApplicationService = Depends(create_auth_service),
+    stores: StoresApplicationService = Depends(create_stores_service),
+    offers: CatalogApplicationService = Depends(create_catalog_service),
+    reservations: ReservationAdminPort = Depends(create_reservation_admin),
+) -> AdminApplicationService:
+    return AdminApplicationService(session=session, accounts=accounts, stores=stores, offers=offers,
+                                   reservations=reservations, clock=_admin_clock)
+```
+
+- `wire_dependencies`에 `provide_admin_service: create_admin_service`를 추가(R9). `provide_*`는 admin에서 이것 하나.
+- auth 구역: `_auth_clock = AuthSystemClock()`을 만들어 `create_auth_service`에 `clock=_auth_clock` 전달(D33).
+- 의존 그래프(비순환, R12): `get_db → create_*_repository → create_auth/stores/catalog_service → create_admin_service`. 아무도 admin에 의존하지 않는다. 한 요청 안에서 `Depends(get_db)`가 같은 세션을 돌려주므로 admin과 세 서비스가 한 트랜잭션을 공유한다(R13, auth.md B-9 실험).
+- 같은 요청 안에서 `create_stores_service`는 `create_catalog_service`(→ `create_store_port`)와 admin이 **같은 인스턴스를 공유**한다(FastAPI 캐시). 공유해도 상태가 없어 문제없다.
+- `src/main.py`: `from admin.presentation.router import router as admin_router` + `app.include_router(admin_router)`. admin은 models가 없어 models import 추가 없음.
+- stores.md D15(폐점 시 `OpenOffersPort`로 stores ↔ catalog 생성 순환)는 **이 설계가 만들지 않는다**: 관리자 강제 폐점은 admin이 stores와 catalog를 각각 부르므로 stores 서비스가 catalog를 알 필요가 없다. 상점주 폐점(stores.md 8절)은 여전히 D15가 필요하다(C11).
+
+---
+
+## 8. 기존 동작에 미치는 영향과 정합 이슈 (C-번호)
+
+설계안 작성자는 아래 파일을 고치지 않는다. 오케스트레이터가 사용자 승인 후 소유 에이전트에게 재발주한다.
+
+| ID | 위치 | 이슈 | 영향 / 제안 |
+| --- | --- | --- | --- |
+| C1 | `docs/design/stores.md:379` D5, `:340` C6, `:319` | "관리자 승인"의 대상이 미정이었다(D5). 이 명세가 **상점주 계정 승인**(`users.status`)으로 정한다. `stores.approval_at`은 "개설 시각"으로 유지(`Store.open`, reference stores.md 개설 시각) | 두 값은 독립이다: 상점주 승인(`users.approved_at`) ≠ 상점 `approval_at`. stores.md D5·C6의 "승인 EP 없음"은 갱신 필요. catalog의 `StoreNotApprovedError`(catalog.md D19, `StoreRef.approved`)는 계속 `approval_at` 유무만 본다 → 의미 변화 없음, 문구만 확인 |
+| C2 | `docs/reference/README.md:156`(11번 "관리자 승인 API 없음"), `:85`(상점주 역할 값), 전체 API 목록 표 | admin 9개 EP가 reference에 없다 | `docs/reference/admin.md` 신설 + README 목록에 9행 추가(오케스트레이터). 확인 필요 11번 해소. `error_code` 값 표(`OWNER_NOT_PENDING` 등)도 추가 |
+| C3 | `docs/design/auth.md:5`("외부 동작 불변"), `:53` D-상점주승인, `:539` 질문 #3, `:91-92` 2.4 "변경하지 않음", `:101` 3절 "도메인 규칙은 그대로", `:84` 테스트 영향, `:235` 5.1 생성자 | auth.md의 전제 5가지가 깨진다: ① 도메인 엔티티 변경 없음 → `User`·`PointLog` 확장 ② `signup`이 OWNER를 `PENDING`으로 만든다(D4) ③ 로그인·보호 API가 정지·탈퇴 회원을 막는다(D8, D9) ④ `AuthApplicationService` 생성자에 `clock` 추가(D33) ⑤ 포인트 4종이 `balance_after`를 기록 ⑥ (D35) `authenticate`에 `allow_suspended` 인자, 새 의존성 `SuspendedAllowedOwnerUser`(C14) ⑦ (D39) 로그인이 정지된 OWNER에게 토큰을 발급(`ensure_can_login`의 OWNER 예외, auth.md의 "로그인 동작 불변" 전제 변경) | **기존 테스트 영향**: `"OWNER"`로 가입하는 곳 14곳(`tests/stores/test_api_db.py` 3, `tests/catalog/test_api_db.py` 1, `tests/payments/test_payments_api.py` 3, `tests/auth/test_api_db.py` 3, `tests/auth/test_domain.py` 4)은 PENDING이 되어 상점 개설이 403이 된다. 테스트용 헬퍼가 상점주를 `APPROVED`로 만들도록 고쳐야 한다(승인 단계를 거치거나 fixture가 직접 상태를 지정). `tests/test_container.py`의 `create_auth_service` 호출도 `clock` 때문에 바뀐다. auth.md의 "84 passed" 기준선은 새 기준선으로 갱신 |
+| C4 | `docs/design/auth.md:290`(`AdminUser`·`require_roles` 의미·실패 코드 불변), `:353` | `AdminUser`의 403 문구가 명세와 다르다("접근 권한이 없습니다." vs "관리자 권한이 필요합니다.", 401도 "로그인이 필요합니다." vs "인증이 필요합니다.") | 임시: 유지(D32). 바꾸려면 `User.require_role(*roles, message=...)`와 `require_roles`에 문구 인자 추가가 필요하고 전 모듈 문구가 같이 바뀐다(R15) |
+| C5 | `docs/design/auth.md:336`(`/v1/users/me/points` `page>=0`, `total_elements`), `docs/reference/README.md:126-133` | 포인트 조회 페이지네이션이 두 개다: 본인 조회는 0부터·`total_elements`, 관리자 조회(명세 8)는 1부터·`total` | README 공통 확인 5번이 이미 미결. admin은 명세대로 1부터·`total`(D25). 통일 결정 시 `list_points`/`list_point_logs`를 함께 정리 |
+| C6 | `docs/design/catalog.md:186` `OPEN_OFFER_STATUSES`, `:208-213` `effective_status` 우선순위, `:667` 도메인 테스트("`OPEN_OFFER_STATUSES`가 `is_open`이 참인 `effective_status` 집합과 같음"), `:816` CI-5 `_status_clause` 일치 테스트 | `OfferStatus`에 `SUSPENDED`가 추가되어 ① 우선순위 표가 바뀌고(3.3절) ② `is_open`이 참인 유효 상태 집합이 `SCHEDULED/ON_SALE/SOLD_OUT/SUSPENDED`가 되어 위 동일성 테스트가 깨지고 ③ `_status_clause` 4종 조건과 신규 `SUSPENDED` 조건을 맞춰야 한다 | catalog.md 3.4·10절·12절 갱신. 기본 목록(`OPEN_OFFER_STATUSES`)에는 SUSPENDED를 넣지 않는다(D20). 동일성 테스트는 "`is_open` 참 집합 − {SUSPENDED}"로 수정하거나 상수를 분리 |
+| C7 | `docs/design/catalog.md:777` D56(#10 할인 상세는 인증 없이 중단·마감·품절 모두 조회, 에러는 404 하나), `:754` D23(서비스는 `user_id`만) | 명세 7은 정지 상품을 "목록·검색·상세에서 숨김"이라 D56과 부분 충돌 | D56에 "정지된 할인·정지된 상점의 할인은 소유자 외 404"를 예외로 추가. `get_offer_detail(offer_id)`에 `viewer_id: UUID \| None` 추가(비로그인 허용 유지, D6·D7과 같은 패턴, router는 `OptionalUser`). D56의 "401·403 없음"은 유지 |
+| C8 | `docs/design/catalog.md:737-738` D6·D7, `:815` CI-3 | 정지 상점 숨김은 D6·D7(비활성은 소유자만)과 같은 패턴이다 | 재사용: `StoreRef.ensure_visible_to(viewer_id)`. 목록(`list_products`, `list_offers_by_store`)도 소유자 외 404(`StoreNotFoundError`) |
+| C9 | `docs/design/catalog.md:615-616` 후속 #3(검색)·#8(주변 할인), `:81-83` StorePort | **정지 상점의 상품을 목록·검색에서 숨기는 규칙을 후속 #3·#8에 적용하기 어렵다.** 두 EP는 여러 상점을 가로지르는 조회라 상점 상태로 거를 방법이 필요한데, catalog는 `stores` 테이블을 join할 수 없다(R11). `find_stores_by_ids`로 가져온 뒤 걸러내면 페이지네이션(`total`)이 틀어진다 | 후속 #3·#8 설계 때 StorePort에 "노출 가능한 상점만 반환하는 질의"(예: 좌표 범위 + 상태 필터를 stores가 수행)를 추가하거나 `ProductModel`/`DiscountOfferModel`에 상점 상태 비정규화 컬럼을 두는 안을 결정해야 한다. 이번 범위(#9, #10 등 상점 단위 조회)는 영향 없음 |
+| C10 | `docs/design/catalog.md:818` CI-10, `:819` CI-11, `:825` C9, `:828` C12, `:338` 5.3 잠금 순서 / `docs/design/payments.md:334` C-4, `:405` 4.3.4 | ① admin이 예약 포트 2개를 새로 요구한다(`ReservationAdminPort`). reservations 설계(미작성)에 전달: (D35) 픽업 EP는 `SuspendedAllowedOwnerUser`를 쓰고 상점·할인 정지 상태를 픽업 조건에 쓰지 않는다(C14). `cancel_reserved_for_user`(RESERVED만, 재고 복구, 전액 환불·포인트 복구, `commit` 금지), `has_reserved_for_store`(RESERVED `FOR UPDATE`). ② **잠금 순서 불일치**: catalog는 `product → offer → (예약 포트)`, payments는 `예약 → 결제 → 환불 → 회원`, 예약 취소가 재고를 복구하면 `예약 → offer`가 되어 catalog의 `offer → 예약`과 역순이다(교착 가능) | reservations 설계에 "예약 취소·결제 확정은 offer(필요 시 product)를 **먼저** 잠근 뒤 예약 행을 잠근다"를 요구하고 4.3절의 전역 순서를 공유한다. 임시 `NoReservationAdmin`이 남은 동안 EP 4의 `cancelled_reservation_count`=0, EP 6의 예약 검사 생략(B-6). reservations 구현 PR이 container 바인딩을 교체 |
+| C11 | `docs/design/stores.md:324-326` 8절 메모 2·3, D15 | 관리자 강제 폐점은 admin이 조합하므로 stores ↔ catalog 생성 순환을 만들지 않는다. 그러나 상점주 폐점(후속)은 D15가 여전히 필요하다. 또 `has_open_offers_for_store`가 정지된 할인을 "진행 중"으로 세므로 상점주는 정지된 할인이 `sales_end`를 넘길 때까지 폐점할 수 없다(D22) | stores.md 8절 메모에 "정지된 상점은 상점주 폐점 불가(`Store.close` 가드)"와 위 영향 추가 |
+| C12 | `docs/design/stores.md:121` `find_by_owner_id`, `:81` 불변식, `:111` `StoreInfo` 구조적 만족, `docs/design/catalog.md:99` `StoreInfo` 필드 | ① `StoreRepository.find_by_owner_id`에 `for_update` 인자 추가 ② `Store`에 `suspended_*`·`closed_reason`·`status` 추가 ③ catalog `StoreInfo` Protocol에 `suspended_at: datetime \| None` 추가(`StoresApplicationService`가 `Store`를 그대로 돌려주므로 stores 쪽 추가 변경 없이 구조적으로 만족) → **tests/catalog의 fake `StoreInfo`에 속성 추가 필요**(catalog.md 10절 #10 때와 같은 문제) | 구현 시 stores·catalog 구현자가 함께 반영 |
+| C13 | `docs/design/payments.md:405-413` 4.3.4 `refund_for_cancelled_reservation(waive_penalty=True)`, `:497` R-7 | 명세 4(강제 탈퇴)는 "RESERVED 예약 자동 취소와 재고 복구"만 말하고 **환불을 말하지 않는다.** RESERVED는 결제 완료 상태라 환불 없이 취소하면 고객이 돈과 포인트를 잃는다 | 임시 기본값: 환불·포인트 복구도 한다(D12). `ReservationAdminPort` 계약에 포함(C10). 환불을 원치 않으면 D12를 바꾼다 |
+| C14 | `src/auth/application/service.py` `authenticate`(`:90`), `login`(`:80`), `src/auth/presentation/dependencies.py:18-45`, `docs/design/auth.md:290`·`:353`(의존성 별칭 "이름·의미·실패 코드 불변"), `docs/reference/reservations.md` 4 픽업 완료(권한 "상점주(해당 매장)") | 정지 확인은 공통 `authenticate`(`get_current_principal → authenticate`)에 들어가 한 요청당 추가 쿼리는 없고 `Clock`만 쓴다. **D35 확정: 정지된 상점주도 픽업 처리는 가능**해야 하므로 `authenticate`에 `allow_suspended` 키워드 인자(기본 False)를 두고, auth에 예외 의존성 `SuspendedAllowedOwnerUser`를 추가해 픽업 EP 하나만 쓴다(5.5절). auth.md의 "별칭 불변" 전제는 기존 별칭에 한해 유지되고 **새 별칭이 추가**된다. `ensure_can_authenticate` 시그니처가 바뀐다 | auth 구현자: `authenticate`·`User.ensure_can_authenticate`·새 의존성. reservations 설계: 픽업 EP가 `SuspendedAllowedOwnerUser`를 쓰고 상점·할인 상태(정지·폐점·SUSPENDED 할인)를 픽업 가능 여부에 쓰지 않는다. reservations.md(reference)에 "정지된 상점주도 픽업 가능" 주석 추가 제안. 로그인: D39 확정으로 정지된 OWNER는 `login`이 토큰을 발급(`ensure_can_login`의 OWNER 예외), 정지된 CUSTOMER는 403 유지. 로그인 응답으로 정지 상태를 알 수 없는 문제는 C17 |
+| C15 | `src/main.py`, `src/container.py`(`create_auth_service`) | 라우터 등록 1줄, container admin 구역·`_auth_clock` 추가. 순서: admin router는 어느 위치든 무관(models 없음) | 구현자 소유 범위(orchestration §4) |
+| C16 | `.claude/skills/db-schema/schema.sql`, `SKILL.md` §5 항목 7("상점주 승인 상태: users에 컬럼 없음") | 2절 스키마가 승인되면 항목 7이 해소되고 ERD·관계 목록·표(`users`, `point_log`, `stores`, `discount_offers`)·`status` CHECK 설명을 고쳐야 한다(R14) | 오케스트레이터(`.claude/**` 소유) |
+| C17 | `docs/reference/auth.md` 로그인 응답(`access_token`, `token_type`), `docs/design/auth.md:333`(`TokenResponse`), 토큰 클레임(`sub`, `role`, `jti`, `exp`, reference README 인증 절) | D39 확정으로 정지된 OWNER가 로그인에 성공하지만 응답·토큰에는 상태가 없어 클라이언트가 정지 사실을 알 수 없다. 이후 호출에서 403 "정지된 계정입니다."를 받고서야 안다 | **결정하지 않음, 사용자 확인 대기.** 선택지: ① 로그인 응답에 `status` 추가(하위 호환 추가 필드, `TokenResponse` 변경) ② 토큰 클레임에 상태 추가(토큰 발급 후 상태 변경과 어긋남) ③ 그대로 두고 `GET /v1/users/me`로 확인(단 이 EP도 정지 OWNER에게는 403이라 불가) ④ `users/me`도 정지 OWNER 예외. 임시: 변경 없음 |
+
+---
+
+## 9. 테스트 계획 (요약)
+
+DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). ADMIN 계정은 fixture가 직접 insert한다(D29).
+
+- **auth domain**: `User` 불변식(상태별 필수 필드, ADMIN·CUSTOMER의 PENDING 거부), 전이표 전부(승인·거부·정지·탈퇴), 에러 순서(사유 → until → 이미 정지 → 탈퇴 → 관리자), `effective_status`의 만료 경계(`until == now`는 만료), 만료된 정지의 재정지, `ensure_can_login`(PENDING·REJECTED 허용, **정지된 OWNER 허용(D39)**, 정지된 CUSTOMER 403, WITHDRAWN은 역할 무관 401)/`ensure_can_authenticate`(SUSPENDED 403, WITHDRAWN 401, `allow_suspended=True`면 SUSPENDED 통과·WITHDRAWN은 여전히 401), `grant_points` 순서와 int4 한도, `PointLog.record` 필수 `balance_after`·GRANT 부호.
+- **stores domain**: `suspend`/`suspend_if_active`(폐점·이미 정지는 False), `ensure_force_closable`/`force_close` 에러 순서, `status` 파생(CLOSED > SUSPENDED > ACTIVE), 정지 상태에서 상점주 `close` 거부.
+- **catalog domain**: `suspend`(순서, 종료·SOLD_OUT·SCHEDULED), `effective_status` 우선순위 6단, `end_sale` 멱등, 정지된 할인에 대한 `pause/resume/close/apply_changes/adjust_stock/relist` 거부, `StoreRef` 정지 가시성·등록 가드.
+- **admin service (fake 포트 4개 + fake Clock)**: EP별 `commit` 1회·실패 시 0회; 3에서 상점주만 `suspend_stores_of_owner` 호출·고객은 미호출·`suspend_user` 실패 시 상점 호출 0회; 4의 호출 순서(`get_account → check_withdrawable → lock_store_of_owner → end_all_sales → cancel_reserved → has_reserved → close_store_by_admin → withdraw_user → commit`)를 fake가 기록해 단언, 고객은 상점 단계 생략, 예약 남음이면 `commit == 0`; 6의 순서(`check_force_closable → end_all_sales → has_reserved → close → commit`); 모든 모듈 호출이 `commit=False`; 포트에 없는 메서드를 부르지 않음(fake가 Protocol만 구현, R10).
+- **infrastructure (DB)**: 새 컬럼 왕복(tz 유지, NULL), `ck_users_status`·`ck_point_log_type`(GRANT)·offer status CHECK, `find_open_by_store_for_update`·`find_all_by_store_for_update`의 정렬, `_status_clause`와 `effective_status` 일치(SUSPENDED 포함), 동시 승인 2건 중 1건만 성공, 동시 지급 2건이 잔액·`balance_after` 합과 일치, 지급 이력과 잔액이 같은 트랜잭션(중간 예외 시 둘 다 없음).
+- **presentation (DB)**: 9개 EP 각각 200/201, 401(`WWW-Authenticate`), 403(CUSTOMER·OWNER 토큰), 404, 400 각 케이스의 `error_code`와 본문 형식(R7). 빈 사유의 400 문구가 명세 문구와 같은지. EP 4는 `client.request("DELETE", ..., json=)`(B-9). 연쇄: 상점주 정지 → 소유 상점 `status == SUSPENDED`, 같은 상점주 로그인 403, 이미 발급한 토큰으로 보호 API 403, 정지 만료 후 로그인 성공. **(D39) 정지된 OWNER 로그인 200(토큰 발급)·그 토큰으로 픽업 외 보호 API 403, 정지된 CUSTOMER 로그인 403 `FORBIDDEN` "정지된 계정입니다.", 정지된 사용자의 틀린 비밀번호는 401 `INVALID_CREDENTIALS`, 탈퇴한 OWNER·CUSTOMER 로그인 401.** **정지된 상점주의 토큰으로 픽업 EP는 200(해당 매장 RESERVED), 그 외 보호 API(예: 상품 등록·`GET /v1/users/me`)는 403, 탈퇴한 상점주 토큰은 픽업도 401**(D35, reservations 구현 후). 강제 탈퇴 후 로그인 401, 이메일 재가입 409. 정지 상점의 상품 목록·상세가 비소유자에게 404, 소유자에게 200. 정지 할인이 공개 목록·상세에서 사라짐. 승인되지 않은 상점주의 `POST /v1/stores` 403.
+- **조립**: `wire_dependencies` 후 `provide_admin_service` 매핑(R9), `import main` 성공(R12), `create_reservation_admin()`이 현재 `NoReservationAdmin`을 돌려주는지(reservations 구현 시 이 단언이 실패해 교체를 상기시킴).
+- 완료 게이트(backend-invariants §7): `uv run python .claude/skills/layer-check/check_layers.py` 위반 0(기준선 payments 2건 제외 후 새 위반 0), `(cd src && uv run python -c "import main")` 성공, `uv run pytest -rs` failed 0·db 마커 skip 0.
+
+---
+
+## 10. 모듈 밖 변경 제안 (이 문서는 쓰지 않는다)
+
+- `.claude/skills/db-schema/schema.sql`·`SKILL.md`: 2절 스키마 반영(R14), 5절 항목 7 해소 표시(C16).
+- `docs/reference/admin.md` 신설, `docs/reference/README.md` 목록·확인 필요 11번·역할/상태 값 표(상점주 승인 상태 값 추가) 갱신(C2).
+- `docs/design/{auth,stores,catalog}.md`: C1, C3~C8, C11, C12 반영 여부 검토(소유 에이전트에게 재발주).
+- `docs/design/reservations.md`(미작성): `ReservationAdminPort` 계약, 잠금 순서(C10)를 요구사항으로 전달.
+- `src/container.py`: admin 구역, auth 구역에 `_auth_clock`. `src/main.py`: admin router 등록. `src/error_handlers.py`: **변경 없음**(409 없음, 새 `ValueError` 하위 클래스는 `error_code`로 400, `PermissionError` 하위는 `FORBIDDEN` 고정).
+- `pyproject.toml`·`.env.example`: 변경 없음.
+- `tests/helpers.py`·`tests/{auth,stores,catalog,payments}`: OWNER 가입 헬퍼를 APPROVED로(C3).
+- 시연용 ADMIN 시드: 별도 결정(D29).
+
+---
+
+## 11. 결정 표와 질문 목록 (D-번호, 임시 기본값)
+
+임시 기본값은 확정이 아니라 제안이다(상태 열이 "확정"인 D2, D4, D10, D12, D13, D35, D39만 2026-11-04 사용자 확정이고 나머지는 "임시"). 코드에서는 "코드 위치" 열의 한곳에 모아 바꾸기 쉽게 한다. 번호는 코드·테스트가 주석으로 참조하므로 다시 매기지 않는다.
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 | 코드 위치 | 상태 |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 | 모듈 배치 | 요청 판단 1 | 별도 `src/admin`(오케스트레이션) + 규칙은 소유 컨텍스트 | layer-architecture §3.4·§4, R11~R13. 1.1절 비교 | `src/admin/**` | 임시 |
+| D2 | URI 접두사 | 명세 `/admin/...`, reference README "모든 경로 `/v1`" | `ADMIN_PREFIX = "/admin"`(명세 그대로) | R15 | `admin/presentation/router.py` 상수 1곳 | **확정**(사용자, 2026-11-04) |
+| D3 | `users.status` 모델 | 명세 1~4 | 컬럼 `status`(5값 CHECK) + 시각·사유 컬럼 | 상태 값이 5개라 시각만으로 파생 불가 | `UserModel`, `UserStatus` | 임시 |
+| D4 | 상점주 가입 직후 상태 | 명세 1, reference stores.md 403 | OWNER 가입 → `PENDING`, CUSTOMER → `APPROVED`. DDL 기본값 `APPROVED`(기존 행 보존) | 명세 "승인 대기(PENDING) 상점주" | `User.register`, S1 | **확정**(사용자, 2026-11-04) |
+| D5 | PENDING·REJECTED 상점주의 로그인·보호 API | reference stores.md "403 승인 대기 중인 상점주 계정입니다." | **허용**. 상점 개설·폐점만 403(`ApprovedOwnerUser` 의존성) | 403 문구가 "로그인 후 개설 시도"를 전제 | `ensure_approved_owner`, `auth.presentation.dependencies` | 임시 |
+| D6 | 상점주 승인과 `stores.approval_at`의 관계 | stores.md D5, 요청 판단 2 | 독립. `approval_at`은 "개설 시각" 유지, 승인 상태는 `users.status` | stores.md D5 "개설 시각 = approval_at" | C1 | 임시 |
+| D7 | approve/reject 대상이 OWNER가 아닌 경우 | 명세 1·2 404 문구 | 404 "상점주를 찾을 수 없습니다."(고객·관리자 ID 포함) | 문구가 "상점주" 한정 | `User.approve_owner` | 임시 |
+| D8 | 정지 회원의 로그인·보호 API 응답 | 명세 3 "사용할 수 없다"(코드 미명시) | 403 `FORBIDDEN` "정지된 계정입니다."(사유·기간 비노출). 로그인은 **비밀번호 검증 성공 후**에만 확인 | `PermissionError` 하위라 핸들러 변경 불필요, 계정 열거 방지. **로그인은 OWNER 예외가 생겼다: 정지된 OWNER는 로그인 허용(D39 확정). 정지된 CUSTOMER 로그인·모든 정지 회원의 보호 API(픽업 EP 제외, D35)는 이 행대로 403** | `User.ensure_can_login`, `ensure_can_authenticate` | 임시 |
+| D9 | 탈퇴 회원 처리 | 명세 4 | 로그인 401 `INVALID_CREDENTIALS`, 보호 API 401 "유효하지 않은 토큰입니다.", 같은 이메일 재가입 409 유지(soft delete라 행이 남음) | 존재하지 않는 계정처럼 보이게 | 위와 동일 | 임시 |
+| D10 | 정지 해제 EP, `suspended_until` 경과 | 요청 판단 5 | 해제 EP 없음. 만료는 **조회 시 계산**(`effective_status`)로 자동 해제(회원만). 무기한 정지·상점·할인 정지는 해제 수단 없음 | catalog D3과 같은 방식(스케줄러 없음) | `User.effective_status` | **확정**(사용자, 2026-11-04). 무기한 정지·상점·할인 정지의 해제 수단 부재는 후속 과제 |
+| D11 | 회원 정지 연쇄 | 명세 3, 요청 판단 5 | 소유 상점이 이미 정지·폐점이거나 없으면 건너뜀(오류 없음). 회원 정지가 끝나도 상점은 자동 해제 안 됨 | 연쇄는 "함께 정지" 의미, 해제 EP 없음 | `Store.suspend_if_active`, 5.4절 EP 3 | 임시 |
+| D12 | 강제 탈퇴의 예약 취소 범위·환불 | 명세 4, payments.md 4.3.4 | 본인의 `RESERVED`만 취소(PENDING_PAYMENT는 대상 아님), 재고 복구 + **전액 환불·포인트 복구**(위약금 면제)를 예약 모듈에 위임. 위험: PENDING_PAYMENT 예약의 재고가 영구 점유될 수 있다(reservations.md "결제 제한 시간" 미정과 같은 문제) | 명세 문구 그대로 + 환불은 payments R-3·R-7 | `ReservationAdminPort.cancel_reserved_for_user` | **확정**(사용자, 2026-11-04) |
+| D13 | 탈퇴 대상 상점주의 상점에 **타 고객의 RESERVED 예약**이 남은 경우 | 명세 4 vs 6 | 폐점 규칙(6)과 같게 400 `STORE_HAS_RESERVED_RESERVATIONS`로 **전체 롤백**(탈퇴도 불가). 대안: 일괄 취소+환불 후 진행 | 명세 6 "처리되지 않은 RESERVED가 있으면 폐점 불가"를 우회하지 않음 | 5.4절 EP 4 ⑥ | **확정**(사용자, 2026-11-04) |
+| D14 | 탈퇴 사유 저장 | 명세 4(`reason` 필수, 저장 컬럼 미명시) | `users.deleted_reason`(S5)에 저장, 같은 사유를 상점 `closed_reason`에도 사용 | 필수 입력을 버리지 않음 | S5, `User.withdraw` | 임시 |
+| D15 | `WITHDRAWN`과 `deleted_at` | 명세 4, 요청 판단 5 | 둘 다 저장, `WITHDRAWN`이면 `deleted_at` 필수(불변식) | soft delete | `User.__init__` | 임시 |
+| D16 | 상점 `status` 저장 방식 | 요청 판단 2 | 컬럼 없이 파생(CLOSED > SUSPENDED > ACTIVE). 대안: `status` 컬럼(이중 상태 위험) | 단일 진실원(`closed_at`·`suspended_at`) | `Store.status`, S10 | 임시 |
+| D17 | 정지 상점의 영향 | 명세 5 | 소유자 외 상품·할인 목록·상세 404, 신규 상품·할인 등록 400 `STORE_SUSPENDED`, 상점주 폐점 400, **기존 RESERVED 예약의 픽업은 허용**(예약 모듈에 요구) | 명세 5, catalog D6·D7 패턴 | `StoreRef.ensure_visible_to`/`ensure_can_register`, `Store.close` | 임시 |
+| D18 | 상점 폐점 시 상품 처리 | 명세 6 "상품은 모두 판매 종료" | 진행 중(`is_open`) 할인을 `end_sale`로 일괄 종료(재고·stock_log 불변). 상품 `is_active`는 바꾸지 않음 | catalog D34·D40과 같은 종료 방식 | `end_all_sales_of_store` | 임시 |
+| D19 | 할인 정지 표현 | 명세 7 | 저장 `status = SUSPENDED` + `suspended_*`, `is_active`는 불변. `effective_status` 우선순위 CLOSED(비활성) > SUSPENDED > 시간경과 | `is_active=false`로 두면 상점주가 `is_active:true`로 우회 | `DiscountOffer.suspend` | 임시 |
+| D20 | 정지된 할인의 소유자 조작·노출 | 명세 7 | 상점주의 중단·재개·수정·재고조정·재등록 400 `OFFER_SUSPENDED`. 공개 목록·상세 404, 소유자는 상세 조회 가능. 공개 목록의 `status` 값에 SUSPENDED 불허 | 우회 방지, 숨김 | `DiscountOffer` 가드, `get_offer_detail(viewer_id)` | 임시 |
+| D21 | 할인 정지 가능 범위 | 명세 7 | `SCHEDULED`·`ON_SALE`·`SOLD_OUT` 가능. 비활성·판매 마감 경과는 400 `OFFER_SALES_ENDED` | 명세 "판매가 종료된 상품" | `DiscountOffer.suspend` | 임시 |
+| D22 | 정지된 할인이 "진행 중"인가 | catalog D4, stores.md D9 | 진행 중으로 센다(중복 등록·상점주 폐점 차단) | 정지로 제약을 우회하지 못하게 | `DiscountOffer.is_open` 불변 | 임시 |
+| D23 | 포인트 `type`, 새 컬럼 | 명세 8·9, `schema.sql` point_log | `type` = `point_type` 그대로(`GRANT` 추가, 명세의 `GRANT \| USE`는 부분집합). `reason` NULL 허용(시스템 이벤트), `balance_after`는 신규 전부 기록·기존 NULL, `created_by` NULL 허용 | 정보 손실 없음. **USE의 발생처는 payments(결제 시 포인트 사용)이고 admin은 USE를 만들지 않는다** | S6~S9, `PointLog` | 임시 |
+| D24 | 포인트 지급 대상·한도 | 명세 9 | 정지·미승인·관리자 계정에도 지급 가능(탈퇴만 거부). 건당 상한 없음, 잔액이 `INTEGER` 한도(2,147,483,647)를 넘으면 400 | 명세에 없는 규칙을 만들지 않음, DB 오버플로 방어 | `User.grant_points`, `POINT_MAX_BALANCE` | 임시 |
+| D25 | 포인트 조회 페이지네이션 | 명세 8, README 공통 5 | 1부터, `size` 1~100(기본 20), 위반 400 `INVALID_PAGE`, 응답 `total` | 명세 | `list_points` | 임시 |
+| D26 | 요청 검증 오류 코드·문구 | 명세 에러 400, B-8 실행 | 400 `VALIDATION_ERROR`(핸들러 실제 동작과 일치). 사유·수량 문구는 도메인이 낸다(스키마에 길이 제약 없음). **필드 누락·타입 오류의 문구는 일반 형식(`필드: 오류`)**이라 명세와 다름 | R15, `error_handlers.py` | `schemas.py` | 임시 |
+| D27 | 사유 길이 상한 | 명세에 없음 | 500자(컬럼 `VARCHAR(500)`) | 컬럼 제안 | 각 도메인 `REASON_MAX_LENGTH` | 임시 |
+| D28 | 감사 기록(처리 관리자) | 요청 판단 5 | 별도 테이블 없음. 명세가 정한 `point_log.created_by`만 저장. 후속 후보: `admin_audit_log(admin_id, action, target, reason, created_at)` | 명세에 없음 | - | 임시 |
+| D29 | ADMIN 계정 확보 | B-7 | 회원가입 불가 유지. 테스트는 fixture로 직접 insert, 시연용 시드는 별도 결정 | stores.md 7절 시드안 A의 R16 주의와 동일 | `tests/helpers.py` | 임시 |
+| D30 | admin의 다른 모듈 접근 | R11 | admin이 포트 4개 정의, 각 모듈 서비스가 구조적으로 만족, 예약은 임시 구현 | layer-architecture §3.4 2행, catalog `StorePort` 선례 | `admin/application/ports.py`, container | 임시 |
+| D31 | admin domain 구성 | layer-check(4계층 폴더 필수) | 엔티티 없음, `Clock`만 | R3(빈약한 엔티티 금지) | `admin/domain/service.py` | 임시 |
+| D32 | 401·403·404 문구 | 명세 vs 현재 `AdminUser`·catalog | 현재 문구 유지(코드는 일치). EP 7의 404는 catalog 기존 "할인 판매를 찾을 수 없습니다." | 전 모듈 일관성, R15 불일치는 여기서 보고 | C4 | 임시 |
+| D33 | auth `Clock` | 정지 만료 계산 | auth에 모듈별 `Clock`(domain/service.py ABC, infrastructure `SystemClock`)을 두고 `AuthApplicationService`에 필수 인자 추가 | stores D13·catalog D21과 같은 선택 | auth `domain/service.py`, container `_auth_clock` | 임시 |
+| D34 | 잠금 순서 | 4.3절 | stores → products → discount_offers → pickup_reservations → payments → users, `id` 오름차순 | catalog.md 5.3, payments.md C-4 | 각 서비스 | 임시 |
+| D35 | 정지된 상점주의 픽업 | 명세 3 vs 5 | **임시 기본값에서 변경.** 정지된 상점주도 자기 상점(연쇄 정지 포함)의 기존 RESERVED 예약 **픽업 처리는 가능**하고, 그 외 보호 API는 명세 3대로 차단. 구현: `authenticate(allow_suspended=)` + 픽업 EP 전용 의존성 `SuspendedAllowedOwnerUser`(5.5절) | 명세 5 "기존 RESERVED 예약은 유지되어 픽업 처리가 가능"을 우선 | `User.ensure_can_authenticate`, `auth.presentation.dependencies`, reservations 픽업 router, C14 | **확정**(사용자, 2026-11-04) |
+| D39 | 정지된 상점주의 **로그인** | D35 파생 | **임시 기본값(로그인 차단)에서 변경.** 정지된 OWNER는 로그인 가능(정지 기간 중 픽업 처리 지속, D35). 로그인 후 픽업 EP 외 보호 API는 403 유지. 정지된 CUSTOMER 로그인은 D8대로 403, 탈퇴는 역할 무관 401(D9) | 사용자 결정(명세 3 "로그인 불가"보다 명세 5 픽업 지속을 우선) | `User.ensure_can_login`(OWNER 분기), 로그인 응답 상태 노출은 C17 | **확정**(사용자, 2026-11-04) |
+| D36 | 정지 가능한 회원 상태 | 명세 3 | `APPROVED`만. `PENDING`·`REJECTED`는 400 `USER_NOT_SUSPENDABLE`(**명세에 없는 에러**) | 정지 종료 후 복귀 상태를 하나로 고정 | `User.suspend` | 임시 |
+| D37 | 미승인 상점(`approval_at` NULL)의 강제 폐점 | stores 불변식 | 기존 규칙대로 400 "승인되지 않은 상점은 폐점할 수 없습니다." (API로 만든 상점은 항상 승인됨) | stores.md D4 | `Store.force_close` | 임시 |
+| D38 | 응답에 `status` 노출 | reference auth.md | 가입·내 정보 `UserResponse`에 `status` 추가(가입 직후 PENDING을 알 수 있도록) | 추가 필드라 하위 호환 | auth `schemas.py` | 임시 |
+
+확정(2026-11-04): D2, D4, D10, D12, D13, D35, D39. 나머지는 임시다. 남은 질문 중 영향이 큰 것: **D3**·2절 스키마 승인, **C17**(정지된 OWNER가 로그인 응답으로 정지 상태를 알 수 없음).
+
+R번호와 충돌하는 요구는 없다. 임시 포트(`NoReservationAdmin`)가 container에 남는 동안 EP 4·6의 예약 연동이 실제로 동작하지 않는 점은 R16(검사를 약하게 만들지 않음)과 관련해 완료 보고에서 "미연계"로 명시해야 한다.
