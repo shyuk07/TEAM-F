@@ -28,6 +28,18 @@
 
 차단 이슈는 없다.
 
+### 0.1 `OptionalUser` 추가 작업 확인 (2026-11-04, worktree `claude/auth-optional-user`, HEAD `30f549c` = auth 커밋 2개 + `origin/main` `3fe2389` 병합)
+
+| # | 확인 명령 | 결과 | 판정 / 해결 |
+| --- | --- | --- | --- |
+| B-12 | `(cd src && uv run python -c "import main")` | `import main ok` | 차단 아님 |
+| B-13 | `python3 .claude/skills/layer-check/check_layers.py` | 위반 2건: `payments/application/service.py:19`, `:20` (application -> payments.infrastructure). 경고 3건(`[넓은예외]`) | **기준선**(이미 main에 있음, 이번 작업과 무관). 구현 후 위반이 이 2건에서 늘지 않아야 함 |
+| B-14 | 환경 | Docker가 꺼져 DB 테스트 skip. 기준선 `332 passed, 90 skipped` (오케스트레이터 제공값, 이번에 실행하지 않음) | 차단 아님(환경). R16: skip은 통과가 아니므로 구현 단계에서 오케스트레이터가 DB를 켜고 `skip 0`으로 다시 확인. 설계자는 DB를 띄우지 않았음 |
+| B-15 | 새 패키지 필요 여부 | 설계는 `fastapi.Request`(이미 설치)만 추가로 씀. `pyproject.toml` 변경 없음. `.env.example` 새 키 없음 | 차단 아님 |
+| B-16 | `Grep "OptionalUser\|get_optional_user\|bearer_scheme" src tests` | 정의는 `src/catalog/presentation/dependencies.py:37-46`뿐. 사용은 `src/catalog/presentation/router.py:10`(import), `:54`(#2 목록), `:100`(#4 상세). `tests/**`에서 직접 import 0건 | catalog 교체 시 영향 범위(§6.2) |
+| **B-17** | 실험(scratchpad `probe.py`): `HTTPBearer(auto_error=False)`에 `Authorization` 헤더 값별로 `credentials` 확인 | 헤더 없음 `None`, `Basic abc` **`None`**, `Bearer`(값 없음) `None`, `Bearer ` `None`, `Token tok` `None`, `Bearer tok`/`bearer tok` -> `credentials="tok"` | **핵심 사실.** `HTTPBearer(auto_error=False)`는 "헤더 없음"과 "Bearer가 아닌 헤더"를 구분하지 못한다. 현재 catalog `get_optional_user`는 `credentials is None`이면 `None`을 돌려주므로 `Basic ...`·`Bearer`(토큰 없음) 헤더를 **조용히 비로그인으로 처리한다**. 필수 인증(`get_current_principal`)은 같은 입력에서 401(`test_basic_scheme_is_unauthorized`). 구분하려면 raw 헤더를 읽어야 한다(§7.3) |
+| B-18 | `src/catalog/presentation/dependencies.py:37-46`, `tests/catalog/test_api_db.py:166-170` | 현재 구현: 헤더 없음/빈 토큰 `None`, 토큰이 있으면 `authenticate()` 결과 `.user`(위조·만료·로그아웃·없는 사용자는 `AuthenticationError`/`TokenRevokedError` -> 401). 테스트가 `Bearer bad.token`으로 `GET /v1/stores/{id}/products` -> 401을 고정 | 무효 토큰 -> 401은 **이미 테스트로 고정된 현재 동작**(D-선택인증-무효토큰의 근거) |
+
 ---
 
 ## 1. 결정 표
@@ -52,6 +64,10 @@
 | D-타모듈주입 | 다른 모듈은 `AuthApplicationService`를 **생성자 인자로 주입**받는다. 자기 서비스 안에서 `AuthApplicationService(db)`를 만들지 않는다 | 정본 규칙 적용 | `layer-architecture` §3.4 3행, R11·R12 |
 | D-인증의존성 | 다른 모듈의 router는 계속 `from auth.presentation.dependencies import CurrentUser, OwnerUser, ...` 별칭을 쓴다 | 확정(현 구현 유지) | `layer-implementation` §6 |
 | D-wire위치 | `wire_dependencies(app)`은 `register_exception_handlers(app)` 다음, `include_router` 앞 | 정본 규칙 적용 | `layer-architecture` §6.3 |
+| D-선택인증 | auth가 `get_optional_user`와 `OptionalUser = Annotated[User \| None, Depends(get_optional_user)]`를 `auth/presentation/dependencies.py`에서 공식 제공한다. 다른 모듈은 자체 선택 인증을 만들지 않고 이 별칭을 쓴다(D-인증의존성 확장). `provide_*` 추가 없음(기존 `provide_auth_service` 재사용, 매핑 변경 없음). 서비스 메서드·도메인 변경 없음(`authenticate` 재사용) | **확정** (사용자, 2026-11-04) | 중복 방지 요청. §7.3 |
+| D-선택인증-무효토큰 | `Authorization: Bearer <토큰>`이 **있는데** 위조·만료·로그아웃(블랙리스트)·존재하지 않는 회원이면 `None`이 아니라 **401**(`CurrentUser`와 같은 예외·코드: `UNAUTHORIZED`/`TOKEN_REVOKED`, `WWW-Authenticate: Bearer`). `None`은 "인증 정보를 보내지 않음"일 때만 | **확정** (사용자, 2026-11-04, 질문 11) | 근거 3가지: (1) 현재 catalog 구현과 `tests/catalog/test_api_db.py:168-170`이 이미 이 동작을 고정(교체해도 테스트 불변). (2) 보안: 조용히 `None`으로 보면 만료·로그아웃·위조 토큰을 쓰는 클라이언트가 오류를 모른 채 비로그인으로 계속 동작해 "로그인했는데 내 정보가 안 보임" 같은 문제를 숨기고, 이후 로그인 여부로 분기하는 코드(예: 본인 예약 표시, 가격 혜택)가 토큰 상태에 따라 말없이 달라진다. 거절하면 토큰 문제가 즉시 드러나고 인증 실패 응답이 `CurrentUser`와 한 가지로 통일된다. (3) 명세: `docs/reference/README.md` 상태 코드 표 "401 = 토큰 없음, 만료, 로그아웃된 토큰, 로그인 실패", 인증 절 "로그인이 필요한 모든 API는 토큰 검증 후 블랙리스트 조회, 로그아웃 토큰이면 401 TOKEN_REVOKED". `docs/reference/catalog.md` #2·#4는 권한 "공개"이며 토큰이 잘못됐을 때의 규칙은 적혀 있지 않음(명세 공백, 질문 11) |
+| D-선택인증-스킴 | `Authorization` 헤더 값이 **있고** 공백이 아닌데 Bearer 토큰으로 읽히지 않으면(`Basic ...`, `Token ...`, `Bearer`만 있고 토큰 없음) **401 `UNAUTHORIZED` "로그인이 필요합니다."**(`CurrentUser`의 토큰 없음과 같은 메시지). 헤더가 없거나 값이 비었으면 `None`. 스킴 이름은 대소문자 무시(`bearer tok` 허용, `HTTPBearer` 동작 그대로) | **확정** (사용자, 2026-11-04, 질문 12) | 근거: B-17. 현재 catalog는 이 경우 `None`(비로그인)이지만 필수 인증은 401(`tests/auth/test_api_db.py:106` `test_basic_scheme_is_unauthorized`). 같은 헤더가 필수 인증과 선택 인증에서 다르게 해석되면 안 됨. **catalog 현재 동작과 다른 유일한 지점**이다(기존 catalog 테스트 중 Basic 헤더를 쓰는 것은 없음, B-16 `Grep`). 이 동작 변경은 catalog 교체 시 함께 들어간다(§6.3) |
+| D-선택인증-범위 | 이번 작업은 **auth 쪽만 구현**하고 catalog 교체는 "변경 제안"(C-13)으로만 적는다. 교체를 같은 PR에 포함할지는 사용자·catalog 담당자 결정 | **확정** (사용자, 2026-11-04, 질문 13): auth만 구현 | `catalog/**`는 catalog 담당자 소유(`orchestration.md` 쓰기 소유권). 교체 전에는 catalog의 자체 `OptionalUser`가 남아 중복이지만 동작은 변하지 않음 |
 | D-상점주role | 상점주 role 값 `OWNER` | **임시** | 명세 "확인 필요", 건드리지 않음 |
 | D-사업자번호 | 가입 시 `business_number` 미수집(컬럼은 NULL 허용으로 존재) | **임시** | 명세 "확인 필요", 건드리지 않음 |
 | D-상점주승인 | 상점주 승인 대기 상태 미구현(`users`에 컬럼 없음) | **임시/미해결** | `db-schema` §5 항목 7, 건드리지 않음 |
@@ -341,6 +357,7 @@ def create_reservation_service(
 - 테스트에서는 fake를 `auth` 인자로 직접 넣거나(서비스 단위 테스트), `app.dependency_overrides[create_auth_service] = ...`로 바꾼다.
 - 다른 모듈이 auth의 일부 속성만 필요하면 쓰는 쪽이 포트를 정의하고 container가 어댑터를 주입하는 방법(`layer-architecture` §3.4 2행)도 있다. 현재 필요한 호출(`use/earn/restore/revoke_points`, `get_user`)은 서비스 주입으로 충분하므로 포트는 만들지 않는다.
 - auth가 노출하는 메서드(다른 모듈용): `use_points`, `earn_points`, `restore_points`, `revoke_points`(실제 차감액 반환), `get_user`.
+- **로그인 선택 EP(제안, D-선택인증):** router는 `from auth.presentation.dependencies import OptionalUser`를 파라미터 타입으로 쓴다. 토큰 없음 -> `None`, 정상 토큰 -> `User`, 잘못된 토큰·비 Bearer 헤더 -> 401(D-선택인증-무효토큰·스킴). 서비스에는 `viewer.id if viewer else None`처럼 `user_id`만 넘긴다(catalog D23). 상세는 §7.3.
 
 ---
 
@@ -379,6 +396,77 @@ async def get_current_principal(
 
 ### 7.2 `presentation/router.py`
 `Service = Annotated[AuthApplicationService, Depends(provide_auth_service)]`로 교체, `get_auth_service` import 삭제. 나머지 동일.
+
+### 7.3 로그인 선택 의존성 `OptionalUser` (신규 제안, D-선택인증 계열)
+
+**시그니처와 위치:** `src/auth/presentation/dependencies.py`에 추가. 기존 `bearer_scheme`·`get_current_principal`·`get_current_user`·`require_roles`·별칭은 변경하지 않는다.
+
+```python
+from fastapi import Depends, Request
+
+async def get_optional_user(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    service: Annotated[AuthApplicationService, Depends(provide_auth_service)],
+) -> User | None:
+    if credentials is not None and credentials.credentials:
+        return (await service.authenticate(credentials.credentials)).user   # 무효 토큰은 401 (D-선택인증-무효토큰)
+    raw = request.headers.get("authorization")
+    if raw is None or not raw.strip():
+        return None                                                          # 인증 정보 없음 = 비로그인
+    raise AuthenticationError("로그인이 필요합니다.")                          # Bearer가 아닌 헤더 (D-선택인증-스킴)
+
+
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+```
+
+- `bearer_scheme`을 계속 `Depends`로 거는 이유: OpenAPI에 보안 스킴(Authorize 버튼)이 표시되고 토큰 추출 규칙(`HTTPBearer`)이 필수 인증과 같다. `Request`는 `HTTPBearer`가 구분 못 하는 "헤더 없음 vs Bearer 아님"(B-17)을 가르는 데만 쓴다.
+- `AuthenticationError`는 이미 `get_current_principal`이 쓰는 `auth.domain.exceptions`의 예외다. `HTTPException`을 만들지 않는다(R6). 401 본문·`WWW-Authenticate: Bearer`는 전역 핸들러가 만든다(R7, D-에러형식). `TokenRevokedError`는 `authenticate()`가 낸다.
+- `provide_auth_service` 재사용이므로 새 `provide_*`·`wire_dependencies` 변경·`container.py` 변경이 없다(R9). `tests/test_container.py`(a)의 `provide_` 수집 결과도 같다.
+- `get_current_principal`과 중복되는 "토큰 추출 + `authenticate`" 두 줄은 합치지 않는다(필수 인증은 `AuthenticatedPrincipal`을, 선택 인증은 `User | None`을 돌려주며 처리 분기가 다르다). 로그아웃처럼 `claims`가 필요한 EP는 선택 인증이 아니므로 `OptionalPrincipal`은 만들지 않는다(필요해지면 그때 추가).
+- R2: presentation이 `fastapi`·`auth.application`·`auth.domain`만 import한다. infrastructure·database import 없음.
+
+**동작 표** (`Authorization` 헤더 -> `OptionalUser` 결과)
+
+| 입력 | 결과 | 응답(해당 시) |
+| --- | --- | --- |
+| 헤더 없음 | `None` | - |
+| 헤더가 있으나 값이 비었거나 공백 | `None` | - |
+| `Bearer <유효 토큰>` (스킴 대소문자 무관) | `User` | - |
+| `Bearer <위조·서명 불일치·형식 오류>` | 401 | `UNAUTHORIZED` "유효하지 않은 토큰입니다." |
+| `Bearer <만료 토큰>` | 401 | `UNAUTHORIZED` "토큰이 만료되었습니다." |
+| `Bearer <로그아웃된 토큰>` | 401 | `TOKEN_REVOKED` |
+| `Bearer <유효 서명이지만 없는 회원>` | 401 | `UNAUTHORIZED` "유효하지 않은 토큰입니다." |
+| `Basic ...`, `Token ...` 등 Bearer 아님 | 401 | `UNAUTHORIZED` "로그인이 필요합니다." |
+| `Bearer`(토큰 없음), `Bearer `(공백만) | 401 | `UNAUTHORIZED` "로그인이 필요합니다." |
+
+(401은 모두 `{"success": false, "error_code", "message"}`와 `WWW-Authenticate: Bearer`.)
+
+**검토한 대안(채택하지 않음):** 무효 토큰을 모두 `None`으로 처리 -> 위 근거 (2)(3) 때문에 임시 기본값에서 제외. 바꾸려면 `get_optional_user`의 `authenticate` 호출을 `try/except AuthenticationError: return None`으로 감싸고 마지막 `raise`를 `return None`으로 바꾸는 한 곳 수정이며, 이 경우 `tests/catalog/test_api_db.py:168-170`(`Bearer bad.token` -> 401)과 아래 테스트 계획을 함께 바꿔야 한다.
+
+### 7.4 테스트 계획 (D-선택인증)
+
+DB 없이 도는 테스트를 먼저 둔다(현재 환경에서 DB 테스트가 skip되므로 R16 증거가 약해지지 않게). 새 파일 `tests/auth/test_optional_user.py`:
+
+| # | 종류 | 케이스 | 기대 |
+| --- | --- | --- | --- |
+| T-1 | 단위/API(DB 없음) | 헤더 없음 | `None`, `service.authenticate` 호출 0회 |
+| T-2 | 〃 | 빈/공백 헤더 값 | `None` |
+| T-3 | 〃 | 유효 Bearer 토큰 | 해당 `User` 반환 |
+| T-4 | 〃 | 위조(다른 비밀키 서명, 문자열 `forged`) | 401 `UNAUTHORIZED`, `WWW-Authenticate: Bearer` |
+| T-5 | 〃 | 만료 토큰 | 401 `UNAUTHORIZED` "토큰이 만료되었습니다." |
+| T-6 | 〃 | 로그아웃 후 같은 토큰 | 401 `TOKEN_REVOKED` |
+| T-7 | 〃 | 서명은 유효하나 없는 회원 | 401 `UNAUTHORIZED` |
+| T-8 | 〃 | `Basic <토큰>` | 401 `UNAUTHORIZED` "로그인이 필요합니다." |
+| T-9 | 〃 | `Bearer`만(토큰 없음) | 401 `UNAUTHORIZED` |
+| T-10 | 〃 | `bearer <유효 토큰>`(소문자 스킴) | `User` |
+
+구성: 테스트 안에서 작은 `FastAPI()` 앱을 만들어 `register_exception_handlers(app)`를 호출하고 `GET /probe`(`viewer: OptionalUser` -> `{"user_id": str(viewer.id) if viewer else None}`)를 둔다. `app.dependency_overrides[provide_auth_service]`를 `tests/auth/test_service.py`의 `build()`와 같은 fake 레포·실제 `JwtTokenProvider(AuthSettings(...))`로 만든 `AuthApplicationService`로 바꾼다(`httpx.ASGITransport`, `main.app`을 건드리지 않으므로 다른 테스트에 영향 없음). `build()`가 다른 테스트 파일에 있으므로 import하지 말고 필요한 fake를 `tests/auth/` 안의 공용 헬퍼로 옮길지, 복사할지는 구현자가 정하되 `test_service.py`의 기존 테스트 이름·동작은 바꾸지 않는다. 이 앱은 D-fake API테스트(auth API 전체의 fake 기반 테스트 미채택)와 별개로 의존성 한 개만 검증한다.
+- 실제 앱 통합(DB): 선택 인증을 쓰는 실제 EP는 catalog #2·#4다. 기존 `tests/catalog/test_api_db.py`가 이미 비로그인 200, 무효 토큰 401(`:168-170`), `is_active=false` 401·소유자 200을 확인한다. catalog 교체(C-13) 후에도 **이 파일은 수정 없이 통과해야 한다**(완료 조건).
+- 추가 제안(catalog 교체를 같이 할 때만, catalog 담당자 소유): `Authorization: Basic ...`으로 `GET /v1/products/{id}` -> 401, 로그아웃한 토큰 -> 401 `TOKEN_REVOKED` 각 1건.
+- 기존 `tests/auth/**`, `tests/test_container.py`는 변경하지 않는다.
+
+**구현자 완료 게이트(코드 변경이 있으므로 `backend-invariants` §7):** `check_layers.py` 위반이 기준선 2건(B-13)을 넘지 않고 auth 쪽 신규 위반 0, `import main` 성공, `uv run pytest -rs` failed 0·**db 마커 skip 0**(오케스트레이터가 DB를 켜고 확인). 정독 규칙(R3, R5, R7~R15)은 `layer-checker`가 판정한다.
 
 ---
 
@@ -610,6 +698,26 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | C-11 | `src/auth/domain/user.py:111` | `require_role`의 `PermissionError("접근 권한이 없습니다.")`가 모든 역할 실패(`OwnerUser` 등)에 같은 메시지를 낸다. `docs/design/stores.md` C-S1은 stores 명세 403 메시지 "상점주 권한이 필요합니다."와 다르다고 지적(R15). stores는 `OwnerUser`를 그대로 쓰기로 함(D-인증의존성과 일치) | 후속 C-6 정리(`RoleForbiddenError`)에서 역할별 메시지를 낼지 사용자 결정 필요. 현재 auth 동작은 바꾸지 않음. 질문 8로 추가 |
 | C-12 | stores가 auth에 기대하는 점 | `docs/design/stores.md` S-2(a)는 상점주 승인 상태를 `users.approved_at`(auth 소유)로 두는 안을 제시한다. 이 경우 auth 스키마·`models.py`·`schema.sql`·`db-schema` 변경(R14)과 D-상점주승인 해소가 필요. stores Q-5(가입 시 `name`(상호) 필수화)도 auth 가입 규칙 변경이 된다. 두 안 모두 현재 auth 설계와 충돌하지 않으며(stores는 auth를 import하지 않고 원시값만 받음, `stores.md` §3) auth는 바뀌지 않았다 | 사용자가 stores Q-6, Q-5에서 결정할 때 auth 변경 여부를 함께 정한다. 질문 9·10으로 추가 |
 
+### 12.4 `OptionalUser` 관련 (2026-11-04)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-13 | catalog 교체 계획 (catalog 담당자 소유, 설계자·이번 auth 구현자는 수정하지 않음) | catalog가 auth 내부(`bearer_scheme`, `provide_auth_service`)로 자체 `get_optional_user`/`OptionalUser`를 만들어 쓴다(B-16). auth가 공식 `OptionalUser`를 제공하면 중복이다 | **결정됨(사용자, 2026-11-04): 이번 범위 아님, catalog 담당자에게 변경 제안.** 아래 변경 목록 참고 |
+| C-14 | `docs/design/catalog.md` §7.1(`:504-516`), 파일 구조 `:60`, 의존 그림 `:629`, D56·CI-3 | catalog 설계가 "auth 파일은 수정하지 않는다, `OptionalUser`는 catalog 파일에 둔다"로 쓰여 있어 교체 시 문장이 낡음. catalog.md는 이번에 수정 금지 | 교체 확정 시 catalog 설계 갱신 때 §7.1을 "auth `OptionalUser` 사용"으로 고치고 D-번호를 추가. 이 문서 D-선택인증이 정본 |
+| C-15 | `docs/reference/catalog.md` #2·#4 (권한 "공개") | 공개 EP에 잘못된 토큰이 오면 401인지 200(비로그인)인지 명세에 없음. #10(할인 상세)은 토큰을 읽지 않아(catalog D56) 같은 "공개" EP인데 잘못된 토큰도 200이다 | 질문 11에 포함. 현재 구현은 #2·#4만 401, #10은 200으로 EP마다 다름. 통일 여부는 사용자 결정(이번 범위 밖, 변경 없음) |
+
+**C-13 catalog 교체 변경 목록 (제안)**
+
+| # | 파일 | 변경 |
+| --- | --- | --- |
+| 1 | `src/catalog/presentation/dependencies.py` | `get_optional_user`·`OptionalUser`(`:37-46`) 삭제. 이 때문에 안 쓰게 되는 import(`Annotated`, `Depends`, `HTTPAuthorizationCredentials`, `AuthApplicationService`, `User`, `bearer_scheme`, `provide_auth_service`)도 삭제. `provide_*` 4개와 포트 import는 유지 |
+| 2 | `src/catalog/presentation/router.py:10` | `from catalog.presentation.dependencies import OptionalUser, provide_catalog_service` -> `OptionalUser`는 `from auth.presentation.dependencies import OptionalUser`로, `provide_catalog_service`만 catalog에서 import. 사용처 `:54`, `:100`은 그대로 |
+| 3 | `docs/design/catalog.md` | C-14 |
+| 4 | `tests/catalog/**` | 기존 테스트 수정 불필요: `OptionalUser`를 직접 import하는 테스트 없음(B-16), `test_wiring.py`는 `provide_`로 시작하는 함수만 수집하므로 영향 없음(`get_optional_user`는 해당 안 됨). 요구 사항: `tests/catalog/test_api_db.py:168-170`(무효 토큰 401)과 `is_active=false` 시나리오(`:146-157`)가 그대로 통과 |
+| 5 | 동작 변화 | 단 하나: `Authorization: Basic ...`·`Bearer`(토큰 없음) 헤더가 catalog #2·#4에서 `None`(200) -> 401로 바뀜(D-선택인증-스킴). 질문 12에서 `None` 유지로 정하면 `get_optional_user`의 마지막 `raise`를 `return None`으로 바꿔 catalog 동작을 완전히 보존할 수 있음 |
+
+교체 후 확인: `python3 .claude/skills/layer-check/check_layers.py`(기준선 2건 초과 없음), `import main`, `uv run pytest -rs`(DB 켜고 skip 0), `Grep "bearer_scheme\|provide_auth_service" src/catalog` 0건.
+
 ---
 
 ## 13. 질문 목록과 임시 기본값
@@ -628,10 +736,13 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | 8 | (신규, C-11) 역할 불일치 403 메시지를 역할별로 낼지 | `docs/design/stores.md` C-S1, `docs/reference/stores.md` | 현재 `접근 권한이 없습니다.` 유지(미변경) | 현재 코드값 `user.py:111` | `User.require_role`, C-6 정리와 함께 |
 | 9 | (신규, C-12) 상점주 승인 상태를 `users`에 둘지 stores 소유 테이블에 둘지 (질문 3과 같은 주제) | `docs/design/stores.md` S-2, Q-6 | 미구현 유지(auth 변경 없음) | D-상점주승인 | 스키마 변경 시 R14: `models.py`, `schema.sql`, `db-schema/SKILL.md` 동시 |
 | 10 | (신규, C-12) 가입 시 상점주 `name`(상호) 필수화 여부 | `docs/design/stores.md` Q-5 | 미변경(`name` 선택, `schemas.py:10`) | 명세 `name` 선택 | `SignupRequest`, `User.register` |
+| 11 | (신규, D-선택인증-무효토큰) 로그인 선택 EP에 위조·만료·로그아웃·없는 회원 토큰이 오면 401로 거절할지 `None`(비로그인)으로 볼지. 명세에 공개 EP의 무효 토큰 규칙이 없음(C-15) | `docs/reference/README.md` 401 정의, `docs/reference/catalog.md` #2·#4 "공개" **결정됨(사용자, 2026-11-04): 401 거절**(현재 catalog 동작 유지, `CurrentUser`와 같은 error_code) | 현재 구현·`tests/catalog/test_api_db.py:168-170`, 보안(조용한 비로그인 처리 금지), 명세 401 정의 | `get_optional_user` 한 함수(§7.3 "검토한 대안") |
+| 12 | (신규, D-선택인증-스킴) `Basic ...` 등 Bearer가 아닌 헤더와 토큰 없는 `Bearer`를 401로 볼지 `None`으로 볼지 | B-17 | **결정됨(사용자, 2026-11-04): 401 `UNAUTHORIZED` "로그인이 필요합니다."**(catalog 현재 `None`과 다름) | 필수 인증과 같은 입력이 같은 결과여야 함(`test_basic_scheme_is_unauthorized`) | `get_optional_user`의 마지막 `raise` 한 줄 |
+| 13 | (신규, D-선택인증-범위, C-13) 이번에 auth의 `OptionalUser`만 구현할지, catalog 교체까지 함께 할지 | 사용자 요청 | **결정됨(사용자, 2026-11-04): auth만 구현**, catalog 교체는 변경 제안(C-13)으로 두고 catalog 담당자 승인 후 진행 | `catalog/**` 소유권 | C-13 변경 목록 |
 
 현재 코드값 확인(1~7번은 건드리지 않고 상태만 유지): 1번 `Role.OWNER = "OWNER"`(`user.py:8`), 2번 `SignupRequest`에 `business_number` 없음(`schemas.py:7-12`), 3번 `users`에 승인 컬럼 없음(`models.py:13-28`), 4번 `error_handlers.py:33-43`이 400 `VALIDATION_ERROR`, 5번 `login`에 시도 제한 없음(`service.py:80-88`), 6번 `purge_expired_tokens`가 수동 메서드(`service.py:171-174`)이고 호출하는 곳이 없음, 7번 추상 메서드 이름 그대로(`add`, `exists`, `count_by_user`, `delete_expired`). 모두 표의 임시 기본값과 같다.
 
-2026-11-03 사용자 결정으로 C-4, C-5, C-6, C-8은 모두 결정되었고 구현도 끝났다(C-6 코드 정리만 후속). 남은 사용자 결정 항목은 질문 1~10(임시 기본값 유지 중)이며, 구현을 막지 않는다.
+2026-11-03 사용자 결정으로 C-4, C-5, C-6, C-8은 모두 결정되었고 구현도 끝났다(C-6 코드 정리만 후속). 남은 사용자 결정 항목은 질문 1~10(임시 기본값 유지 중)이며, 구현을 막지 않는다. 질문 11~13(2026-11-04, `OptionalUser`)은 모두 사용자가 위 표의 값으로 **결정함**(11 = 무효 토큰 401, 12 = 비 Bearer 헤더 401, 13 = auth만 구현). 남은 사용자 결정은 없고, catalog 교체(C-13)는 catalog 담당자에게 넘기는 변경 제안으로 남는다. 명세 공백 C-15(공개 EP의 무효 토큰 규칙 통일)만 별도 후속이다.
 
 ---
 
