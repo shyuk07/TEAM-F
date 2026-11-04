@@ -11,6 +11,8 @@ from payments.domain.exceptions import (
 )
 from payments.domain.payment import Payment, PaymentStatus
 from payments.domain.refund import Refund, RefundStatus
+from payments.domain.repository.payment_repository import PaymentRepository
+from payments.domain.repository.refund_repository import RefundRepository
 from payments.infrastructure.models import PaymentModel, RefundModel
 
 # 레포지토리는 flush까지만 하고 commit/rollback은 서비스가 한다.
@@ -20,7 +22,7 @@ from payments.infrastructure.models import PaymentModel, RefundModel
 # (models.py/schema 정렬은 2차)
 
 
-class PaymentRepository:
+class SqlAlchemyPaymentRepository(PaymentRepository):
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -81,7 +83,7 @@ class PaymentRepository:
         )
 
 
-class RefundRepository:
+class SqlAlchemyRefundRepository(RefundRepository):
     def __init__(self, db: AsyncSession):
         self.db = db
 

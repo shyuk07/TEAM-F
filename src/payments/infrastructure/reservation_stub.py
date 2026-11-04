@@ -1,7 +1,10 @@
 """[임시] 예약 모듈이 완성되기 전까지 쓰는 메모리 기반 ReservationPort 구현.
 
 reservations 모듈이 완성되면 실제 어댑터로 교체하고 이 파일은 삭제한다.
-(교체 위치: payments/presentation/dependencies.py의 get_payment_service)
+(교체 위치: src/container.py의 create_payment_reservation_port)
+
+ReservationPort(application/ports.py)를 구조적으로 만족한다. infrastructure는 application을
+import할 수 없어 상속하지 않는다 (R2).
 """
 
 from dataclasses import replace
