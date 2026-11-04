@@ -3,6 +3,7 @@ name: layer-reviewer
 description: 마감 직전(Last Call) 프로젝트의 변경 코드(diff)를 정확성 관점에서 읽기 전용으로 독립 리뷰할 때 사용합니다. 동시성·잠금 순서와 교착, 트랜잭션 원자성, 상태 전이와 도메인 불변식, 명세·설계와의 응답·에러 일치, 테스트 단언 누락·약화를 확인하고 지적마다 실패 시나리오와 함께 APPROVE 또는 REQUEST_CHANGES를 판정합니다. 계층 규칙 점검(layer-checker)과 실행 검증(verifier)은 하지 않으며, 코드를 수정하지 않습니다.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: low
 skills:
   - backend-invariants
   - layer-architecture

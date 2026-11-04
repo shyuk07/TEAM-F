@@ -3,6 +3,7 @@ name: verifier
 description: 마감 직전(Last Call) 프로젝트의 구현 결과를 실제로 실행해 검증할 때 사용합니다. PostgreSQL과 FastAPI 서버를 띄워 smoke 스크립트와 시연 시나리오를 확인하고, auth 보안 점검 스크립트, 테스트, 머지 전 점검을 실행해 결과를 보고합니다. 코드를 수정하지 않습니다.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: low
 skills:
   - backend-invariants
   - fastapi-run

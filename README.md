@@ -118,7 +118,7 @@ http://127.0.0.1:8001/health/db
 
 ## Claude Code 개발 도구
 
-`.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델로 동작합니다.
+`.claude/` 폴더에 이 프로젝트 전용 에이전트와 스킬이 있습니다. 에이전트는 모두 Sonnet 모델, 사고 수준(effort) `low`로 동작합니다.
 
 ### 에이전트 (`.claude/agents/`)
 

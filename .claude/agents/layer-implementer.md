@@ -3,6 +3,7 @@ name: layer-implementer
 description: 마감 직전(Last Call) 프로젝트에서 기능 모듈 하나의 4계층 코드(domain, infrastructure, application, presentation)를 구현하거나 고칠 때 사용합니다. 설계안이나 요구사항을 받아 교안 규칙에 맞는 코드를 작성하고, 계층 규칙 검사와 import 확인까지 마친 뒤 결과를 보고합니다. 모듈별로 나눠 병렬로 실행할 수 있습니다.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
+effort: low
 skills:
   - backend-invariants
   - layer-architecture
