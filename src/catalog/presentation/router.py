@@ -10,8 +10,12 @@ from catalog.domain.discount_offer import OfferStatus
 from catalog.presentation.dependencies import OptionalUser, provide_catalog_service
 from catalog.presentation.schemas import (
     OfferCreateRequest,
+    OfferDeactivateRequest,
+    OfferDeactivateResponse,
+    OfferDetailResponse,
     OfferListResponse,
     OfferResponse,
+    OfferUpdateRequest,
     ProductCreateRequest,
     ProductDetailResponse,
     ProductListResponse,
@@ -69,7 +73,13 @@ async def list_products(
 async def list_store_offers(
     store_id: uuid.UUID,
     service: Service,
-    status: OfferStatus = OfferStatus.ON_SALE,
+    status: Annotated[
+        list[OfferStatus] | None,
+        Query(
+            description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED (반복 가능). "
+            "생략하면 SCHEDULED, ON_SALE, SOLD_OUT"
+        ),
+    ] = None,
     page: PageParam = 1,
     size: SizeParam = 20,
 ):
@@ -127,6 +137,39 @@ async def register_offer(
 ):
     view = await service.register_offer(owner.id, product_id, body.model_dump())
     return OfferResponse.from_view(view)
+
+
+@router.get(
+    "/offers/{offer_id}",
+    response_model=OfferDetailResponse,
+    summary="할인 상세",
+)
+async def get_offer_detail(offer_id: uuid.UUID, service: Service):
+    return OfferDetailResponse.from_view(await service.get_offer_detail(offer_id))
+
+
+@router.patch(
+    "/offers/{offer_id}",
+    response_model=OfferResponse,
+    summary="할인 수정",
+)
+async def update_offer(
+    offer_id: uuid.UUID, body: OfferUpdateRequest, owner: OwnerUser, service: Service
+):
+    view = await service.update_offer(owner.id, offer_id, body.model_dump(exclude_unset=True))
+    return OfferResponse.from_view(view)
+
+
+@router.post(
+    "/offers/{offer_id}/deactivate",
+    response_model=OfferDeactivateResponse,
+    summary="할인 판매 중단",
+)
+async def deactivate_offer(
+    offer_id: uuid.UUID, body: OfferDeactivateRequest, owner: OwnerUser, service: Service
+):
+    result = await service.deactivate_offer(owner.id, offer_id, body.reason, body.cancel_reservations)
+    return OfferDeactivateResponse.from_result(result)
 
 
 @router.post(

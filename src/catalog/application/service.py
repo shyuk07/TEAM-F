@@ -1,16 +1,28 @@
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from catalog.application.ports import StorePort
+from catalog.application.ports import (
+    ReservationCancelPort,
+    ReservationLookupPort,
+    StorePort,
+)
 from catalog.application.views import (
+    DeactivateOfferResult,
+    OfferDetailView,
     OfferView,
     Page,
     ProductDetailView,
     StockAdjustResult,
 )
-from catalog.domain.discount_offer import DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import (
+    OFFER_NOTICE,
+    OPEN_OFFER_STATUSES,
+    DiscountOffer,
+    OfferStatus,
+)
 from catalog.domain.exceptions import (
     NotStoreOwnerError,
     OfferNotFoundError,
@@ -36,6 +48,8 @@ class CatalogApplicationService:
         offers: DiscountOfferRepository,
         stock_logs: StockLogRepository,
         clock: Clock,
+        reservations: ReservationLookupPort,
+        reservation_cancel: ReservationCancelPort,
     ):
         self.session = session
         self.stores = stores
@@ -43,6 +57,8 @@ class CatalogApplicationService:
         self.offers = offers
         self.stock_logs = stock_logs
         self.clock = clock
+        self.reservations = reservations
+        self.reservation_cancel = reservation_cancel
 
     # ── 내부 헬퍼 ──────────────────────────
     async def _load_store(self, store_id: uuid.UUID) -> StoreRef:
@@ -66,6 +82,28 @@ class CatalogApplicationService:
             status=offer.effective_status(now),
             discount_rate=offer.discount_rate(product.original_price),
             is_sold_out=offer.is_sold_out,
+        )
+
+    # ── 읽기 ──────────────────────────────
+    async def get_offer_detail(self, offer_id: uuid.UUID) -> OfferDetailView:
+        now = self.clock.now()
+        found = await self.offers.find_with_product(offer_id)
+        if found is None:
+            raise OfferNotFoundError()
+        offer, product = found
+        info = await self.stores.find_store_by_id(product.store_id)
+        if info is None:
+            raise OfferNotFoundError()  # 명세 §10·D56: 404는 "할인 판매를 찾을 수 없습니다." 하나
+        store = StoreRef.from_info(info)
+        return OfferDetailView(
+            view=self._offer_view(offer, product, store.name, now),
+            description=product.description,
+            product_image=list(product.product_image),
+            pickup_address=store.pickup_address,
+            latitude=store.latitude,
+            longitude=store.longitude,
+            notice=OFFER_NOTICE,
+            cancel_policy=offer.cancel_policy(),
         )
 
     # ── 쓰기 ──────────────────────────────
@@ -109,6 +147,35 @@ class CatalogApplicationService:
         await self.products.save(product)
         await self.session.commit()
         return product
+
+    async def deactivate_offer(
+        self,
+        user_id: uuid.UUID,
+        offer_id: uuid.UUID,
+        reason: str,
+        cancel_reservations: bool,
+    ) -> DeactivateOfferResult:
+        now = self.clock.now()
+        # 잠금 순서: product -> offer (relist·update와 같은 패턴). product_id를 얻으려고 먼저 잠금 없이 읽는다.
+        old = await self.offers.find_by_id(offer_id)
+        if old is None:
+            raise OfferNotFoundError()
+        product = await self._get_product(old.product_id, for_update=True)
+        offer = await self.offers.find_by_id(offer_id, for_update=True)
+        if offer is None:
+            raise OfferNotFoundError()
+        store = await self._load_store(product.store_id)
+        store.ensure_owner(user_id, "본인 상점의 할인만 중단할 수 있습니다.")  # 폐점 상점 허용(Q14)
+        offer.close(now)  # 이미 중단이면 포트 호출 전에 막는다
+        cancelled = 0
+        if cancel_reservations:
+            cancelled = await self.reservation_cancel.cancel_all_for_offer(offer.id, reason=reason)
+        await self.offers.save(offer)
+        await self.session.commit()
+        return DeactivateOfferResult(
+            view=self._offer_view(offer, product, store.name, now),
+            cancelled_reservation_count=cancelled,
+        )
 
     async def register_offer(self, user_id: uuid.UUID, product_id: uuid.UUID, data: dict) -> OfferView:
         now = self.clock.now()
@@ -167,6 +234,36 @@ class CatalogApplicationService:
         await self.session.commit()
         return StockAdjustResult(offer=offer, status=offer.effective_status(now), log_id=log.id)
 
+    async def update_offer(self, user_id: uuid.UUID, offer_id: uuid.UUID, changes: dict) -> OfferView:
+        now = self.clock.now()
+        # 잠금 순서: product -> offer (relist와 같은 패턴)
+        old = await self.offers.find_by_id(offer_id)
+        if old is None:
+            raise OfferNotFoundError()
+        product = await self._get_product(old.product_id, for_update=True)
+        offer = await self.offers.find_by_id(offer_id, for_update=True)
+        if offer is None:
+            raise OfferNotFoundError()
+        store = await self._load_store(product.store_id)
+        store.ensure_owner(user_id, "본인 상점의 할인만 수정할 수 있습니다.")
+        delta = 0
+        if changes == {"is_active": False}:
+            offer.pause(now)
+        elif changes == {"is_active": True}:
+            store.ensure_not_closed("할인을 재개")
+            has_other = await self.offers.find_open_by_product(product.id, now) is not None
+            offer.resume(now, product_active=product.is_active, has_other_open_offer=has_other)
+        else:
+            has_res = await self.reservations.has_reservations_for_offer(offer.id)
+            delta = offer.apply_changes(
+                changes, original_price=product.original_price, has_reservations=has_res, now=now
+            )
+        await self.offers.save(offer)
+        if delta != 0:
+            await self.stock_logs.add(StockLog.offer_edit(offer.id, user_id, delta))
+        await self.session.commit()
+        return self._offer_view(offer, product, store.name, now)
+
     @staticmethod
     def _new_offer(product: Product, data: dict, now: datetime) -> DiscountOffer:
         return DiscountOffer.register(
@@ -207,12 +304,13 @@ class CatalogApplicationService:
         return ProductDetailView(product=product, store_name=store.name, pickup_address=store.pickup_address)
 
     async def list_offers_by_store(
-        self, store_id: uuid.UUID, status: OfferStatus, page: int, size: int
+        self, store_id: uuid.UUID, statuses: Sequence[OfferStatus] | None, page: int, size: int
     ) -> Page[OfferView]:
         now = self.clock.now()
         store = await self._load_store(store_id)
+        selected = tuple(dict.fromkeys(statuses)) if statuses else OPEN_OFFER_STATUSES
         rows, total = await self.offers.find_by_store(
-            store_id, status=status, now=now, page=page, size=size
+            store_id, statuses=selected, now=now, page=page, size=size
         )
         items = [self._offer_view(o, p, store.name, now) for o, p in rows]
         return Page(items=items, page=page, size=size, total=total)

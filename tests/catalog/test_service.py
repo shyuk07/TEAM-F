@@ -4,12 +4,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from catalog.application.service import CatalogApplicationService
-from catalog.domain.discount_offer import DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
 from catalog.domain.exceptions import (
     NotStoreOwnerError,
+    OfferAlreadyActiveError,
     OfferClosedError,
+    OfferEndedError,
+    OfferHasReservationsError,
     OfferNotFoundError,
     OpenOfferExistsError,
+    PickedUpReservationExistsError,
+    ProductAlreadyInactiveError,
     ProductHasOpenOfferError,
     ProductInactiveError,
     ProductNotFoundError,
@@ -53,6 +58,8 @@ class FakeStoreInfo:
         self.owner_id = owner_id
         self.name = "상점A"
         self.pickup_address = "서울"
+        self.latitude = 37.5
+        self.longitude = 127.0
         self.approval_at = approval_at
         self.closed_at = closed_at
 
@@ -73,13 +80,15 @@ class FakeStores:
 
 
 class FakeProducts(ProductRepository):
-    def __init__(self):
+    def __init__(self, events=None):
         self.items = {}
         self.locked = []
+        self.events = events if events is not None else []
 
     async def find_by_id(self, product_id, for_update=False):
         if for_update:
             self.locked.append(product_id)
+            self.events.append("product_lock")
         return self.items.get(product_id)
 
     async def find_by_store(self, store_id, *, category, is_active, page, size):
@@ -100,9 +109,21 @@ class FakeProducts(ProductRepository):
 class FakeOffers(DiscountOfferRepository):
     def __init__(self):
         self.items = {}
+        self.events = []
+        self.last_statuses = None
+        self.products = None
 
     async def find_by_id(self, offer_id, for_update=False):
+        if for_update:
+            self.events.append("offer_lock")
         return self.items.get(offer_id)
+
+    async def find_with_product(self, offer_id):
+        offer = self.items.get(offer_id)
+        if offer is None or self.products is None:
+            return None
+        product = self.products.items.get(offer.product_id)
+        return (offer, product) if product else None
 
     async def find_open_by_product(self, product_id, now):
         return next(
@@ -112,14 +133,38 @@ class FakeOffers(DiscountOfferRepository):
     async def exists_open_by_store(self, store_id, now):
         return any(o.is_open(now) for o in self.items.values())
 
-    async def find_by_store(self, store_id, *, status, now, page, size):
-        raise NotImplementedError
+    async def find_by_store(self, store_id, *, statuses, now, page, size):
+        self.last_statuses = tuple(statuses)
+        return [], 0
 
     async def save(self, offer):
         if offer.id is None:
             offer.id = uuid.uuid4()
         self.items[offer.id] = offer
         return offer
+
+
+class FakeReservations:
+    def __init__(self):
+        self.has = False
+
+    async def has_reservations_for_offer(self, offer_id):
+        return self.has
+
+
+class FakeReservationCancel:
+    def __init__(self, events=None):
+        self.calls = []
+        self.count = 0
+        self.error = None
+        self.events = events if events is not None else []
+
+    async def cancel_all_for_offer(self, offer_id, *, reason):
+        self.events.append("port")
+        self.calls.append((offer_id, reason))
+        if self.error is not None:
+            raise self.error
+        return self.count
 
 
 class FakeStockLogs(StockLogRepository):
@@ -138,10 +183,15 @@ class Ctx:
         self.stores = FakeStores()
         self.products = FakeProducts()
         self.offers = FakeOffers()
+        self.offers.events = self.products.events
+        self.offers.products = self.products
+        self.reservations = FakeReservations()
+        self.cancel = FakeReservationCancel(self.products.events)
         self.logs = FakeStockLogs()
         self.service = CatalogApplicationService(
             session=self.session, stores=self.stores, products=self.products,
             offers=self.offers, stock_logs=self.logs, clock=FakeClock(),
+            reservations=self.reservations, reservation_cancel=self.cancel,
         )
         self.owner = uuid.uuid4()
         self.store = self.stores.add(FakeStoreInfo(self.owner))
@@ -209,7 +259,7 @@ async def test_update_product_errors(ctx):
     assert ctx.session.commits == 0
 
 
-# ── #6 ──
+# ── #6 상품 노출 중단 ──
 async def test_deactivate(ctx):
     p = await ctx.product()
     out = await ctx.service.deactivate_product(ctx.owner, p.id)
@@ -219,15 +269,107 @@ async def test_deactivate(ctx):
 async def test_deactivate_with_open_offer(ctx):
     p = await ctx.product()
     await ctx.service.register_offer(ctx.owner, p.id, ctx.offer_data())
+    before = ctx.session.commits
     with pytest.raises(ProductHasOpenOfferError):
         await ctx.service.deactivate_product(ctx.owner, p.id)
-    assert p.is_active
+    assert p.is_active and ctx.session.commits == before
+
+
+async def test_deactivate_already_inactive(ctx):
+    p = await ctx.product()
+    await ctx.service.deactivate_product(ctx.owner, p.id)
+    with pytest.raises(ProductAlreadyInactiveError, match="이미 비활성화된 상품입니다."):
+        await ctx.service.deactivate_product(ctx.owner, p.id)
 
 
 async def test_deactivate_forbidden(ctx):
     p = await ctx.product()
     with pytest.raises(NotStoreOwnerError, match="본인 상점의 상품만 변경할 수 있습니다."):
         await ctx.service.deactivate_product(uuid.uuid4(), p.id)
+
+
+# ── #12 할인 판매 중단 (16.5) ──
+async def _deactivate(ctx, offer_id, reason="재료 소진", cancel=False, user=None):
+    return await ctx.service.deactivate_offer(user or ctx.owner, offer_id, reason, cancel)
+
+
+async def test_deactivate_offer_without_cancel(ctx):
+    p, o = await _open_offer(ctx)
+    n_logs = len(ctx.logs.items)
+    result = await _deactivate(ctx, o.id)
+    assert not o.is_active and o.status == OfferStatus.CLOSED
+    assert result.view.offer is o and result.view.status == OfferStatus.CLOSED
+    assert p.is_active  # 상품 불변
+    assert o.remaining_stock == 10 and len(ctx.logs.items) == n_logs  # D40
+    assert ctx.cancel.calls == [] and result.cancelled_reservation_count == 0
+    assert ctx.session.commits == 1
+
+
+async def test_deactivate_offer_with_cancel(ctx):
+    p, o = await _open_offer(ctx)
+    ctx.cancel.count = 3
+    result = await _deactivate(ctx, o.id, reason="사고", cancel=True)
+    assert ctx.cancel.calls == [(o.id, "사고")]
+    assert result.cancelled_reservation_count == 3 and ctx.session.commits == 1
+    assert not o.is_active
+
+
+async def test_deactivate_offer_port_error_propagates_without_commit(ctx):
+    p, o = await _open_offer(ctx)
+    ctx.cancel.error = PickedUpReservationExistsError()
+    with pytest.raises(PickedUpReservationExistsError):
+        await _deactivate(ctx, o.id, cancel=True)
+    assert ctx.session.commits == 0  # 원자성: commit되지 않아 세션 종료 시 롤백
+
+
+async def test_deactivate_offer_already_closed_skips_port(ctx):
+    p, o = await _open_offer(ctx)
+    await _deactivate(ctx, o.id)
+    ctx.session.commits = 0
+    with pytest.raises(OfferClosedError, match="이미 중단된 할인입니다."):
+        await _deactivate(ctx, o.id, cancel=True)
+    assert ctx.cancel.calls == [] and ctx.session.commits == 0
+
+
+async def test_deactivate_offer_already_closed_by_other_owner_is_forbidden(ctx):
+    p, o = await _open_offer(ctx)
+    await _deactivate(ctx, o.id)
+    ctx.session.commits = 0
+    # 소유권 검사가 상태 검사(400)보다 먼저다
+    with pytest.raises(NotStoreOwnerError):
+        await _deactivate(ctx, o.id, cancel=True, user=uuid.uuid4())
+    assert ctx.cancel.calls == [] and ctx.session.commits == 0
+
+
+async def test_deactivate_offer_after_sales_end_allowed(ctx):
+    p, o = await _open_offer(ctx)
+    o.sales_end = NOW - H  # 마감 지난 활성 할인 (Q24 A)
+    assert o.is_active
+    result = await _deactivate(ctx, o.id, cancel=True)
+    assert not o.is_active and result.view.status == OfferStatus.CLOSED
+    assert ctx.session.commits == 1
+
+
+async def test_deactivate_offer_lock_order(ctx):
+    p, o = await _open_offer(ctx)
+    await _deactivate(ctx, o.id, cancel=True)
+    assert ctx.products.events == ["product_lock", "offer_lock", "port"]
+
+
+async def test_deactivate_offer_not_found_and_forbidden(ctx):
+    p, o = await _open_offer(ctx)
+    with pytest.raises(OfferNotFoundError, match="할인 판매를 찾을 수 없습니다."):
+        await _deactivate(ctx, uuid.uuid4(), cancel=True)
+    with pytest.raises(NotStoreOwnerError, match="본인 상점의 할인만 중단할 수 있습니다."):
+        await _deactivate(ctx, o.id, cancel=True, user=uuid.uuid4())
+    assert ctx.session.commits == 0 and ctx.cancel.calls == [] and o.is_active
+
+
+async def test_deactivate_offer_allowed_for_closed_store(ctx):
+    p, o = await _open_offer(ctx)
+    ctx.store.closed_at = NOW
+    result = await _deactivate(ctx, o.id)
+    assert not o.is_active and result.cancelled_reservation_count == 0
 
 
 # ── #7 ──
@@ -258,7 +400,7 @@ async def test_register_offer_errors(ctx):
 
 async def test_register_offer_inactive_product_and_closed_store(ctx):
     p = await ctx.product()
-    await ctx.service.deactivate_product(ctx.owner, p.id)
+    p.is_active = False
     with pytest.raises(ProductInactiveError):
         await ctx.service.register_offer(ctx.owner, p.id, ctx.offer_data())
     ctx.store.closed_at = NOW
@@ -339,15 +481,15 @@ async def test_adjust_stock_errors(ctx):
 async def test_list_products_active_public(ctx):
     await ctx.product(name="a")
     inactive = await ctx.product(name="b")
-    await ctx.service.deactivate_product(ctx.owner, inactive.id)
+    inactive.is_active = False
     page = await ctx.service.list_products(None, ctx.store.id, None, True, 1, 20)
     assert [p.name for p in page.items] == ["a"] and page.total == 1
-    assert ctx.session.commits == 1  # 읽기는 commit하지 않음 (deactivate의 1회만)
+    assert ctx.session.commits == 0  # 읽기는 commit하지 않음
 
 
 async def test_list_products_inactive_owner_only(ctx):
     p = await ctx.product()
-    await ctx.service.deactivate_product(ctx.owner, p.id)
+    p.is_active = False
     for viewer in (None, uuid.uuid4()):
         with pytest.raises(NotStoreOwnerError, match="본인 상점의 비활성 상품만 조회할 수 있습니다."):
             await ctx.service.list_products(viewer, ctx.store.id, None, False, 1, 20)
@@ -361,7 +503,7 @@ async def test_get_product(ctx):
     p = await ctx.product()
     view = await ctx.service.get_product(None, p.id)
     assert view.store_name == "상점A" and view.pickup_address == "서울"
-    await ctx.service.deactivate_product(ctx.owner, p.id)
+    p.is_active = False
     with pytest.raises(ProductNotFoundError):
         await ctx.service.get_product(None, p.id)
     with pytest.raises(ProductNotFoundError):
@@ -377,3 +519,142 @@ async def test_has_open_offers_for_store(ctx):
     await ctx.service.register_offer(ctx.owner, p.id, ctx.offer_data())
     assert await ctx.service.has_open_offers_for_store(ctx.store.id)
     assert not await ctx.service.has_open_offers_for_store(ctx.store.id, now=NOW + 5 * H)
+
+
+# ── #9 목록 기본 상태 (D25) ──
+async def test_list_offers_default_statuses(ctx):
+    await ctx.service.list_offers_by_store(ctx.store.id, None, 1, 20)
+    assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES
+    await ctx.service.list_offers_by_store(ctx.store.id, [], 1, 20)
+    assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES
+
+
+async def test_list_offers_dedup_and_explicit(ctx):
+    S = OfferStatus
+    await ctx.service.list_offers_by_store(ctx.store.id, [S.CLOSED, S.ON_SALE, S.CLOSED], 1, 20)
+    assert ctx.offers.last_statuses == (S.CLOSED, S.ON_SALE)
+    await ctx.service.list_offers_by_store(ctx.store.id, [S.ON_SALE], 1, 20)
+    assert ctx.offers.last_statuses == (S.ON_SALE,)
+    with pytest.raises(StoreNotFoundError):
+        await ctx.service.list_offers_by_store(uuid.uuid4(), None, 1, 20)
+
+
+# ── #11 할인 수정 (D26~D30) ──
+async def _open_offer(ctx, **kw):
+    p = await ctx.product()
+    view = await ctx.service.register_offer(ctx.owner, p.id, ctx.offer_data(**kw))
+    ctx.session.commits = 0
+    ctx.products.events.clear()
+    return p, view.offer
+
+
+async def test_update_offer_fields(ctx):
+    p, o = await _open_offer(ctx)
+    view = await ctx.service.update_offer(ctx.owner, o.id, {"sale_price": 2000, "initial_stock": 15})
+    assert o.sale_price == 2000 and o.remaining_stock == 15 and view.status == OfferStatus.ON_SALE
+    assert ctx.session.commits == 1
+    assert ctx.logs.items[-1].amount == 5 and ctx.logs.items[-1].reason == "할인 수정"
+    assert ctx.products.events[:2] == ["product_lock", "offer_lock"]  # 잠금 순서
+
+
+async def test_update_offer_no_stock_log_when_stock_unchanged(ctx):
+    p, o = await _open_offer(ctx)
+    n = len(ctx.logs.items)
+    await ctx.service.update_offer(ctx.owner, o.id, {"sale_price": 2500})
+    assert len(ctx.logs.items) == n and ctx.session.commits == 1
+
+
+async def test_update_offer_errors(ctx):
+    p, o = await _open_offer(ctx)
+    with pytest.raises(OfferNotFoundError):
+        await ctx.service.update_offer(ctx.owner, uuid.uuid4(), {"sale_price": 1})
+    with pytest.raises(NotStoreOwnerError, match="본인 상점의 할인만 수정할 수 있습니다."):
+        await ctx.service.update_offer(uuid.uuid4(), o.id, {"sale_price": 1})
+    ctx.reservations.has = True
+    with pytest.raises(OfferHasReservationsError):
+        await ctx.service.update_offer(ctx.owner, o.id, {"sale_price": 2000})
+    ctx.reservations.has = False
+    with pytest.raises(ValueError, match="정상 가격보다 낮아야"):
+        await ctx.service.update_offer(ctx.owner, o.id, {"sale_price": 6000})
+    with pytest.raises(ValueError, match="수정할 항목이 없습니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {})
+    with pytest.raises(ValueError, match="null"):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": None})
+    assert ctx.session.commits == 0 and o.sale_price == 3000
+
+
+async def test_update_offer_pause_and_resume(ctx):
+    p, o = await _open_offer(ctx)
+    view = await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    assert not o.is_active and view.status == OfferStatus.CLOSED and ctx.session.commits == 1
+    with pytest.raises(OfferClosedError):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    with pytest.raises(OfferClosedError, match="종료된 할인은 수정할 수 없습니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {"sale_price": 2000})
+    view = await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+    assert o.is_active and view.status == OfferStatus.ON_SALE
+    with pytest.raises(OfferAlreadyActiveError):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+
+
+async def test_resume_blocked_by_other_open_offer_and_closed_store(ctx):
+    p, o = await _open_offer(ctx)
+    await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    await ctx.service.register_offer(ctx.owner, p.id, ctx.offer_data())
+    with pytest.raises(OpenOfferExistsError):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+    ctx.store.closed_at = NOW
+    with pytest.raises(StoreClosedError, match="폐점된 상점에서는 할인을 재개할 수 없습니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+
+
+async def test_resume_inactive_product(ctx):
+    p, o = await _open_offer(ctx)
+    await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    p.is_active = False
+    with pytest.raises(ProductInactiveError, match="비활성화된 상품의 할인은 재개할 수 없습니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+
+
+# ── #10 할인 상세 ──
+async def test_offer_detail_ok_and_no_commit():
+    from catalog.domain.discount_offer import CANCEL_POLICY_DESCRIPTION, OFFER_NOTICE
+
+    c = Ctx()
+    p = await c.product(description="식빵", product_image=["https://e.com/a.jpg"])
+    o = await c.service.register_offer(c.owner, p.id, c.offer_data())
+    commits = c.session.commits
+    c.products.locked.clear()
+    d = await c.service.get_offer_detail(o.offer.id)
+    assert c.session.commits == commits and not c.products.locked
+    assert d.view.offer.id == o.offer.id
+    assert d.description == "식빵" and d.product_image == ["https://e.com/a.jpg"]
+    assert (d.pickup_address, d.latitude, d.longitude) == ("서울", 37.5, 127.0)
+    assert d.notice == OFFER_NOTICE
+    assert d.cancel_policy.cancellable_until == o.offer.pickup_start - H
+    assert d.cancel_policy.description == CANCEL_POLICY_DESCRIPTION
+
+
+async def test_offer_detail_not_found_and_store_missing():
+    c = Ctx()
+    with pytest.raises(OfferNotFoundError):
+        await c.service.get_offer_detail(uuid.uuid4())
+    p = await c.product()
+    o = await c.service.register_offer(c.owner, p.id, c.offer_data())
+    c.stores.items.clear()
+    with pytest.raises(OfferNotFoundError, match="할인 판매를 찾을 수 없습니다."):
+        await c.service.get_offer_detail(o.offer.id)
+
+
+async def test_offer_detail_visible_when_closed_product_inactive_store_closed_no_coords():
+    c = Ctx()
+    p = await c.product()
+    o = await c.service.register_offer(c.owner, p.id, c.offer_data())
+    o.offer.close(NOW)
+    p.is_active = False
+    c.store.closed_at = NOW
+    c.store.latitude = None
+    c.store.longitude = None
+    d = await c.service.get_offer_detail(o.offer.id)
+    assert d.view.status == OfferStatus.CLOSED and d.view.offer.is_active is False
+    assert d.latitude is None and d.longitude is None and d.description is None

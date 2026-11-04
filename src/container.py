@@ -15,7 +15,11 @@ from auth.infrastructure.repositories import (
 )
 from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
 from auth.presentation.dependencies import provide_auth_service
-from catalog.application.ports import StorePort
+from catalog.application.ports import (
+    ReservationCancelPort,
+    ReservationLookupPort,
+    StorePort,
+)
 from catalog.application.service import CatalogApplicationService
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
 from catalog.domain.repository.product_repository import ProductRepository
@@ -27,7 +31,14 @@ from catalog.infrastructure.repositories import (
     SqlAlchemyProductRepository,
     SqlAlchemyStockLogRepository,
 )
-from catalog.presentation.dependencies import provide_catalog_service, provide_store_port
+from catalog.infrastructure.reservation_cancel import NoReservationCancel
+from catalog.infrastructure.reservation_lookup import NoReservationLookup
+from catalog.presentation.dependencies import (
+    provide_catalog_service,
+    provide_reservation_cancel,
+    provide_reservation_lookup,
+    provide_store_port,
+)
 from database import get_db
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
@@ -41,6 +52,8 @@ _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
+_reservation_lookup: ReservationLookupPort = NoReservationLookup()  # 임시 (CI-10)
+_reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI-11)
 
 
 # ── auth ─────────────────────────────
@@ -107,12 +120,22 @@ def create_store_port(
     return stores_service
 
 
+def create_reservation_lookup() -> ReservationLookupPort:
+    return _reservation_lookup
+
+
+def create_reservation_cancel() -> ReservationCancelPort:
+    return _reservation_cancel
+
+
 def create_catalog_service(
     session: AsyncSession = Depends(get_db),
     stores: StorePort = Depends(create_store_port),
     products: ProductRepository = Depends(create_product_repository),
     offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
     stock_logs: StockLogRepository = Depends(create_stock_log_repository),
+    reservations: ReservationLookupPort = Depends(create_reservation_lookup),
+    reservation_cancel: ReservationCancelPort = Depends(create_reservation_cancel),
 ) -> CatalogApplicationService:
     return CatalogApplicationService(
         session=session,
@@ -121,6 +144,8 @@ def create_catalog_service(
         offers=offers,
         stock_logs=stock_logs,
         clock=_catalog_clock,
+        reservations=reservations,
+        reservation_cancel=reservation_cancel,
     )
 
 
@@ -132,5 +157,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_stores_service: create_stores_service,
             provide_store_port: create_store_port,
             provide_catalog_service: create_catalog_service,
+            provide_reservation_lookup: create_reservation_lookup,
+            provide_reservation_cancel: create_reservation_cancel,
         }
     )

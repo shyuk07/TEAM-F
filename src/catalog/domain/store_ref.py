@@ -16,11 +16,15 @@ class StoreRef:
         pickup_address: str,
         approved: bool,
         closed: bool,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ):
         self.id = id
         self.owner_id = owner_id
         self.name = name
         self.pickup_address = pickup_address
+        self.latitude = latitude
+        self.longitude = longitude
         self.approved = approved
         self.closed = closed
 
@@ -33,6 +37,8 @@ class StoreRef:
             owner_id=info.owner_id,
             name=info.name,
             pickup_address=info.pickup_address,
+            latitude=info.latitude,
+            longitude=info.longitude,
             approved=approval_at is not None,
             closed=closed_at is not None,
         )
@@ -50,3 +56,8 @@ class StoreRef:
             raise StoreClosedError(f"폐점된 상점에서는 {what}을 등록할 수 없습니다.")
         if not self.approved:
             raise StoreNotApprovedError(f"승인되지 않은 상점에는 {what}을 등록할 수 없습니다.")
+
+    def ensure_not_closed(self, action: str) -> None:
+        """이미 등록된 대상에 대한 동작용. 미승인은 검사하지 않는다."""
+        if self.closed:
+            raise StoreClosedError(f"폐점된 상점에서는 {action}할 수 없습니다.")
