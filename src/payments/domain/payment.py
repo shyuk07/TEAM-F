@@ -3,12 +3,19 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from payments.domain.exceptions import (
+    InconsistencyKind,
     InvalidPaymentTransitionError,
     PaymentAlreadyRefundedError,
     PaymentNotRefundableError,
+    PaymentStateInconsistentError,
     ReservationNotPayableError,
 )
 from payments.domain.refund import Refund, RefundStatus
+from payments.domain.rules import (
+    PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES,
+    REFUNDABLE_RESERVATION_STATUSES,
+    RESERVATION_CANCELLED_STATUS,
+)
 
 
 class PaymentStatus(StrEnum):
@@ -123,6 +130,37 @@ class Payment:
             raise PaymentAlreadyRefundedError()
         if self.status != PaymentStatus.PAID:
             raise PaymentNotRefundableError()
+
+    def ensure_cancel_refundable(self, reservation_status: str, has_refund: bool) -> None:
+        """예약 취소가 부르는 환불의 정방향 불일치 검사(RD-38 ①②③).
+
+        호출자는 예약이 결제 완료(RESERVED)일 때만 부른다. 그런데 결제가 REFUNDED이거나 PAID가 아니거나,
+        환불 행이 이미 있으면 데이터 불일치다. 새 환불을 만들지 않고 중단한다.
+        """
+        if reservation_status not in REFUNDABLE_RESERVATION_STATUSES:
+            raise self._inconsistent(InconsistencyKind.RESERVATION_STATUS_NOT_REFUNDABLE)
+        if self.status == PaymentStatus.REFUNDED:
+            raise self._inconsistent(InconsistencyKind.PAYMENT_ALREADY_REFUNDED)
+        if self.status != PaymentStatus.PAID:
+            raise self._inconsistent(InconsistencyKind.PAYMENT_NOT_PAID)
+        if has_refund:
+            raise self._inconsistent(InconsistencyKind.REFUND_ROW_WITH_PAID_PAYMENT)
+
+    def ensure_consistent_with_reservation(self, reservation_status: str) -> None:
+        """반대 방향 불일치 검사(RD-38 ④, RD-39): 결제가 PAID인데 예약이 CANCELLED/PENDING_PAYMENT면 불일치.
+
+        PAID가 아닌 결제(READY/FAILED/REFUNDED)는 여기서 막지 않는다(RD-40 미정).
+        """
+        if self.is_paid and reservation_status in PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES:
+            kind = (
+                InconsistencyKind.PAID_PAYMENT_ON_CANCELLED_RESERVATION
+                if reservation_status == RESERVATION_CANCELLED_STATUS
+                else InconsistencyKind.PAID_PAYMENT_ON_PENDING_RESERVATION
+            )
+            raise self._inconsistent(kind)
+
+    def _inconsistent(self, kind: InconsistencyKind) -> PaymentStateInconsistentError:
+        return PaymentStateInconsistentError(kind, self.reservation_id, self.id)
 
     def refund(
         self, penalty_amount: int, reason: str, now: datetime | None = None

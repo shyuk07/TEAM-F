@@ -20,6 +20,7 @@ from reservations.application.lifecycle_service import ReservationLifecycleServi
 from reservations.application.views import RefundTarget
 from reservations.domain.exceptions import (
     DataInconsistentError,
+    InconsistencyDetail,
     RefundConflictError,
     StockNotConnectedError,
 )
@@ -76,6 +77,27 @@ class PaymentRefundAdapter:
                 waive_penalty=waive_penalty,
             )
         except PaymentStateInconsistentError as error:  # RD-34: 결제 예외 -> 예약 예외
-            raise DataInconsistentError() from error
+            raise self._translate(error, target.reservation_id) from error
         except PaymentConflictError as error:
             raise RefundConflictError() from error
+
+    async def ensure_no_paid_payment(self, reservation_id: uuid.UUID) -> None:
+        try:
+            await self.payments.ensure_no_paid_payment_for_reservation(reservation_id)
+        except PaymentStateInconsistentError as error:
+            raise self._translate(error, reservation_id) from error
+
+    # 번역만 한다. 로그는 남기지 않는다(요청을 끝내는 예약 서비스가 한 번만 기록: 중복 로그 방지).
+    @staticmethod
+    def _translate(
+        error: PaymentStateInconsistentError, reservation_id: uuid.UUID
+    ) -> DataInconsistentError:
+        return DataInconsistentError(
+            [
+                InconsistencyDetail(
+                    reservation_id=error.reservation_id or reservation_id,
+                    kind=str(error.kind),
+                    payment_id=error.payment_id,
+                )
+            ]
+        )

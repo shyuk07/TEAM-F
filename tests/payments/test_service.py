@@ -314,7 +314,8 @@ async def test_refund_missing_payment_is_404(env):
         await env.service.refund(USER, uuid.uuid4(), "사유")
 
 
-@pytest.mark.parametrize("status", ["CANCELLED", "PICKED_UP", RESERVATION_PAYABLE_STATUS])
+# CANCELLED/PENDING_PAYMENT + 결제 PAID는 데이터 불일치라 500이다(test_inconsistency.py, RD-38). 그 밖의 상태만 400.
+@pytest.mark.parametrize("status", ["PICKED_UP"])
 async def test_refund_not_refundable_reservation_state_is_400(env, status):
     payment = await paid(env)
     env.reservations.set_status(payment.reservation_id, status)

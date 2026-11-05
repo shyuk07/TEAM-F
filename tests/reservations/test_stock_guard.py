@@ -49,7 +49,8 @@ async def test_paid_cancel_without_restore_is_503_and_not_saved():
         await service.cancel_reservation(r.user_id, r.id)
 
     assert e.value.error_code == "STOCK_NOT_CONNECTED"
-    assert session.commits == 0 and refunds.calls == []  # 환불 포트까지 가지 않는다
+    # RD-38 이후 환불(불일치 확인 포함)이 재고 복구보다 먼저라 환불 포트까지는 간다. 503이 나면 commit 전이라 전부 롤백된다.
+    assert session.commits == 0
 
 
 async def test_unpaid_cancel_without_restore_passes():

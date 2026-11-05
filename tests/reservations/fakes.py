@@ -4,7 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.service import ReservationApplicationService
-from reservations.domain.exceptions import OfferNotFoundError, OutOfStockError
+from reservations.domain.exceptions import (
+    DataInconsistentError,
+    InconsistencyDetail,
+    OfferNotFoundError,
+    OutOfStockError,
+)
 from reservations.domain.pickup_reservation import ReservationStatus
 from reservations.domain.repository import ReservationRepository
 from reservations.domain.service import Clock, PickupCodeGenerator
@@ -33,10 +38,15 @@ class FakeSession:
     def __init__(self, log: Log):
         self.log = log
         self.commits = 0
+        self.rollbacks = 0
 
     async def commit(self):
         self.commits += 1
         self.log.events.append("commit")
+
+    async def rollback(self):
+        self.rollbacks += 1
+        self.log.events.append("rollback")
 
 
 class FakeClock(Clock):
@@ -113,13 +123,29 @@ class FakeRefunds:
     def __init__(self, log: Log):
         self.log = log
         self.calls: list[tuple] = []
+        self.checks: list[uuid.UUID] = []  # ensure_no_paid_payment 호출 기록 (읽기 전용이라 events에는 남기지 않는다)
         self.fail = False
+        self.inconsistent: set[uuid.UUID] = set()  # 환불 시 불일치로 거절할 예약 ID (RESERVED 취소)
+        self.paid_pending: set[uuid.UUID] = set()  # PENDING_PAYMENT인데 PAID 결제가 있는 예약 ID
+
+    @staticmethod
+    def _error(reservation_id, kind):
+        return DataInconsistentError(
+            [InconsistencyDetail(reservation_id, kind, payment_id=uuid.uuid4())]
+        )
 
     async def refund_for_cancelled_reservation(self, target, *, reason, waive_penalty=False):
         self.log.events.append("refund")
         if self.fail:
             raise RuntimeError("환불 실패")
+        if target.reservation_id in self.inconsistent:
+            raise self._error(target.reservation_id, "PAYMENT_ALREADY_REFUNDED")
         self.calls.append((target, reason, waive_penalty))
+
+    async def ensure_no_paid_payment(self, reservation_id):
+        self.checks.append(reservation_id)
+        if reservation_id in self.paid_pending:
+            raise self._error(reservation_id, "PAID_PAYMENT_ON_PENDING_RESERVATION")
 
 
 def build():

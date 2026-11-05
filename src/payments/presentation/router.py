@@ -6,7 +6,11 @@ from fastapi.responses import JSONResponse
 
 from auth.presentation.dependencies import CurrentUser
 from payments.application.service import PaymentApplicationService
-from payments.domain.exceptions import IntegrationNotReadyError, PaymentConflictError
+from payments.domain.exceptions import (
+    IntegrationNotReadyError,
+    PaymentConflictError,
+    PaymentStateInconsistentError,
+)
 from payments.presentation.dependencies import provide_payment_service
 from payments.presentation.schemas import (
     PaymentCreate,
@@ -29,6 +33,15 @@ def _not_ready_response(error: IntegrationNotReadyError) -> JSONResponse:
     )
 
 
+# 데이터 불일치는 500으로 변환한다(RD-38). 로그와 롤백은 서비스가 이미 했으므로 여기서는 응답만 만든다.
+# 409 부모(PaymentConflictError)와 별개 클래스라 아래 409 변환에 잡히지 않는다.
+def _data_inconsistent_response(error: PaymentStateInconsistentError) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "error_code": error.error_code, "message": str(error)},
+    )
+
+
 ServiceDep = Annotated[PaymentApplicationService, Depends(provide_payment_service)]
 
 
@@ -45,6 +58,8 @@ ServiceDep = Annotated[PaymentApplicationService, Depends(provide_payment_servic
 async def create_payment(body: PaymentCreate, user: CurrentUser, service: ServiceDep):
     try:
         return await service.pay(user.id, body.reservation_id)
+    except PaymentStateInconsistentError as error:
+        return _data_inconsistent_response(error)
     except PaymentConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
@@ -71,6 +86,8 @@ async def create_refund(
 ):
     try:
         return await service.refund(user.id, payment_id, body.reason)
+    except PaymentStateInconsistentError as error:
+        return _data_inconsistent_response(error)
     except IntegrationNotReadyError as error:  # TODO: 임시 503 변환 (재고 복구 연동 전)
         return _not_ready_response(error)
     except PaymentConflictError as error:

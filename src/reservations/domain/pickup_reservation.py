@@ -123,6 +123,10 @@ class PickupReservation:
         return self.status == ReservationStatus.RESERVED
 
     @property
+    def is_pending_payment(self) -> bool:
+        return self.status == ReservationStatus.PENDING_PAYMENT
+
+    @property
     def is_cancelled(self) -> bool:
         return self.status == ReservationStatus.CANCELLED
 

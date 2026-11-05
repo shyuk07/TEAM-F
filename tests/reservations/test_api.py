@@ -185,12 +185,15 @@ async def test_cancel_twice_is_409(client, env):
     assert r.json() == err("RESERVATION_ALREADY_CANCELLED", "이미 취소된 예약입니다.")
 
 
-async def test_cancel_paid_is_503_stock_not_connected_and_not_committed(client, env):
-    # 임시 재고 포트는 복구하지 못하므로 결제된 예약 취소는 503 (환불 포트까지 가지 않는다)
+async def test_cancel_paid_is_503_and_not_committed(client, env):
+    # 이 조립은 환불 포트가 안전망(NoPaymentRefund)이다. 환불이 재고 복구보다 먼저라 REFUND_NOT_CONNECTED(503)가 먼저 난다.
+    # 재고 미연동 503(STOCK_NOT_CONNECTED)은 결제가 연결된 조립에서 tests/payments/test_integration.py(interim)가 검증한다.
     res = await add_reservation(env, status=S.RESERVED)
     r = await client.post(f"/v1/reservations/{res.id}/cancel", headers=headers())
     assert r.status_code == 503
-    assert r.json() == CANCEL_STOCK_503
+    assert r.json() == err(
+        "REFUND_NOT_CONNECTED", "환불 연동이 아직 준비되지 않아 결제된 예약은 취소할 수 없습니다."
+    )
     assert env[1].commits == 0  # commit 전에 예외가 올라 DB 변경은 롤백된다
     assert env[3].remaining_stock == 3
 

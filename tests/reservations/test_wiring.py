@@ -79,6 +79,27 @@ async def test_no_payment_refund_raises_not_connected(anyio_backend):
     assert e.value.error_code == "REFUND_NOT_CONNECTED"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_no_payment_refund_unpaid_check_is_noop_but_refund_stays_503(anyio_backend):
+    """안전망(결제 미연동): 확인 불가 시 미결제 취소(200)를 막지 않는다. 결제된 예약의 환불은 계속 503."""
+    from reservations.domain.exceptions import RefundNotConnectedError
+
+    assert await NoPaymentRefund().ensure_no_paid_payment(uuid.uuid4()) is None
+    with pytest.raises(RefundNotConnectedError):
+        await NoPaymentRefund().refund_for_cancelled_reservation(object(), reason="x")
+
+
+def test_refund_port_implementations_have_same_methods():
+    from reservations.application.adapters import PaymentRefundAdapter
+    from reservations.application.ports import RefundPort
+
+    declared = {n for n in vars(RefundPort) if not n.startswith("_")}
+    assert declared == {"refund_for_cancelled_reservation", "ensure_no_paid_payment"}
+    for impl in (NoPaymentRefund, PaymentRefundAdapter):
+        assert declared <= set(dir(impl)), impl
+
+
 def test_service_constructors_require_all_args():
     with pytest.raises(TypeError):
         ReservationApplicationService()  # type: ignore[call-arg]
@@ -166,6 +187,9 @@ async def test_container_graph_resolves_and_shares_session(anyio_backend):
     reservation_service, payment_service = seen["reservation"], seen["payment"]
     refunds = reservation_service.refunds
     assert isinstance(refunds, PaymentRefundAdapter)  # NoPaymentRefund가 아니다
+    # RD-39: 미결제 취소의 PAID 결제 확인이 실제 결제 서비스로 이어진다(안전망 no-op이 아니다)
+    assert callable(refunds.ensure_no_paid_payment)
+    assert callable(refunds.payments.ensure_no_paid_payment_for_reservation)
     assert isinstance(payment_service.reservations, PaymentReservationAdapter)  # InMemory 스텁이 아니다
     assert isinstance(refunds.payments, PaymentApplicationService)
     assert isinstance(refunds.payments.reservations, PaymentReservationAdapter)

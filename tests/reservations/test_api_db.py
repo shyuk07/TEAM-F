@@ -195,6 +195,18 @@ async def test_cancel_paid_is_503_and_row_unchanged(client):
     _, offer_id, _ = await seed_offer(client)
     me = await token_for(client, "me@test.com")
     rid, _ = await seed(client, me, offer_id, paid=True)
+    # 4단계부터 RESERVED인데 결제 기록이 없으면 불일치 500(RD-38 ①)이므로 PAID 결제도 함께 저장한다.
+    # (tests/payments/test_inconsistency_db.py가 이 파일을 import하므로 순환을 피해 여기서 지연 import)
+    from payments.domain.payment import Payment
+    from payments.infrastructure.repositories import SqlAlchemyPaymentRepository
+
+    user_id = uuid.UUID(jwt.decode(me, options={"verify_signature": False})["sub"])
+    now = datetime.now(timezone.utc)
+    payment = Payment.request(uuid.UUID(rid), user_id, 6000, now)
+    payment.approve("pg_x", now)
+    async with client.session_factory() as s:
+        await SqlAlchemyPaymentRepository(s).save(payment)
+        await s.commit()
 
     r = await client.post(f"/v1/reservations/{rid}/cancel", headers=bearer(me))
 
@@ -206,6 +218,8 @@ async def test_cancel_paid_is_503_and_row_unchanged(client):
     async with client.session_factory() as s:
         row = (await s.execute(select(PickupReservationModel))).scalar_one()
         assert row.status == "RESERVED" and row.cancelled_at is None
+        assert (await s.execute(text("SELECT status FROM payments"))).scalars().all() == ["PAID"]
+        assert (await s.execute(text("SELECT count(*) FROM refunds"))).scalar_one() == 0
 
 
 # ── 픽업 ──

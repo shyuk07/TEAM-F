@@ -7,6 +7,7 @@ import pytest
 from payments.domain.exceptions import (
     PaymentAlreadyRefundedError,
     PaymentNotRefundableError,
+    InconsistencyKind,
     PaymentStateInconsistentError,
 )
 from payments.domain.exceptions import StockNotConnectedError as PaymentsStockNotConnected
@@ -21,6 +22,7 @@ from reservations.application.views import RefundTarget
 from reservations.domain.exceptions import (
     DataInconsistentError,
     RefundConflictError,
+    ReservationConflictError,
     ReservationNotFoundError,
     ReservationStateError,
 )
@@ -116,6 +118,11 @@ class FakePayments:
         if self.error:
             raise self.error
 
+    async def ensure_no_paid_payment_for_reservation(self, reservation_id):
+        self.calls.append((reservation_id, "ensure_no_paid_payment"))
+        if self.error:
+            raise self.error
+
 
 def target():
     return RefundTarget(
@@ -138,11 +145,38 @@ async def test_refund_adapter_passes_arguments():
     ]
 
 
-async def test_refund_adapter_translates_inconsistency_to_reservation_409():
-    adapter = PaymentRefundAdapter(FakePayments(PaymentStateInconsistentError()))
-    with pytest.raises(DataInconsistentError) as e:
-        await adapter.refund_for_cancelled_reservation(target(), reason="x")
+async def test_refund_adapter_translates_inconsistency_without_logging(caplog):
+    t = target()
+    payment_id = uuid.uuid4()
+    adapter = PaymentRefundAdapter(
+        FakePayments(
+            PaymentStateInconsistentError(InconsistencyKind.PAYMENT_MISSING, t.reservation_id, payment_id)
+        )
+    )
+    with caplog.at_level("DEBUG"):
+        with pytest.raises(DataInconsistentError) as e:
+            await adapter.refund_for_cancelled_reservation(t, reason="x")
     assert e.value.error_code == "DATA_INCONSISTENT"
+    assert not isinstance(e.value, ReservationConflictError)  # 409로 잡히지 않는다
+    (detail,) = e.value.details
+    assert (detail.reservation_id, detail.payment_id, detail.kind) == (
+        t.reservation_id, payment_id, "PAYMENT_MISSING",
+    )
+    assert caplog.records == []  # 어댑터는 로그를 남기지 않는다(중복 방지)
+
+
+async def test_ensure_no_paid_payment_adapter_passes_and_translates(caplog):
+    rid = uuid.uuid4()
+    ok = FakePayments()
+    await PaymentRefundAdapter(ok).ensure_no_paid_payment(rid)
+    assert ok.calls == [(rid, "ensure_no_paid_payment")]
+
+    paid_error = PaymentStateInconsistentError(InconsistencyKind.PAID_PAYMENT_ON_PENDING_RESERVATION, rid)
+    with caplog.at_level("DEBUG"):
+        with pytest.raises(DataInconsistentError) as e:
+            await PaymentRefundAdapter(FakePayments(paid_error)).ensure_no_paid_payment(rid)
+    assert e.value.reservation_ids == (rid,) and e.value.details[0].kind == str(paid_error.kind)
+    assert caplog.records == []
 
 
 async def test_refund_adapter_translates_other_conflicts():

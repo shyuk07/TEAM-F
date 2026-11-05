@@ -30,6 +30,7 @@ class RefundTarget:
 class CancelledReservation:
     reservation: PickupReservation
     refund_target: RefundTarget | None  # 취소 전에 결제된 예약만 값이 있다
+    check_paid_payment: bool = False  # 취소 전에 PENDING_PAYMENT였던 예약: PAID 결제가 없는지 확인해야 한다(RD-39)
 
 
 @dataclass(frozen=True)

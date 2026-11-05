@@ -121,6 +121,7 @@ class ReservationLifecycleService:
             if not reservation.holds_stock:
                 continue
             target = None
+            check_paid_payment = reservation.is_pending_payment  # 취소하기 전 상태로 판단
             if reservation.is_paid:
                 target = RefundTarget(
                     reservation_id=reservation.id,  # type: ignore[arg-type]
@@ -131,5 +132,5 @@ class ReservationLifecycleService:
                 )
             reservation.cancel(now)
             await self.reservations.save(reservation)
-            cancelled.append(CancelledReservation(reservation, target))
+            cancelled.append(CancelledReservation(reservation, target, check_paid_payment))
         return cancelled

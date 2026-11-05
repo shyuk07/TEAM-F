@@ -9,6 +9,7 @@
 """
 
 import copy
+import logging
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -259,14 +260,19 @@ class Env:
         reservation = PickupReservation.create(CUSTOMER, OfferRef.from_info(terms), QTY, "A12345", NOW)
         if status == S.RESERVED:
             reservation.mark_paid()
+        elif status == S.CANCELLED:
+            reservation.cancel(NOW)
         await self.res.save(reservation)
         await self.tx.commit()
         self._reset()
         return reservation.id
 
-    async def seed_payment(self, rid, *, refunded=False, refund_row_only=False):
+    async def seed_payment(self, rid, *, refunded=False, refund_row_only=False, status="PAID"):
         payment = Payment.request(rid, CUSTOMER, TOTAL, NOW)
-        payment.approve("pg", NOW)
+        if status == "FAILED":
+            payment.fail({"code": "DECLINED"}, NOW)
+        elif status != "READY":
+            payment.approve("pg", NOW)
         await self.pay.save(payment)
         if refunded or refund_row_only:
             refund = Refund(payment.id, TOTAL, 0, "x", completed_at=NOW)
@@ -429,28 +435,202 @@ async def test_refund_api_cancel_failure_saves_no_refund(make_env, client):
     assert env.reservation(rid).status == S.RESERVED
 
 
-# ══ 3단계 불일치 fail-closed (임시 409, 저장 0) ══
-@pytest.mark.parametrize("case", ["no_payment", "payment_refunded", "refund_row_exists"])
-async def test_cancel_with_inconsistent_payment_is_409_and_saves_nothing(make_env, client, case):
+# ══ 데이터 불일치 (RD-38·RD-39): 500 DATA_INCONSISTENT + ERROR 로그 1건 + 전체 롤백 ══
+INCONSISTENT_500 = {
+    "success": False,
+    "error_code": "DATA_INCONSISTENT",
+    "message": "예약과 결제 상태가 일치하지 않습니다. 관리자에게 문의해 주세요.",
+}
+
+
+def error_records(caplog):
+    return [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def assert_logged_once(caplog, *ids, kind=None):
+    """ERROR 로그가 정확히 1건이고, 예약·결제 ID와 종류만 있고 개인정보(이메일)는 없다."""
+    [record] = error_records(caplog)
+    text = record.getMessage()
+    assert text.startswith("DATA_INCONSISTENT ")
+    for value in ids:
+        assert str(value) in text
+    if kind:
+        assert f"kind={kind}" in text
+    assert "@" not in caplog.text and "t@example.com" not in caplog.text
+
+
+def assert_body_has_no_ids(r, *ids):
+    assert r.json() == INCONSISTENT_500
+    for value in ids:
+        assert str(value) not in r.text
+
+
+@pytest.mark.parametrize(
+    "case,kind",
+    [
+        ("no_payment", "PAYMENT_MISSING"),
+        ("payment_refunded", "PAYMENT_ALREADY_REFUNDED"),
+        ("refund_row_exists", "REFUND_ROW_WITH_PAID_PAYMENT"),
+    ],
+)
+async def test_cancel_reserved_with_inconsistent_payment_is_500_and_saves_nothing(
+    make_env, client, caplog, case, kind
+):
     env = make_env()
     rid = await env.seed(S.RESERVED)
+    payment = None
     if case == "payment_refunded":
-        await env.seed_payment(rid, refunded=True)
+        payment = await env.seed_payment(rid, refunded=True)
     elif case == "refund_row_exists":
-        await env.seed_payment(rid, refund_row_only=True)
+        payment = await env.seed_payment(rid, refund_row_only=True)
     refunds_before = len(env.refunds_saved)
 
-    r = await cancel(client, rid)
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
 
-    assert r.status_code == 409
-    assert r.json() == {
-        "success": False,
-        "error_code": "DATA_INCONSISTENT",
-        "message": "예약과 결제 상태가 일치하지 않아 처리할 수 없습니다.",
-    }
-    assert env.tx.commits == 0
+    assert r.status_code == 500
+    assert_body_has_no_ids(r, rid, *([payment.id] if payment else []))
+    assert env.tx.commits == 0  # 전체 롤백
     assert env.reservation(rid).status == S.RESERVED
     assert len(env.refunds_saved) == refunds_before  # 새 환불 없음
+    assert env.stock.released == []  # 재고 복구 전에 중단된다(환불 확인이 먼저)
+    assert_logged_once(caplog, rid, kind=kind)
+
+
+async def test_cancel_pending_with_paid_payment_is_500_and_saves_nothing(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed(S.PENDING_PAYMENT)
+    payment = await env.seed_payment(rid)  # PENDING_PAYMENT + PAID
+
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+
+    assert r.status_code == 500
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0 and env.tx.rollbacks == 1
+    assert env.reservation(rid).status == S.PENDING_PAYMENT
+    assert env.payment_for(rid).status == PaymentStatus.PAID
+    assert env.refunds_saved == [] and env.stock.released == []
+    assert_logged_once(caplog, rid, payment.id, kind="PAID_PAYMENT_ON_PENDING_RESERVATION")
+
+
+@pytest.mark.parametrize("payment_status", [None, "READY", "FAILED", "REFUNDED"])
+async def test_cancel_pending_with_unpaid_or_missing_payment_is_still_200(
+    make_env, client, caplog, payment_status
+):
+    env = make_env()
+    rid = await env.seed(S.PENDING_PAYMENT)
+    if payment_status == "REFUNDED":
+        await env.seed_payment(rid, refunded=True)  # RD-40 미정: 막지 않는다
+    elif payment_status:
+        await env.seed_payment(rid, status=payment_status)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+
+    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
+    assert env.tx.commits == 1 and env.tx.rollbacks == 0
+    assert env.reservation(rid).status == S.CANCELLED
+    assert len(env.stock.released) == 1  # 재고 복구는 기존대로
+    assert error_records(caplog) == []
+
+
+async def test_cancel_pending_when_stock_not_connected_is_still_200(make_env, client):
+    env = make_env("interim")  # 재고 미연동 임시 포트: 미결제 취소는 막지 않는다
+    rid = await env.seed()
+    r = await cancel(client, rid)
+    assert r.status_code == 200 and env.reservation(rid).status == S.CANCELLED
+
+
+@pytest.mark.parametrize(
+    "status,kind",
+    [
+        (S.CANCELLED, "PAID_PAYMENT_ON_CANCELLED_RESERVATION"),
+        (S.PENDING_PAYMENT, "PAID_PAYMENT_ON_PENDING_RESERVATION"),
+    ],
+)
+async def test_pay_with_existing_paid_payment_on_inactive_reservation_is_500(
+    make_env, client, caplog, status, kind
+):
+    env = make_env()
+    rid = await env.seed(status)
+    payment = await env.seed_payment(rid)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await pay(client, rid)
+
+    assert r.status_code == 500  # 409 "이미 결제됨"보다 먼저
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0
+    assert len(env.pay.store.committed) == 1 and env.refunds_saved == []
+    assert env.reservation(rid).status == status
+    assert_logged_once(caplog, rid, payment.id, kind=kind)
+
+
+@pytest.mark.parametrize(
+    "status,kind",
+    [
+        (S.CANCELLED, "PAID_PAYMENT_ON_CANCELLED_RESERVATION"),
+        (S.PENDING_PAYMENT, "PAID_PAYMENT_ON_PENDING_RESERVATION"),
+    ],
+)
+async def test_refund_api_with_paid_payment_on_inactive_reservation_is_500(
+    make_env, client, caplog, status, kind
+):
+    env = make_env()
+    rid = await env.seed(status)
+    payment = await env.seed_payment(rid)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await refund(client, str(payment.id))
+
+    assert r.status_code == 500
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0
+    assert env.payment_for(rid).status == PaymentStatus.PAID
+    assert env.refunds_saved == [] and env.stock.released == []
+    assert env.reservation(rid).status == status
+    assert_logged_once(caplog, rid, payment.id, kind=kind)
+
+
+async def test_pay_and_refund_check_order_403_before_500(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed(S.CANCELLED)
+    payment = await env.seed_payment(rid)
+    stranger = uuid.uuid4()
+    with caplog.at_level(logging.DEBUG):
+        assert (await pay(client, rid, stranger)).status_code == 403
+        assert (await refund(client, str(payment.id), stranger)).status_code == 403
+        assert (await pay(client, uuid.uuid4())).status_code == 404
+    assert error_records(caplog) == []
+
+
+async def test_normal_duplicates_stay_409_and_log_nothing(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed()
+    payment_id = (await pay(client, rid)).json()["id"]
+    with caplog.at_level(logging.DEBUG):
+        assert (await pay(client, rid)).status_code == 409  # 예약 RESERVED + 결제 PAID
+        assert (await refund(client, payment_id)).status_code == 201
+        assert (await refund(client, payment_id)).status_code == 409  # 예약 CANCELLED + 결제 REFUNDED
+    assert error_records(caplog) == []
+
+
+async def test_get_apis_do_not_check_inconsistency(make_env, client):
+    env = make_env()
+    rid = await env.seed(S.CANCELLED)
+    payment = await env.seed_payment(rid)
+    assert (await client.get(f"/v1/payments/{payment.id}", headers=headers())).status_code == 200
+
+
+async def test_paid_reservation_cancel_still_succeeds_with_fake_stock(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed()
+    await pay(client, rid)
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+    assert r.status_code == 200 and env.reservation(rid).status == S.CANCELLED
+    assert error_records(caplog) == []
 
 
 # ══ 임시 재고 포트(실제 container 경로) ══

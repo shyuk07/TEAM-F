@@ -326,7 +326,7 @@ async def test_refund_twice_is_409(client, service):
 async def test_refund_not_refundable_reservation_state_is_400(client, service):
     payment_id = await paid(client, service)
     reservation_id = next(iter(service.reservations.items))
-    service.reservations.set_status(reservation_id, "CANCELLED")
+    service.reservations.set_status(reservation_id, "PICKED_UP")  # CANCELLED는 데이터 불일치(500, RD-38)
 
     response = await refund_post(client, payment_id)
 
