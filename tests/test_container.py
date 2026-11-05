@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 
 from auth.application.service import AuthApplicationService
+from auth.domain.service import Clock as AuthClock
 from auth.domain.service import PasswordHasher, TokenProvider
 from auth.presentation import dependencies as auth_dependencies
 from auth.presentation.dependencies import provide_auth_service
@@ -44,6 +45,7 @@ def test_create_auth_service_builds_with_abstractions():
     assert service.session is marker
     assert isinstance(service.hasher, PasswordHasher)
     assert isinstance(service.tokens, TokenProvider)
+    assert isinstance(service.clock, AuthClock)
 
 
 def test_build_auth_service_builds_with_abstractions():

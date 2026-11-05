@@ -45,9 +45,43 @@ async def get_optional_user(
     raise AuthenticationError("로그인이 필요합니다.")
 
 
+async def get_current_principal_allow_suspended(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    service: Annotated[AuthApplicationService, Depends(provide_auth_service)],
+) -> AuthenticatedPrincipal:
+    """정지된 계정도 통과한다. 탈퇴·폐기·위조 토큰은 그대로 401 (D35)."""
+    if credentials is None or not credentials.credentials:
+        raise AuthenticationError("로그인이 필요합니다.")
+    return await service.authenticate(credentials.credentials, allow_suspended=True)
+
+
+async def get_current_user_allow_suspended(
+    principal: Annotated[AuthenticatedPrincipal, Depends(get_current_principal_allow_suspended)],
+) -> User:
+    return principal.user
+
+
 def require_roles(*roles: Role):
     async def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
         user.require_role(*roles)
+        return user
+
+    return checker
+
+
+def require_roles_allow_suspended(*roles: Role):
+    async def checker(user: Annotated[User, Depends(get_current_user_allow_suspended)]) -> User:
+        user.require_role(*roles)
+        return user
+
+    return checker
+
+
+def require_approved_owner():
+    """상점 개설·폐점용. 역할 403이 먼저, 그다음 승인 여부 403 (D5)."""
+
+    async def checker(user: Annotated[User, Depends(require_roles(Role.OWNER))]) -> User:
+        user.ensure_approved_owner()
         return user
 
     return checker
@@ -59,3 +93,8 @@ CustomerUser = Annotated[User, Depends(require_roles(Role.CUSTOMER))]
 OwnerUser = Annotated[User, Depends(require_roles(Role.OWNER))]
 AdminUser = Annotated[User, Depends(require_roles(Role.ADMIN))]
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+ApprovedOwnerUser = Annotated[User, Depends(require_approved_owner())]
+# 픽업 EP 전용: 정지된 상점주도 통과한다 (D35). 아직 어떤 router에도 연결하지 않았다.
+SuspendedAllowedOwnerUser = Annotated[
+    User, Depends(require_roles_allow_suspended(Role.OWNER))
+]

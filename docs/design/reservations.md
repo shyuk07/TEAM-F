@@ -6,6 +6,7 @@
 - 이 문서는 설계만 담습니다. 코드는 수정하지 않았습니다.
 - **임시 기본값은 확정이 아니라 제안입니다.** 모두 `reservations/domain/rules.py` 한 파일(또는 enum)에 모아 나중에 바꾸기 쉽게 합니다(9절).
 - 결정 표(D-번호)는 8절, 다른 모듈에 필요한 변경(C-번호)은 9절, 사용자 질문(Q-번호)은 10절입니다.
+- **갱신 2026-11-05**: 사용자가 준 예약 3개 EP 명세(생성·내 목록·취소)와 reference·이 설계안·구현 커밋 `66532ac`의 코드를 대조했습니다. 결과는 **12절(3자 대조표)**, admin 설계와의 정합은 **13절**입니다. 새 번호는 D-26~D-30, C-10~C-14, Q-17~Q-21입니다. **같은 날 D-26~D-30, Q-17~Q-21은 사용자가 확정했고 C-10·C-11은 구현 시 수정으로 승인됐습니다. 구현자 작업 목록은 14절입니다.** 기존 확정 결정과 픽업 EP(#25) 내용은 바꾸지 않았고, 0절·8절 D-9 한 곳만 실행 결과로 고쳤습니다. 이 문서의 4~5절 등은 "설계 당시" 서술이며 12절과 다르면 12절이 최신입니다.
 
 ---
 
@@ -23,6 +24,12 @@
 | B-8 | `src/container.py` | `create_reservation_lookup`·`create_reservation_cancel`이 인자 없는 함수로 `NoReservationLookup`·`NoReservationCancel` 싱글턴을 돌려줌(CI-10, CI-11 표시) | reservations 구현 PR이 이 두 팩토리를 교체해야 합니다(5절). `tests/catalog/test_wiring.py`의 `NoReservation*` 단언도 함께 바뀝니다(C-2). |
 | B-9 | 원격 브랜치 `git branch -r`, `git diff origin/main...<브랜치> -- src/reservations docs/design/reservations.md tests/reservations`, `git ls-tree -r origin/main` | `origin/claude/auth-optional-user`, `origin/claude/epic-fermat-c6nae5`, `origin/claude/improve-agents-skills`, `origin/feat/stores`, `origin/feature/payments` 모두 reservations 변경 없음. `origin/main`의 reservations 파일은 `chore: setup` 커밋의 빈 골격뿐 | **겹치는 작업 없음.** |
 | B-10 | `git status --short` (설계 작성 전) | 변경 없음 | 깨끗한 worktree. |
+| B-11 (2026-11-05) | `git log --oneline -- src/reservations docs/design/reservations.md src/error_handlers.py`, `Glob src/reservations/**/*.py`, `tests/reservations/**` | 커밋 `66532ac`로 `src/reservations/**` 25개 파일과 `tests/reservations/**` 7개 파일이 구현됨 | **B-5의 "모든 .py가 0줄"은 설계 당시 상태이며 더는 사실이 아닙니다.** 이후 대조는 실제 코드 기준입니다(12절). |
+| B-12 | `(cd src && uv run python -c "import main")` (`.env`가 없어 `DATABASE_URL`, `JWT_SECRET_KEY` 등을 **셸 환경변수로만** 지정) | 환경변수 없이는 `RuntimeError: DATABASE_URL 환경변수가 설정되지 않았습니다.`, 지정하면 `IMPORT_OK` | 코드는 불러와집니다. 저장소에 `.env`가 없는 것은 로컬 환경 사정이며 `.env.example`에는 필요한 키 4개가 있습니다(B-3과 같음). |
+| B-13 | `python3 .claude/skills/layer-check/check_layers.py` → `bash: python3: command not found`. 대신 `uv run python .claude/skills/layer-check/check_layers.py` | 위반 2건(`payments/application/service.py:19`, `:20`, `[의존방향]`), 경고 3건 | B-4 기준선과 같음. **reservations 위반 0건**(검사한 파일 110개, reservations 포함). |
+| B-14 | `uv run pytest ...` → `An Application Control policy has blocked this file. (os error 4551)`. 대신 `uv run python -m pytest tests/reservations -rs -q` | `47 passed, 7 skipped` (skipped 7건은 모두 `tests/reservations/test_api_db.py`, 사유: 테스트 DB 접속 실패 `password authentication failed`) | **DB 테스트 7건은 이번에 실행하지 못했습니다. R16에 따라 skip은 통과가 아닙니다.** 12절의 "실행 확인"은 fake 서비스를 주입한 HTTP 레벨 실험과 코드 정독 결과이고, DB를 쓰는 실제 동작(재고 차감 등)은 확인하지 못했습니다. |
+| B-15 | `TestClient`로 fake 서비스를 주입해 예외별 HTTP 응답을 확인(12.2절) | 도메인 예외는 모두 공통 형식으로 변환되지만 **처리되지 않은 예외(500)는 `{success, error_code, message}` 형식이 아닌 평문 `Internal Server Error`** | `src/error_handlers.py`에 `Exception` 핸들러가 없음. R7 위반 후보(C-10). |
+| B-16 | `Grep NoReservation\|catalog_adapters\|InMemoryReservationPort src` | `src/container.py:70-71`, `:151-156`이 여전히 catalog의 `NoReservationLookup`·`NoReservationCancel`을 연결하고, `reservations/application/catalog_adapters.py`는 만들어졌지만 **container에서 쓰이지 않음**. payments는 `payments/presentation/dependencies.py:34`에서 `InMemoryReservationPort()`를 그대로 씀. `src/admin/**`는 없음 | 7절·5.1절의 "container 교체(CI-10, CI-11)"가 **미이행**입니다(C-11). 실서버에서 결제된 예약(`RESERVED`)이 생길 수 없다는 7.1절 전제는 그대로입니다. |
 
 ---
 
@@ -290,14 +297,14 @@ class RefundPort(Protocol):              # 결제 모듈. commit하지 않는다
 | # | Method | URI | 권한(의존성) | 요청 | 응답 | 성공 | 에러 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 22 | POST | `/v1/reservations` | `CurrentUser` | `ReservationCreateRequest` | `ReservationCreateResponse` | 201 | 400 `VALIDATION_ERROR`(수량 등, 명세의 422), 401, 404 `NOT_FOUND`(할인 없음), 409 `OUT_OF_STOCK`/`OFFER_NOT_RESERVABLE` |
-| 23 | GET | `/v1/users/me/reservations` | `CurrentUser` | 쿼리 `status`, `page`, `size` | `ReservationListResponse` | 200 | 400 `VALIDATION_ERROR`(잘못된 `status`·`page`·`size`), 401 |
-| 24 | POST | `/v1/reservations/{reservation_id}/cancel` | `CurrentUser`(+서비스에서 본인 확인) | 없음 | `ReservationCancelResponse` | 200 | 400(잘못된 UUID), 401, 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `RESERVATION_ALREADY_CANCELLED`/`RESERVATION_ALREADY_PICKED_UP` |
+| 23 | GET | `/v1/reservations/me` (D-27 확정, 2026-11-05. 이전 `/v1/users/me/reservations`) | `CurrentUser` | 쿼리 `status`, `page`, `size` | `ReservationListResponse` | 200 | 400 `VALIDATION_ERROR`(잘못된 `status`·`page`·`size`), 401 |
+| 24 | PATCH (D-26 확정, 2026-11-05. 이전 POST) | `/v1/reservations/{reservation_id}/cancel` | `CurrentUser`(+서비스에서 본인 확인) | 없음 | `ReservationCancelResponse` | 200 | 400(잘못된 UUID), 401, 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `RESERVATION_ALREADY_CANCELLED`/`RESERVATION_ALREADY_PICKED_UP` |
 | 25 | POST | `/v1/reservations/{reservation_id}/pickup` | `OwnerUser`(+서비스에서 해당 매장 확인) | `PickupRequest` | `PickupResponse` | 200 | 400 `PICKUP_CODE_MISMATCH`/`VALIDATION_ERROR`, 401, 403 `FORBIDDEN`(역할 불일치 또는 다른 매장), 404 `NOT_FOUND`, 409 `RESERVATION_NOT_PAID`/`RESERVATION_ALREADY_*` |
 
 - 인증·권한 별칭은 `auth.presentation.dependencies`의 `CurrentUser`, `OwnerUser`만 씁니다(D-인증의존성). 401은 auth가 `WWW-Authenticate: Bearer`와 함께 내고, 403(역할)도 auth가 냅니다. 소유권(본인 예약, 해당 매장)은 도메인 메서드의 `PermissionError` 하위 예외입니다.
 - router는 서비스만 호출하고 예외를 잡지 않으며 `HTTPException`을 만들지 않습니다(R6, R7). 에러 형식은 전역 핸들러가 `{success, error_code, message}`로 만듭니다.
 - 라우터는 `APIRouter(prefix="/v1")`, `tags=["예약"]`, 엔드포인트마다 `summary`.
-- `/v1/users/me/reservations`는 auth의 `/v1/users/me`, `/v1/users/me/points`와 경로가 겹치지 않습니다(확인함).
+- `/v1/reservations/me`(D-27 확정)는 현재 다른 EP와 겹치지 않습니다(실행 확인: 변경 전 404). 나중에 `GET /v1/reservations/{reservation_id}`가 생기면 `/me`를 먼저 선언합니다. 라우트 목록은 라우터 한 곳에서 보이게 `/me`를 `{reservation_id}` 경로보다 위에 둡니다.
 
 ### 4.2 스키마 (`schemas.py`, 응답은 `from_attributes=True`로 도메인 객체를 직렬화)
 
@@ -389,6 +396,7 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 - `tests/reservations/test_domain.py`: 생성자 검증, 전이표 전체(허용·거부 모든 칸), `pick_up` 검사 순서(상태 → 코드), 코드 정규화·비교, `created_at`/`cancelled_at` 일관성.
 - `tests/reservations/test_service.py`: fake 레포지토리·fake `StockPort`·fake `RefundPort`·고정 `Clock`. 호출 순서(잠금 순서 `get_terms(for_update)` → 예약 잠금 → `release`)를 fake에 기록해 단언, 생성 `commits == 1`, 중간 예외 시 `commits == 0`, 취소 403이 잠금 호출보다 먼저, 이미 취소된 예약의 이중 복구 없음, `cancel_all_for_offer`가 `commit`하지 않음·픽업 완료 시 변경 0건, 환불 호출 조건(`was_paid`일 때만), 상점주 불일치 403.
 - `tests/reservations/test_api_db.py`(db 마커, skip은 통과가 아님 R16): 생성 201과 재고 차감·`stock_log` 음수 1건, 재고 초과 409, 동시 예약 `asyncio.gather`로 재고 1에 두 요청 → 정확히 1건 201, 취소 후 재고 복구·`stock_log` 양수, 타인 취소 403, 이중 취소 409, 픽업 성공·코드 불일치 400·다른 매장 상점주 403·결제 전 409, 목록 본인 것만·페이지네이션·`status` 필터, 401 `WWW-Authenticate` 헤더, 에러 본문 형식(R7).
+- 확정 경로·메서드(D-26, D-27) 단언: `PATCH /v1/reservations/{id}/cancel`, `GET /v1/reservations/me`, `POST /v1/reservations`, `POST /v1/reservations/{id}/pickup`이 등록돼 있고, `POST .../cancel`은 405, `GET /v1/users/me/reservations`는 404. `test_api_db.py`의 목록 호출도 `/v1/reservations/me`로 바꿉니다.
 - `tests/reservations/test_wiring.py`: `provide_*` 2개가 모두 매핑(R9), `create_reservation_lookup`/`cancel`이 더는 `NoReservation*`가 아님(C-2), `create_refund_port()`가 현재 `NoPaymentRefund`(payments 연결 시 실패해 교체를 상기시킴).
 - 계약 테스트: `ReservationLifecycleService`가 payments `ReservationPort`가 기대하는 동작(`get_snapshot`이 없으면 None, `mark_paid` 상태 변경, `cancel_for_refund` 멱등)을 지키는지 payments의 `FakeReservationPort`와 같은 본문으로 확인.
 - 게이트(R16, `backend-invariants` §7): `python3 .claude/skills/layer-check/check_layers.py`(기준선 2건 외 증가 없음), `(cd src && uv run python -c "import main")`, `uv run pytest -rs`.
@@ -439,7 +447,7 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | D-6 | 전역 잠금 순서 `product → offer → reservation → payment → refund → user`. 고객 취소·`pay`·환불은 `offer`를 먼저 잠근 뒤 예약을 잠금 | catalog D49(product → offer), catalog #12가 offer → 예약, 교착 방지 | 임시 (payments C-4 변경 필요) |
 | D-7 | 재고 연동은 reservations가 정의한 `StockPort`(`get_terms`/`reserve`/`release`)로 하고, container가 주입. **지금은 임시 `ReadOnlyOfferStockPort`(D-25, 7.1절), catalog의 새 `CatalogStockService`(C-1)가 머지되면 교체** | R11, catalog 6.4 후속("reservations 설계 때 확정"), catalog C12 | 포트 구조는 확정, 구현체는 임시 (D-25) |
 | D-8 | 취소 시 재고 복구는 `release`가 담당. **할인이 `is_active=false`면 복구하지 않음** | catalog D40(닫힌 할인에 재고 안 돌려줌, `stock_log` 합 불변식) | 확정(catalog D40을 따름) |
-| D-9 | 픽업 검사 순서: 404 → 403(해당 매장) → 409(상태) → 400(코드). 취소: 404 → 403(본인) → 409. 생성: 400 → 401 → 404 → 409 | 상태가 이미 종료인 예약에 대해 코드 일치 여부를 알려 주지 않으려는 의도, payments D-12 방식 | 임시 |
+| D-9 | 픽업 검사 순서: 404 → 403(해당 매장) → 409(상태) → 400(코드). 취소: 404 → 403(본인) → 409. 생성: **401 → 400(형식·수량) → 404 → 409** (2026-11-05 실행 확인으로 수정: 인증 의존성이 본문 검증보다 먼저라 토큰 없이 `quantity: 0`을 보내면 401. 이전 문구 "400 → 401"은 틀렸음) | 상태가 이미 종료인 예약에 대해 코드 일치 여부를 알려 주지 않으려는 의도, payments D-12 방식 | 임시 |
 | D-10 | 취소는 상태(`PENDING_PAYMENT`/`RESERVED`)만 확인하고 **시간 제한을 두지 않음** | 명세에 시한 없음, payments D-7(시간 제한 없음) | 임시 (Q-6, catalog C14) |
 | D-11 | 결제한 예약 취소는 환불을 **자동 호출**(`RefundPort`, 위약금 payments 정책 = 현재 0원). 고객이 별도 환불 API를 호출하는 경로(payments `refund()` → `cancel_for_refund`)도 지원 | payments D-6(두 진입점 지원), payments D-1(위약금 0) | 임시 (Q-8) |
 | D-12 | 점주 사유 일괄 취소는 `waive_penalty=True`로 전액 환불, 재고 복구 없음, 취소 사유는 환불 사유로만 전달(예약 행에 저장하지 않음) | payments D-16, catalog D40·D42 | 확정(payments D-16·catalog D40) |
@@ -456,6 +464,11 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | D-22 | 테이블 정의는 `schema.sql` 그대로(NULL 허용 컬럼 포함), `price`는 매핑하지 않음 | R14, catalog S3와 같은 방식 | 임시 (S-3) |
 | D-23 | 비어 있는 `domain/reservation.py`는 쓰지 않고 삭제 | db-schema 3절("대응 테이블 없음, 확인 필요"), B-5 | 임시 |
 | D-24 | payments에 주는 `ReservationPort` 계약: `get` ⇒ `ReservationLifecycleService.get_snapshot(for_update)`(`for_update=True`는 `offer → reservation` 잠금), `mark_paid` ⇒ `mark_paid`, `cancel_for_refund` ⇒ 멱등 취소 + 재고 복구. 어댑터는 payments `application/reservation_adapter.py`에 둠(payments.md 6.3) | payments 6.1·6.3 | 임시 (C-3) |
+| D-26 | **취소 HTTP 메서드**: 사용자 명세는 `PATCH /v1/reservations/{id}/cancel`, reference·4.1절·코드는 `POST`. 임시 기본값은 **명세대로 `PATCH` 하나로 통일**(`POST`는 제거). 코드는 `router.py:57`(데코레이터), `tests/reservations/test_wiring.py`의 라우트 목록, `test_api_db.py`가 바뀜 | 사용자 명세(2026-11-05), R15. 실행 확인: 현재 `PATCH`는 `405 HTTP_ERROR "Method Not Allowed"`(`Allow: POST`) | **확정** (사용자, 2026-11-05, Q-17). 4.1절 #24 행을 `PATCH`로 갱신함 |
+| D-27 | **내 목록 URI**: 사용자 명세는 `GET /v1/reservations/me`, reference·4.1절·코드는 `GET /v1/users/me/reservations`. 임시 기본값은 **명세 경로로 변경**. 이후 `GET /v1/reservations/{reservation_id}` 상세가 생기면 `/me`를 먼저 선언해야 함 | 사용자 명세, R15. 실행 확인: 현재 `/v1/reservations/me`는 `404 NOT_FOUND "Not Found"`, 다른 EP와 겹치지 않음(`/reservations/{id}/cancel`뿐) | **확정** (사용자, 2026-11-05, Q-18). 4.1절 #23 행 갱신. reference README #23 행·`reservations.md` §2도 같이 바뀜(C-12) |
+| D-28 | **400과 422의 경계**: 명세는 400="잘못된 수량", 422="요청 데이터 형식 오류". 전역 핸들러는 `RequestValidationError` 전부를 **400 `VALIDATION_ERROR`**로 변환하므로 수량 0·음수·문자열·소수·누락, 잘못된 UUID(본문·경로), 잘못된 `status`·`page`가 모두 400(12.2절 실행 결과). 임시 기본값은 **현재대로 전부 400**(Q-14와 같음). 대안은 형식 오류만 422로 나누는 것이지만 전역 핸들러 변경이라 auth·payments·admin 응답까지 바뀜 | 사용자 명세, payments D-17, admin B-8·D26, `error_handlers.py:38-48` | **확정** (사용자, 2026-11-05, Q-19: 전부 400, 422 쓰지 않음). R15 예외 사유: 프로젝트 전체가 400을 쓰고 있어 한 모듈만 422로 바꾸면 일관성이 깨짐 |
+| D-29 | **목록 기본 페이지 크기**: 명세는 페이지네이션이 없어 전체를 돌려주는 것으로 읽힘. 코드는 `size` 기본 20(최대 100)이라 21번째부터는 `page=2`를 요청해야 보임. 임시 기본값은 **D-18 유지**(`page`·`size`·`total` 확장, 기본 20). 명세만 보고 만든 클라이언트가 20건에서 잘린다는 점을 질문으로 올림 | 명세 §2, README 확인 5번, D-18 | **확정** (사용자, 2026-11-05, Q-20: D-18 유지). 명세에 페이지네이션 추가가 필요하다는 점은 C-12에 포함 |
+| D-30 | **취소 때 환불 필요 여부를 잠금 후 상태로 판정**: 현재 `service.py:66`이 `was_paid`를 **잠금 전** `get_snapshot`으로 구하고, `lifecycle.cancel`(`lifecycle_service.py:60-79`)이 나중에 잠그고 전이함. 그 사이 결제(`pay`)가 `PENDING_PAYMENT → RESERVED`를 커밋하면 취소는 성공하지만 `was_paid=False`라 **환불이 호출되지 않아 결제 금액·포인트가 사라짐**(`pay`와 취소가 같은 예약에 동시에 올 때). 제안: `lifecycle.cancel`이 잠금 안에서 **취소 직전 상태로 `RefundTarget`을 만들어** 반환(`cancel_all_for_offer`의 `CancelledReservation(reservation, refund_target)`과 같은 방식)하고, 서비스는 그 값으로만 환불 호출 여부를 정함. 전이표·메서드 이름은 그대로 | 3.3절 ③ 3단계, 2.4절 "결제 vs 취소" 행("잠금 안에서 상태 재확인")과 불일치, D-6 | **확정** (사용자, 2026-11-05), 코드 변경 필요(14절 W-5). 지금은 payments가 stub 예약만 쓰므로 실서버 영향 없음(B-16). payments 연결(C-3) 전에 반영 필요 |
 
 ---
 
@@ -474,6 +487,11 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | C-7 | **catalog** 문서 (`docs/design/catalog.md` 6.4 후속, CI-10, CI-11, C9, C12) | 이 설계가 요구사항 "reservations가 `deduct_stock`을 주입받는다"를 `StockPort` + `CatalogStockService`로 바꿈 | 6.4절 후속 문구와 C12 해법("읽기/쓰기 분리")을 이 설계 5.2절로 갱신. C9 답: **예약은 할인의 `is_active`·`status`와 무관하게 자기 상태로 진행**(픽업·취소 가능, 취소 시 재고만 복구하지 않음) | 문서 정합 |
 | C-8 | **stores** (`docs/design/stores.md` 폐점 시 "픽업 대기 예약" 확인) | `has_pickup_pending_for_store`에 필요한 예약의 매장 정보가 `pickup_reservations`에 없음(`store_id` 컬럼 없음, `store_name`은 스냅샷뿐). reservations가 catalog·stores의 테이블을 조인하면 R11 위반 | 후속. 스키마 변경 S-4(`store_id` 스냅샷 컬럼) 또는 catalog가 `offer_ids_by_store`를 포트로 제공. 지금은 stores가 `PickupPendingPort`를 정의하고 구현은 후속 | 폐점 검사 (이번 범위 아님) |
 | C-9 | **docs/reference** (`reservations.md`) | 명세 자체의 빈칸: `pickup_code`가 응답에 없음, 상점주용 예약 목록 없음, 페이지네이션 없음, `RESERVED` 의미, 422 vs 400 | 사용자 결정(10절) 후 명세에 반영 | R15 |
+| C-10 | **`src/error_handlers.py`** (모듈 밖 공용 파일, 이번에 수정하지 않음) | 처리되지 않은 예외가 `{success, error_code, message}` 형식이 아니라 평문 `Internal Server Error`로 나감(12.2절 실행: `RuntimeError` → `500`, 본문 평문). 명세 3개 EP 모두 `500 서버 오류`를 적었고 R7은 모든 에러 응답이 공통 형식이라고 정함 | `@app.exception_handler(Exception)` 한 개 추가: `500`, `error_code="INTERNAL_SERVER_ERROR"`(이름은 임시), 메시지는 고정 문구(예외 내용·스택 비노출), 서버 로그에 예외 기록. 모든 모듈에 적용되므로 소유자·이름은 사용자 결정 (Q-21). 추가해도 기존 `ValueError`·`LookupError` 핸들러는 가장 가까운 클래스가 우선이라 영향 없음 | 500 응답 형식 (R7). **구현 시 수정(사용자 승인 2026-11-05)**, 14절 W-6 |
+| C-11 | **`src/container.py`**, `tests/catalog/test_wiring.py` (7절 쓰기 범위 안이지만 **구현 누락**) | 5.1절 "catalog 포트 교체(CI-10, CI-11)"가 코드에 없음(B-16). `catalog_adapters.py`는 있으나 연결되지 않아, catalog가 예약 존재를 항상 "없음"으로 알고 일괄 취소도 0건. 예약이 있는 할인도 수정·판매 중단될 수 있고 중단해도 예약이 취소되지 않음 | `create_reservation_lookup(reservations=Depends(create_reservation_repository)) -> OfferReservationLookup`, `create_reservation_cancel(service=Depends(create_reservation_service)) -> OfferReservationCanceller`로 교체하고 `_reservation_lookup`·`_reservation_cancel` 싱글턴과 `NoReservation*` import 삭제(5.1절). `tests/catalog/test_wiring.py`의 `isinstance(... NoReservation*)` 단언 교체(C-2). 생성 순환이 없는지 `import main`으로 확인(`create_reservation_service` → catalog 서비스를 받지 않으므로 5.2절대로 순환 없음) | 예약 중인 할인 보호, 취소 흐름의 상류. **구현 시 수정(사용자 승인 2026-11-05)**: catalog `NoReservation*` 교체에 더해 **payments `InMemoryReservationPort` 교체**(payments C-3, `payments/presentation/dependencies.py:34`)도 승인 범위. 14절 W-7·W-8 |
+| C-12 | **docs/reference** (`reservations.md` §2·§3, `README.md` #23·#24 행) | D-26·D-27이 확정되면 메서드·경로가 바뀜. 또한 사용자 명세의 3개 EP 에러 표는 reference와 같은 내용(차이 없음) | D-26·D-27 확정(2026-11-05)에 따라 `PATCH .../cancel`, `GET /v1/reservations/me`로 갱신(R15). **D-29 확정에 따라 §2에 `page`·`size`·`status` 쿼리, 응답의 `page`·`size`·`total`, 항목의 `pickup_code`·`pickup_address`(D-18·D-19)도 명세에 추가**(사용자 명세 원문에는 없음). 400/422는 전부 400(D-28)이므로 §1~§4 에러 표의 422 행을 "400 `VALIDATION_ERROR`"로 바꾸거나 주석 | 문서 정합. reference는 이번 설계 작업에서 수정하지 않음 |
+| C-13 | **auth** (정지 계정 처리, admin.md D8·D35 연동) | admin이 구현되면 정지된 CUSTOMER는 `CurrentUser` 의존성에서 403 `FORBIDDEN`("정지된 계정입니다.")이 됨. 사용자 명세의 생성·목록·취소 에러 표에는 403(생성·목록)이 없음. 취소의 403은 "본인 예약이 아님"으로만 적혀 있어 같은 `error_code`로 섞임 | admin 구현 때 reference에 "정지된 계정 403"을 추가할지 결정. reservations 코드 변경은 없음(`CurrentUser` 그대로, admin.md 5.5절도 고객 취소 EP는 차단 유지) | 에러 표 정합 |
+| C-14 | **admin** 요구사항(13절 전체) | admin.md는 reservations가 비어 있다는 전제로 쓰였음. 이 설계에 없는 `ReservationAdminPort` 어댑터 2개, 사용자별·매장별 조회, 픽업 의존성 교체가 필요 | 13절의 A-1~A-6을 reservations가 받아야 할 요구로 기록. admin.md는 수정하지 않음 | admin EP 4·6 |
 
 ---
 
@@ -492,7 +510,7 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 
 ## 10. 질문 목록과 임시 기본값
 
-**Q-1~Q-16 전부 "임시(사용자 승인, 2026-11-04)"**: 아래 기본값으로 진행하되 확정은 아닙니다. 임시 기본값은 확정이 아니라 **제안**입니다. 코드는 `reservations/domain/rules.py`·enum 한곳에 모읍니다(1.7절).
+**Q-1~Q-16 전부 "임시(사용자 승인, 2026-11-04)"**: 아래 기본값으로 진행하되 확정은 아닙니다. **Q-17~Q-21(2026-11-05 추가)은 같은 날 사용자가 임시 기본값 그대로 "확정"했습니다**(각 행 참조). 임시 기본값은 확정이 아니라 **제안**입니다. 코드는 `reservations/domain/rules.py`·enum 한곳에 모읍니다(1.7절).
 
 | # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
 | --- | --- | --- | --- | --- |
@@ -512,12 +530,160 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | Q-14 | 형식 오류 코드(명세 422 vs 프로젝트 400) | 명세, README 확인 3번 | 400 `VALIDATION_ERROR` | payments D-17, 전역 핸들러 |
 | Q-15 | 폐점된 상점·비활성 상품의 예약된 건의 픽업·취소 | catalog C9·C10, stores 폐점 | 예약은 할인·상품·상점 상태와 무관하게 자기 상태로 진행(C-7) | catalog C9 요구사항 |
 | Q-16 | 이 설계가 규칙과 충돌하는 요구 | `backend-invariants` | 충돌 없음. 단 명세의 `409`(상태 충돌)는 R6·R7을 지키려고 `ReservationConflictError` + 핸들러 한 줄(D-16, C-6)이 필요하고, 명세의 `422`는 전역 핸들러대로 400 (R15 예외, 이유 보고) | R6, R7, R15 |
+| Q-17 | 취소 메서드를 명세대로 `PATCH`로 바꿀지 (D-26) | 사용자 명세 §3 vs reference·코드 `POST` | **확정(2026-11-05): `PATCH`로 통일**(`POST` 제거) | 명세가 정본(R15) |
+| Q-18 | 내 목록 경로를 명세대로 `/v1/reservations/me`로 바꿀지 (D-27) | 사용자 명세 §2 vs reference·코드 `/v1/users/me/reservations` | **확정(2026-11-05): `/v1/reservations/me`로 변경** | 명세가 정본(R15) |
+| Q-19 | 400(잘못된 수량)과 422(형식 오류)를 나눌지 (D-28, Q-14 재확인) | 사용자 명세 §1~3 | **확정(2026-11-05): 나누지 않고 전부 400 `VALIDATION_ERROR`** | 전역 핸들러·payments D-17·admin D26이 같은 처리(프로젝트 공통) |
+| Q-20 | 내 목록에 페이지네이션을 둘지, 기본 크기가 20이어도 되는지 (D-29, Q-9 재확인) | 사용자 명세 §2(페이지네이션 없음) vs README 확인 5번(교안 요구) | **확정(2026-11-05): D-18 유지**(기본 20, 최대 100, 응답에 `page`·`size`·`total`). 명세에 페이지네이션 추가 필요(C-12) | 교안 목록 요구 |
+| Q-21 | 500 응답 공통 핸들러를 누가 어떤 `error_code`로 추가할지 (C-10) | 사용자 명세 §1~3의 500, R7 | **확정(2026-11-05): `error_code="INTERNAL_SERVER_ERROR"`, 고정 메시지 "서버 오류가 발생했습니다.", 스택 비노출.** 핸들러 추가는 구현 단계에서 수정(C-10, 사용자 승인) | R7(모든 에러 응답이 공통 형식) |
 
 ---
 
 ## 11. 불변 규칙 점검 (설계 기준)
 
 R1(domain은 `hmac` 등 표준 라이브러리만, `secrets`는 infrastructure에서 사용), R2(application은 포트·도메인만, infrastructure·presentation import 없음), R3(전이·소유·코드 검증은 엔티티), R4(`*Model` 미노출), R5(commit은 ApplicationService, 레포 `flush`), R6(도메인 예외, HTTPException 없음), R7(전역 핸들러), R8(생성자 필수·기본 생성 없음), R9(`provide_*` 2개 매핑), R10(포트 선언 메서드만 호출), R11(catalog·payments는 reservations 정의 포트로만, ORM·레포·서비스 내부 미사용), R12(5.2절의 한 방향 생성 그래프), R13(같은 세션, 호출되는 쪽 `commit=False`/commit 없음), R14(`schema.sql`과 동일, `price`는 매핑 제외 사유 명시), R15(명세 필드·URI, 추가·변경은 D-16·D-18·D-19·Q-14로 표시), R16(새 의존성·시크릿 없음).
+
+---
+
+## 12. 사용자 명세(2026-11-05) 3자 대조표 — 생성·내 목록·취소
+
+비교 대상: **명세**(사용자 제공 원문, 이하 "명세") / **reference**(`docs/reference/reservations.md`) / **설계**(이 문서 기존 절) / **코드**(커밋 `66532ac`의 `src/reservations/**`, `src/error_handlers.py`). 명세와 reference의 필드·에러 표는 3개 EP 모두 문구까지 같습니다(차이는 12.1의 경로·메서드뿐). **아래 표의 "차이" 중 D-26~D-30과 Q-17~Q-21은 2026-11-05에 사용자가 확정했고, 코드 반영은 14절 작업 목록입니다(표 본문은 대조 당시 상태를 보존).** "실행"은 12.2절의 실험, "정독"은 코드를 읽은 결과입니다.
+
+### 12.1 EP별 대조
+
+**EP1 `POST /v1/reservations`**
+
+| 항목 | 명세 | reference | 설계 | 코드 | 판정 |
+| --- | --- | --- | --- | --- | --- |
+| 경로·메서드 | `POST /v1/reservations` | 같음 | 같음(#22) | 같음(`router.py:29`) | 일치 |
+| 헤더 | `Content-Type: application/json`, `Authorization: Bearer` | 같음 | `CurrentUser` | `CurrentUser`(`router.py:35`) | 일치 |
+| 요청 필드 | `offer_id` UUID 필수, `quantity` int 필수 | 같음 | 같음(상한 없음, `ge=1`) | `schemas.py:7-9` 같음 | 일치 |
+| 응답 필드 10개 | id, user_id, offer_id, quantity, unit_price, total_price, status, created_at, store_name, product_name | 같음 | D-2 같음 | `ReservationCreateResponse` 10개 같음(`schemas.py:12-24`) | 일치 (`created_at` 예시는 `+09:00`, 코드는 UTC로 만들므로 같은 시각의 다른 오프셋 표기. 정독, 영향 없음) |
+| 성공 코드 | 201 | 201 | 201 | `status_code=201` | 일치 |
+| 생성 직후 `status` | `PENDING_PAYMENT` | 같음 | `PENDING_PAYMENT`(1.2절) | `PickupReservation.create`가 `PENDING_PAYMENT` | 일치 |
+| 400 | 잘못된 수량 | 같음 | 400 `VALIDATION_ERROR` | `ge=1`이 막아 400 `VALIDATION_ERROR`(실행: 0, -1 모두 `quantity: Input should be greater than or equal to 1`) | 일치. 단 형식 오류(422)와 구분되지 않음 → **D-28** |
+| 401 | 로그인 필요 | 같음 | 같음 | 401 `UNAUTHORIZED` "로그인이 필요합니다." + `WWW-Authenticate: Bearer`(실행) | 일치. 단 **401이 400보다 먼저**(토큰 없이 `quantity:0` → 401, 실행) → D-9 문구 정정함 |
+| 404 | 할인 상품 없음 | 같음 | 404 `NOT_FOUND` | `OfferNotFoundError`(`LookupError`) → 404 `NOT_FOUND` "할인 상품을 찾을 수 없습니다."(실행, fake 서비스) | 일치 |
+| 409 재고 부족·예약 불가 | 409 | 같음 | 409 `OUT_OF_STOCK`/`OFFER_NOT_RESERVABLE` | 둘 다 `ReservationConflictError` 하위 → **409**(실행, 400 아님). 조건은 정독: 판매 중(`effective_status == ON_SALE`)이 아니면 `OFFER_NOT_RESERVABLE`, `quantity > remaining_stock`이면 `OUT_OF_STOCK`. **품절(`remaining_stock == 0`)은 `SOLD_OUT`이라 `OFFER_NOT_RESERVABLE`이 먼저** | 일치. 단 임시 포트(D-25)는 재고를 차감하지 않아 실서버에서는 동시 예약이 재고를 넘길 수 있음(B-6, DB 테스트 미실행 B-14) |
+| 422 | 요청 형식 오류 | 같음 | 400으로 대체(1.6절, Q-14) | 400 `VALIDATION_ERROR`(실행: 문자열, 소수, 누락, 잘못된 UUID 모두 400) | **차이 → D-28** |
+| 500 | 서버 오류 | 같음 | 언급 없음 | 평문 `Internal Server Error`(실행) | **차이 → C-10** |
+| 스냅샷 저장 ("예약 당시 상품 정보 및 금액 정보") | 저장 | 저장 | `PickupReservation.create`가 단가·상점명·상품명·픽업 주소를 복사(1.3절) | `repositories.py:72-85`가 `unit_price`, `total_price`, `store_name`, `pickup_address`, `product_name`, `pickup_code`를 `pickup_reservations`에 저장. 응답의 `store_name`, `product_name`, `unit_price`는 **저장된 스냅샷에서** 나옴(오퍼를 다시 읽지 않음) | 일치 (아래 12.3) |
+
+**EP2 `GET /v1/reservations/me`**
+
+| 항목 | 명세 | reference | 설계 | 코드 | 판정 |
+| --- | --- | --- | --- | --- | --- |
+| 경로·메서드 | `GET /v1/reservations/me` | `GET /v1/users/me/reservations`("URI (제안)") | `/v1/users/me/reservations`(#23, 4.1절) | `router.py:40` `/users/me/reservations`. 실행: `GET /v1/reservations/me` → 404 | **차이 → D-27** |
+| 요청 | 본문·쿼리 없음 | 쿼리 "노션에 없음", 확인 필요로 `status`·`page`·`size` 제안 | 쿼리 `status`, `page`, `size`(4.3절) | `status`(enum), `page>=1`, `size` 1~100(`router.py:44-54`) | **차이(확장) → D-18·D-29**. 잘못된 `status`·`page=0`은 400(실행) |
+| 응답 래퍼 | `{"reservations": [...]}` | 같음 | + `page`, `size`, `total`(4.2절) | `ReservationListResponse`에 `page`, `size`, `total` 추가 | **차이(확장) → D-18·D-29** |
+| 응답 항목 8필드 | id, offer_id, store_name, product_name, quantity, total_price, status, created_at | 같음 | + `pickup_code`, `pickup_address`(D-19) | `ReservationListItem`에 두 필드 추가(`schemas.py:38-40`) | 명세 8개는 일치. 확장 2개는 **D-19(기존)** |
+| 정렬·범위 | 명세 없음(본인 것만) | 같음 | `created_at DESC, id DESC`, 본인만 | `find_by_user`가 `user_id`로 필터, 같은 정렬(`repositories.py:25-47`) | 일치(본인 것만 조회, 정독) |
+| `status` 값 | 예시 `RESERVED`(생성 예시는 `PENDING_PAYMENT`) | 같음, 확인 필요 | 결제 전 `PENDING_PAYMENT`, 결제 후 `RESERVED`(D-1, Q-1 임시) | enum 4개 | 일치(두 예시는 결제 전·후 서로 다른 예약이라는 해석, Q-1 임시). 단 **실서버에서는 `RESERVED`가 생길 수 없음**(payments가 stub 예약 사용, B-16) |
+| 200 | 200 | 200 | 200 | 기본 200 | 일치 |
+| 401 | 로그인 필요 | 같음 | 같음 | 401 + `WWW-Authenticate`(실행) | 일치 |
+| 422 | 형식 오류 | 같음 | 400 | 쿼리 오류는 400(실행) | **D-28** |
+| 500 | 서버 오류 | 같음 | 없음 | 평문(실행) | **C-10** |
+
+**EP3 `PATCH /v1/reservations/{id}/cancel`**
+
+| 항목 | 명세 | reference | 설계 | 코드 | 판정 |
+| --- | --- | --- | --- | --- | --- |
+| 메서드 | `PATCH` | `POST` | `POST`(#24) | `@router.post`(`router.py:57`). 실행: `PATCH` → `405`, `Allow: POST` | **차이 → D-26** |
+| 경로 | `/v1/reservations/{id}/cancel` | `/{reservation_id}/cancel` | 같음 | `/reservations/{reservation_id}/cancel` | 일치(경로 변수 이름만 다르며 외부에 영향 없음) |
+| 요청 본문 | 없음 | 없음 | 없음 | 없음 | 일치 |
+| 응답 3필드 | id, status, cancelled_at | 같음 | D-20 | `ReservationCancelResponse` 3개 | 일치 |
+| 성공 코드 | 200 | 200 | 200 | 기본 200 | 일치 |
+| 401 | 로그인 필요 | 같음 | 같음 | 401(실행) | 일치 |
+| 403 | 본인 예약이 아님 | 같음 | D-21 403 | `NotReservationOwnerError`(`PermissionError`) → 403 `FORBIDDEN` "본인 예약만 취소할 수 있습니다."(실행) | 일치 (메시지 원문은 명세에 없음) |
+| 404 | 예약 정보 없음 | 같음 | 404 | `ReservationNotFoundError` → 404 `NOT_FOUND` "예약 정보를 찾을 수 없습니다."(실행) | 일치 |
+| 409 이미 취소·취소 불가 | 409 | 같음 | 409 `RESERVATION_ALREADY_CANCELLED`/`_PICKED_UP` | 둘 다 **409**(실행, 400 아님) | 일치 |
+| 422 | 형식 오류 | 같음 | 400 | 잘못된 UUID 경로값 → 400 `path.reservation_id: Input should be a valid UUID...`(실행) | **D-28** |
+| 500 | 서버 오류 | 같음 | 없음 | 평문(실행) | **C-10** |
+| 확인 순서 | 404 → 403 → 409 | — | D-9 같음 | `service.py:62-74`: `get_snapshot`(404) → `ensure_owned_by`(403, 잠금 전) → `lifecycle.cancel`(상태 검사 409) | 일치 |
+| 취소 가능 상태 | "이미 취소되었거나 취소 불가 상태"만 409 | 같음 | `PENDING_PAYMENT`·`RESERVED` → `CANCELLED`, 시간 제한 없음(D-10) | `PickupReservation.cancel`이 `CANCELLED`·`PICKED_UP`만 거부(`pickup_reservation.py:141-158`) | 일치. 시한은 명세에 없어 Q-6 임시 유지 |
+| 취소 시각 기록 | 기록 | 같음 | `cancelled_at = clock.now()` | 도메인 `cancel(now)`가 기록, 저장(`repositories.py:96-98`) | 일치 |
+| 재고 복구 | reference 구현 참고에 있음(명세는 환불만 언급) | `stock_log` 양수 | `StockPort.release`(D-8) | 임시 포트는 아무것도 안 하고 `False`(`interim_stock_port.py:79-82`). **실서버에서는 복구되지 않음**(B-6, D-25) | 차이 아님(알려진 제한). C-1 머지 전까지 |
+| 환불 연동·트랜잭션 | "결제·환불 도메인과 연동" | 확인 필요 | 취소가 자동 환불 호출(D-11), 한 번 commit | `service.py:80-84`: 취소(`commit=False`) → `was_paid`이면 `refunds.refund_for_cancelled_reservation` → **`session.commit()` 한 번**. 환불 실패 시 취소·재고 복구도 롤백(R13). 환불 포트는 임시 `NoPaymentRefund`(D-15)라 환불 없음 | 일치(트랜잭션 경계). 단 **환불 판정 경합 → D-30** |
+| 권한 | 로그인 | 회원 | `CurrentUser` | `CurrentUser`. admin 구현 후 정지 고객은 403 | **C-13**(명세 외 에러 코드) |
+
+### 12.2 실행 확인 기록 (2026-11-05)
+
+`DATABASE_URL`, `JWT_SECRET_KEY` 등을 셸 환경변수로만 지정하고 `fastapi.testclient.TestClient(main.app, raise_server_exceptions=False)`에 `get_current_user`와 `provide_reservation_service`를 override(예외를 던지는 fake 서비스)해서 응답을 봤습니다. 저장소에는 아무 파일도 쓰지 않았습니다. **DB 없이 한 실험이라 서비스 내부 동작(재고, 잠금, SQL)은 이 표에 없습니다.**
+
+| 요청 | 결과 |
+| --- | --- |
+| `POST /v1/reservations` `quantity` 0 / -1 / `"abc"` / 1.5 / 누락, `offer_id: "x"` | 모두 400 `VALIDATION_ERROR`, 메시지는 `필드: 오류` 형식(예 `quantity: Input should be greater than or equal to 1`) |
+| 서비스가 `OutOfStockError` / `OfferNotReservableError` | 409 `OUT_OF_STOCK` / 409 `OFFER_NOT_RESERVABLE` (공통 형식) |
+| 서비스가 `OfferNotFoundError` | 404 `NOT_FOUND` |
+| 서비스가 `RuntimeError("boom")` (생성·취소·목록 모두) | **500, 본문 `Internal Server Error`(평문, 공통 형식 아님)** |
+| `POST .../{id}/cancel`에서 `ReservationAlreadyCancelledError` / `ReservationAlreadyPickedUpError` | 409 `RESERVATION_ALREADY_CANCELLED` / `RESERVATION_ALREADY_PICKED_UP` |
+| `NotReservationOwnerError` / `ReservationNotFoundError` | 403 `FORBIDDEN` / 404 `NOT_FOUND` |
+| `PATCH .../{id}/cancel` | 405 `HTTP_ERROR` "Method Not Allowed", `Allow: POST` |
+| `POST .../xyz/cancel` | 400 `VALIDATION_ERROR` `path.reservation_id: ...valid UUID...` |
+| `GET /v1/reservations/me` | 404 `NOT_FOUND` "Not Found" |
+| `GET /v1/users/me/reservations?status=RESERVED_X` / `?page=0` | 400 `VALIDATION_ERROR` |
+| 토큰 없이 생성(`quantity:0`) / 취소 / 목록 | 모두 401 `UNAUTHORIZED` "로그인이 필요합니다.", 생성에서 `WWW-Authenticate: Bearer` 확인 |
+
+**400과 422의 경계 정리**: 명세의 의도는 "수량 값이 잘못됨(0·음수 등) = 400, 타입·형식 오류(문자열, 누락, UUID 형식) = 422"로 읽힙니다. 현재 프로젝트에서는 두 경우가 같은 `RequestValidationError`이고 상태 코드는 모두 400입니다(`error_handlers.py:38-48`). 도메인의 `ValueError`(`_int`가 내는 "수량은 1개 이상이어야 합니다.")는 Pydantic이 먼저 막아 API로는 닿지 않는 방어선입니다. 임시 기본값은 전부 400이며(D-28) 둘을 나누려면 `RequestValidationError`를 `type`별로 갈라 422를 내야 하는데 이는 전역 핸들러 변경입니다.
+
+### 12.3 스냅샷 출처와 스키마 대조
+
+| 응답 필드 | 출처 | `pickup_reservations` 컬럼(`schema.sql:91-107`) | 판정 |
+| --- | --- | --- | --- |
+| `unit_price` | 예약 시점 `offer.sale_price`를 `create`가 복사 | `unit_price INTEGER` | 있음 |
+| `total_price` | `unit_price * quantity` | `total_price INTEGER` | 있음 |
+| `store_name`, `product_name` | 예약 시점 상점·상품 이름 복사 | `store_name VARCHAR(150)`, `product_name VARCHAR(200)` | 있음 |
+| `pickup_address`(목록 확장) | 같음 | `pickup_address VARCHAR(500)` | 있음 |
+| `pickup_code`(목록 확장) | 생성 때 발급 | `pickup_code VARCHAR(20)` | 있음 |
+| `status`, `created_at`, `cancelled_at`, `quantity`, `user_id`, `offer_id` | 예약 자체 | 있음 | 있음 |
+
+**결론: 3개 EP를 구현하는 데 스키마 변경은 필요 없습니다.** 기존 S-제안은 그대로 두며, 아래 한 가지만 다시 표시합니다. 스냅샷 컬럼과 `status`·가격이 NULL 허용이라(S-2) 값이 NULL인 행은 `_to_domain`의 도메인 검증에서 `ValueError`가 되고, 전역 핸들러가 이를 **400 `VALIDATION_ERROR`로 응답**합니다(데이터 이상이 클라이언트 오류처럼 보임, 정독). S-2(NOT NULL)를 적용하면 막을 수 있습니다. 예약 시점의 `pickup_start`·`pickup_end`는 저장하지 않고 취소 때 offer에서 다시 읽는데, 2.4절의 "예약 0건일 때만 할인 수정" 규칙(catalog CI-10)이 container 미연결(C-11)이라 아직 지켜지지 않습니다.
+
+### 12.4 불일치 요약
+
+| EP | 불일치 개수 | ID |
+| --- | --- | --- |
+| 1 생성 | 2 (422, 500) | D-28, C-10 |
+| 2 내 목록 | 6행 (경로, 쿼리 확장, 응답 래퍼 확장, 항목 확장, 422, 500). 확장 3행은 기존 결정 D-18·D-19에 속하고 새 결정은 D-29 | D-27, D-18·D-19·D-29, D-28, C-10 |
+| 3 취소 | 5 (메서드, 422, 500, 환불 판정 경합, 정지 고객 403) | D-26, D-28, C-10, D-30, C-13 |
+| 공통(코드 정합) | 1 (container 미교체) | C-11 |
+
+---
+
+## 13. admin 설계와의 정합 (`docs/design/admin.md`는 수정하지 않음)
+
+admin.md는 reservations가 비어 있다는 전제(B-6 `NoReservationAdmin`, C10)로 쓰였습니다. 아래는 **reservations 쪽이 받아야 할 요구**의 기록이며 구현은 하지 않았습니다(C-14). admin.md의 사용자 확정(2026-11-04)은 **D2, D4, D10, D12, D13, D35, D39**이고 나머지 admin 결정은 임시입니다. 여기서는 확정 항목을 인용만 하고 바꾸지 않습니다.
+
+| # | admin 쪽 요구 (출처) | reservations 현황 | 받아야 할 일 (제안) |
+| --- | --- | --- | --- |
+| A-1 | `ReservationAdminPort.cancel_reserved_for_user`: 회원의 **RESERVED만** 취소, 재고 복구(`stock_log` 양수), **전액 환불·사용 포인트 복구**(`waive_penalty=True`), commit 금지·같은 세션·취소 수 반환·중복 호출 멱등 (admin C10, **D12 확정**) | 없음. `cancel_all_for_offer`는 offer 단위이고 **재고를 복구하지 않음**(D40) | `ReservationRepository.find_by_user_and_status(user_id, status, for_update)`(`ORDER BY offer_id, id`)와 Lifecycle 메서드를 추가. 재고는 `stock.release`가 닫힌 할인이면 알아서 복구하지 않으므로(D-8) 일괄 취소와 달리 호출함. 환불은 `refund_for_cancelled_reservation(..., waive_penalty=True)`. 어댑터는 reservations 소유(`catalog_adapters.py`와 같은 방식). **`PENDING_PAYMENT`는 D12대로 대상이 아님** |
+| A-2 | `has_reserved_for_store`: 매장의 모든 할인에 걸친 RESERVED가 하나라도 있으면 True, RESERVED 행을 `FOR UPDATE`로 읽음 (admin EP 6, C10, **D13 확정**: 있으면 400 `STORE_HAS_RESERVED_RESERVATIONS`로 전체 롤백) | 없음. `pickup_reservations`에 `store_id`가 없어 매장 단위 조회 불가(C-8) | S-4(`store_id` 스냅샷 컬럼) 또는 catalog가 `offer_ids_by_store` 포트를 제공. 어느 쪽이든 R11 때문에 reservations가 catalog·stores 테이블을 조인하지 않음. **S-4의 필요성이 높아졌음** |
+| A-3 | 잠금 순서 D34 `stores → products → discount_offers → pickup_reservations → payments → users`, `id` 오름차순 (admin 4.3, 임시) | D-6 `product → offer → reservation → payment → refund → user` | **양립함**(admin 순서는 D-6 앞에 `stores`를 붙이고 `refund`를 payments 안에 포함). 새 요구는 **한 사용자의 여러 예약**(A-1)을 offer 하나씩 `offer → reservation` 순서로, offer id 오름차순으로 잠그는 것. 고객 취소는 offer 하나뿐이라 교착 없음 |
+| A-4 | 정지된 OWNER도 자기 상점의 기존 `RESERVED` 예약 **픽업은 가능**, 로그인도 허용 (**D35·D39 사용자 확정**, admin 5.5) | 픽업 라우터가 `OwnerUser`를 씀(`router.py:72`). admin 구현 후에는 정지된 OWNER가 403 | **픽업 EP(#25)의 의존성을 admin의 `SuspendedAllowedOwnerUser`로 바꿔야 함.** 이번 명세 범위 밖이라 4.1절 #25 행·D-4는 **바꾸지 않았음**. 생성·목록·취소는 `CurrentUser` 유지(정지된 고객 차단, admin D8·5.5절) |
+| A-5 | 강제 탈퇴된 고객은 `WITHDRAWN`이라 취소도 401, 정지된 고객은 403 (admin D8·D9, 임시) | 결제하지 않은 `PENDING_PAYMENT` 예약은 D12가 취소 대상에서 제외 → **정지·탈퇴 고객의 `PENDING_PAYMENT` 예약이 재고를 영구 점유**(admin D12 위험 문구, Q-2) | Q-2(결제 제한 시간) 답이 필요. 임시 기본값은 그대로 두고 위험만 유지 |
+| A-6 | `create_reservation_admin()`이 `NoReservationAdmin`을 돌려주는지 단언(admin 테스트 계획) | 해당 팩토리는 admin 구현 때 생김 | reservations 어댑터를 연결하면서 그 단언을 같은 PR에서 교체. 지금은 `src/admin/**`가 없어 할 일 없음(B-16) |
+
+설계 충돌 없음: admin의 요구는 reservations의 전이표(1.2절)와 잠금 순서를 바꾸지 않습니다. 단 A-1은 **새 레포지토리 메서드 1개와 Lifecycle 메서드 1개**, A-2는 **스키마(S-4) 또는 catalog 포트**가 필요합니다.
+
+---
+
+## 14. 구현자 작업 목록 (2026-11-05 확정 반영, `layer-implementer` 발주용)
+
+**근거 결정**: D-26, D-27, D-28(변경 없음), D-29(변경 없음), D-30, Q-21, C-10·C-11(구현 시 수정, 사용자 승인 2026-11-05). R1~R16 준수. 이 절에 없는 항목(C-13, A-1~A-6, S-4 스키마 변경, Q-2, 픽업 EP #25와 `SuspendedAllowedOwnerUser`)은 **이번 구현에서 하지 않습니다**(S-4는 미승인 유지).
+
+| # | 작업 | 위치 | 확인 방법 |
+| --- | --- | --- | --- |
+| W-1 | 취소를 `@router.patch("/reservations/{reservation_id}/cancel")`로 변경, `POST` 제거 (D-26) | `src/reservations/presentation/router.py` | `PATCH`가 200, `POST`가 405 |
+| W-2 | 내 목록 경로를 `/reservations/me`로 변경, 이전 `/users/me/reservations` 제거. 쿼리·응답은 그대로(D-18, D-29) (D-27) | 같음 | `GET /v1/reservations/me` 200, 이전 경로 404 |
+| W-3 | 경로·메서드 단언 갱신(6절 첫 항목), 목록 호출 경로 교체 | `tests/reservations/test_wiring.py`, `test_api_db.py` | 갱신 후 통과 |
+| W-4 | 400 유지(D-28): 코드 변경 없음. 422를 쓰지 않는 것을 테스트로 고정(수량 0·문자열·잘못된 UUID가 400) | `tests/reservations/` | 단언 추가 |
+| W-5 | **D-30**: `ReservationLifecycleService.cancel`이 잠금 안에서 취소 직전 상태로 `RefundTarget`을 만들어(`CancelledReservation`과 같은 방식) 반환하고, `ReservationApplicationService.cancel_reservation`은 잠금 전 `was_paid` 대신 그 값으로만 `refund_for_cancelled_reservation` 호출 여부를 정함. 소유 확인(403)은 계속 잠금 전. 전이표·응답은 불변 | `lifecycle_service.py:60-79`, `service.py:59-85`, `views.py` | fake 테스트: 스냅샷 시점 `PENDING_PAYMENT`, 잠금 시점 `RESERVED`로 바뀌는 경합을 재현하면 환불이 호출됨. 반대로 취소 직전 `PENDING_PAYMENT`면 호출되지 않음. `commits == 1` 유지 |
+| W-6 | **C-10 / Q-21**: `@app.exception_handler(Exception)` 추가. 응답 500 `{"success": false, "error_code": "INTERNAL_SERVER_ERROR", "message": "서버 오류가 발생했습니다."}`, 예외 내용·스택은 응답에 넣지 않고 서버 로그에만 기록. 기존 `ValueError`·`LookupError`·`PermissionError`·409·401 핸들러 응답이 바뀌지 않아야 함 | `src/error_handlers.py` | `RuntimeError`가 500 + 위 본문(`raise_server_exceptions=False`), 기존 응답 불변 |
+| W-7 | **C-11 (catalog 포트)**: `create_reservation_lookup`·`create_reservation_cancel`을 5.1절대로 `OfferReservationLookup`·`OfferReservationCanceller`로 교체, 싱글턴 `_reservation_lookup`·`_reservation_cancel`과 `NoReservation*` import 제거. `tests/catalog/test_wiring.py`의 `NoReservation*` 단언을 새 어댑터 단언으로 교체(깨지는 단언이라 이 승인 범위). 필요하면 미사용이 된 `catalog/infrastructure/reservation_lookup.py`·`reservation_cancel.py` 삭제는 catalog 담당 확인 후(삭제는 이 승인에 포함되지 않음, 보고만) | `src/container.py`, `tests/catalog/test_wiring.py` | `(cd src && uv run python -c "import main")` 성공(생성 순환 없음, R12), `tests/reservations/test_wiring.py`가 새 어댑터 단언 |
+| W-8 | **C-11 (payments `InMemoryReservationPort` 교체)**: payments C-3·C-4를 따름. `ReservationAdapter(lifecycle)`로 `get`·`mark_paid`·`cancel_for_refund` 구현, `get_payment_service`의 `InMemoryReservationPort()` 제거, container 구역에 payments 서비스 팩토리 추가, reservations `create_refund_port`를 payments 서비스 기반 어댑터(`RefundTarget` → 스냅샷 변환, 상태 `RESERVED`)로 교체하고 `NoPaymentRefund` 삭제, `reservation_stub.py` 삭제. **W-5를 먼저 끝낼 것**(결제와 취소의 환불 경합) | `src/payments/**`, `src/container.py`, `src/reservations/infrastructure/payment_refund_stub.py`(삭제), `tests/payments/**`, `tests/reservations/test_wiring.py` | 결제 → `RESERVED` → 취소 → 환불 통합 흐름 테스트, `tests/reservations/test_wiring.py`의 `NoPaymentRefund` 단언 교체(7.1절이 예고한 대로). 이 작업은 payments 모듈을 건드리므로 보고서에 범위 확장으로 표시 |
+
+**쓰기 범위(이 작업 목록 한정)**: 7절 허용 범위 + `src/error_handlers.py`(W-6) + `src/container.py`(W-7·W-8) + `tests/catalog/test_wiring.py`(W-7) + `src/payments/**`·`tests/payments/**`(W-8, 사용자 승인 2026-11-05). `docs/reference/`(C-12)와 `docs/design/admin.md`는 수정하지 않습니다.
+
+**완료 게이트(R16, `backend-invariants` §7)**: `uv run python .claude/skills/layer-check/check_layers.py`(`python3`가 없는 환경에서는 이 형태. 기준선 2건은 W-8에서 payments가 `infrastructure`를 직접 import하는 부분을 함께 고치면 0건이 될 수 있음), `(cd src && uv run python -c "import main")`, `uv run python -m pytest -rs`(이 환경은 `uv run pytest`가 Application Control로 차단됨, B-14). DB 테스트 skip은 통과가 아님: DB가 없으면 "미실행"으로 보고합니다.
 
 ---
 

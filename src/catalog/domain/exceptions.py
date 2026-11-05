@@ -82,6 +82,39 @@ class OfferAlreadyActiveError(ValueError):
     error_code = "OFFER_ALREADY_ACTIVE"
 
 
+class StoreSuspendedError(ValueError):
+    """400 STORE_SUSPENDED (admin.md D17)"""
+
+    error_code = "STORE_SUSPENDED"
+
+
+class OfferSuspendedError(ValueError):
+    """400 OFFER_SUSPENDED: 정지된 할인에 대한 상점주 조작 (admin.md D20)"""
+
+    error_code = "OFFER_SUSPENDED"
+
+    def __init__(self, message: str = "관리자에 의해 정지된 상품입니다."):
+        super().__init__(message)
+
+
+class OfferAlreadySuspendedError(ValueError):
+    """400 OFFER_ALREADY_SUSPENDED"""
+
+    error_code = "OFFER_ALREADY_SUSPENDED"
+
+    def __init__(self, message: str = "이미 정지된 상품입니다."):
+        super().__init__(message)
+
+
+class OfferSalesEndedError(ValueError):
+    """400 OFFER_SALES_ENDED"""
+
+    error_code = "OFFER_SALES_ENDED"
+
+    def __init__(self, message: str = "판매가 종료된 상품입니다."):
+        super().__init__(message)
+
+
 class OfferNotReservableError(ValueError):
     """예약 차감 불가(판매 전·종료·중단·품절). 예약 어댑터가 reservations의 409 OFFER_NOT_RESERVABLE로 번역한다."""
 

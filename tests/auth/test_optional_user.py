@@ -14,6 +14,7 @@ from auth.domain.user import User
 from auth.infrastructure.security import JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
 from auth.presentation.dependencies import OptionalUser, provide_auth_service
+from tests.auth.fakes import FakeClock
 from error_handlers import register_exception_handlers
 
 pytestmark = pytest.mark.anyio
@@ -93,9 +94,9 @@ class FakeBlacklist(TokenBlacklistRepository):
 class CountingService(AuthApplicationService):
     calls = 0
 
-    async def authenticate(self, token):
+    async def authenticate(self, token, **kwargs):
         self.calls += 1
-        return await super().authenticate(token)
+        return await super().authenticate(token, **kwargs)
 
 
 class Env:
@@ -104,7 +105,8 @@ class Env:
         self.blacklist = FakeBlacklist()
         self.tokens = JwtTokenProvider(AuthSettings(secret_key=SECRET))
         self.service = CountingService(
-            FakeSession(), self.users, FakeLogs(), self.blacklist, FakeHasher(), self.tokens
+            FakeSession(), self.users, FakeLogs(), self.blacklist, FakeHasher(), self.tokens,
+            FakeClock(),
         )
         self.user = User.register(
             email="a@b.com", password_hash="x", role="CUSTOMER", name="n", phone=None

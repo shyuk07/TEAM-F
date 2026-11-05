@@ -28,6 +28,7 @@ API 요청·응답 형식은 `docs/reference/`(API 명세서)를 봅니다. 이 
 ```mermaid
 erDiagram
     users ||--o{ point_log : "포인트 내역"
+    users |o--o{ point_log : "지급한 관리자(created_by)"
     users ||--o| stores : "운영(owner_id)"
     users ||--o{ pickup_reservations : "예약"
     users |o--o{ stock_log : "재고 변경 주체"
@@ -48,6 +49,15 @@ erDiagram
         int users_point
         timestamptz created_at
         text business_number
+        varchar status
+        timestamptz approved_at
+        varchar rejected_reason
+        timestamptz rejected_at
+        varchar suspended_reason
+        timestamptz suspended_at
+        timestamptz suspended_until
+        timestamptz deleted_at
+        varchar deleted_reason
     }
     point_log {
         uuid id PK
@@ -55,6 +65,9 @@ erDiagram
         int amount
         text point_type
         timestamptz created_at
+        varchar reason
+        int balance_after
+        uuid created_by FK
     }
     token_blacklist {
         text jti PK
@@ -70,6 +83,9 @@ erDiagram
         timestamptz created_at
         timestamptz approval_at
         timestamptz closed_at
+        varchar suspended_reason
+        timestamptz suspended_at
+        varchar closed_reason
     }
     products {
         uuid id PK
@@ -94,6 +110,8 @@ erDiagram
         varchar status
         bool is_active
         int price
+        varchar suspended_reason
+        timestamptz suspended_at
     }
     stock_log {
         uuid id PK
@@ -152,7 +170,8 @@ erDiagram
 | 자식 테이블.컬럼 | 부모 테이블 | 관계 | NULL | 비고 |
 | --- | --- | --- | --- | --- |
 | `point_log.user_id` | `users` | 1 : N | 불가 | 포인트 적립·사용 내역 |
-| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별) |
+| `point_log.created_by` | `users` | 0..1 : N | 가능 | 관리자 지급(`GRANT`)의 처리 관리자. 시스템 이벤트는 NULL (`docs/design/admin.md` S9) |
+| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별). 별도로 `UNIQUE (name, pickup_address)` `uq_stores_name_address`: 동일한 상점명·주소의 상점 금지, 폐점·정지 상점 포함 (`docs/design/stores.md` D33) |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |
@@ -184,7 +203,7 @@ erDiagram
 | `TIMESTAMPZ` (`stock_log`, `point_log`) | 오타 | `TIMESTAMPTZ` |
 | `products.store_id ... DEFAULT AS` | 문법 오류 | `DEFAULT` 제거 |
 | `stores.approval_at VARCHAR(20)` | API 명세는 "개설 시각"(datetime)으로 사용 | `approval_at TIMESTAMPTZ` |
-| 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 `discount_offers.status`, `point_log.point_type`에 `CHECK` |
+| 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 값에 이름 있는 `CHECK`: `discount_offers.status`(`ck_offer_status`, `SUSPENDED` 포함), `point_log.point_type`(`ck_point_log_type`, `GRANT` 포함), `users.status`(`ck_users_status`) |
 | FK 없음 | 참조 무결성 보장 안 됨 | FK 10개와 인덱스 추가 |
 | PK·`created_at` 기본값 없음 | 앱에서 매번 넣어야 함 | `gen_random_uuid()`, `now()` |
 | 재고·금액 검증 없음 | 음수, 초과 재고 가능 | `remaining_stock BETWEEN 0 AND initial_stock`, 금액 `>= 0`, `quantity >= 1`, `pickup_end > pickup_start` |
@@ -197,7 +216,7 @@ erDiagram
 4. **(해결됨)** `products.name`·`original_price`, `discount_offers.sales_start`는 NOT NULL로 확정했고 `stock_log.reason`을 추가했습니다(`docs/design/catalog.md` S1·S2·S4).
 5. **`pickup_code` 고유 범위:** 전체에서 고유인지, 매장·날짜 안에서만 고유인지.
 6. **매장 재개점:** API 명세상 폐점은 `closed_at` 기록(소프트 삭제)이고 재개점이 가능하지만, 재개점 API와 이력 보관 방식이 정해지지 않았습니다. FK는 기본값(참조 중이면 삭제 불가)입니다.
-7. **상점주 승인 상태:** API 명세에 "승인 대기 중인 상점주 계정(403)"이 있지만 `users`에 저장할 컬럼이 없습니다.
+7. **(해결됨)** 상점주 승인 상태: `users.status`(`PENDING`/`APPROVED`/`REJECTED`/`SUSPENDED`/`WITHDRAWN`)와 승인·거부·정지·탈퇴 시각·사유 컬럼을 추가했습니다. 관리자 정지용으로 `stores`·`discount_offers`에 `suspended_*`, `stores.closed_reason`, `point_log`에 `reason`·`balance_after`·`created_by`도 추가했습니다(`docs/design/admin.md` §2 S1~S11, D3). `create_all`은 이미 있는 테이블에 컬럼을 더하지 않으므로, 기존 개발 DB는 다시 만들거나 같은 문서 §2.4의 `ALTER`를 실행합니다.
 
 ## 6. SQLAlchemy 매핑 규칙
 ```python

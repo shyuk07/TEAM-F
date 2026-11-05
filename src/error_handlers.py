@@ -5,6 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from auth.domain.exceptions import AuthenticationError, EmailDuplicatedError
 from reservations.domain.exceptions import ReservationConflictError
+from stores.domain.exceptions import GeocodingUnavailableError
 
 _HTTP_CODES = {
     401: "UNAUTHORIZED",
@@ -34,6 +35,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ReservationConflictError)
     async def reservation_conflict(request: Request, exc: ReservationConflictError):
         return _response(409, exc.error_code, str(exc))
+
+    @app.exception_handler(GeocodingUnavailableError)
+    async def geocoding_unavailable(request: Request, exc: GeocodingUnavailableError):
+        return _response(503, exc.error_code, str(exc))
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):

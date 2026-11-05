@@ -53,7 +53,7 @@ class FakeClock(Clock):
 
 
 class FakeStoreInfo:
-    def __init__(self, owner_id, approval_at=NOW, closed_at=None):
+    def __init__(self, owner_id, approval_at=NOW, closed_at=None, suspended_at=None):
         self.id = uuid.uuid4()
         self.owner_id = owner_id
         self.name = "상점A"
@@ -62,6 +62,7 @@ class FakeStoreInfo:
         self.longitude = 127.0
         self.approval_at = approval_at
         self.closed_at = closed_at
+        self.suspended_at = suspended_at
 
 
 class FakeStores:
@@ -99,6 +100,12 @@ class FakeProducts(ProductRepository):
         ]
         return rows[(page - 1) * size : page * size], len(rows)
 
+    async def find_all_by_store_for_update(self, store_id):
+        self.events.append("products_lock_all")
+        return sorted(
+            (p for p in self.items.values() if p.store_id == store_id), key=lambda p: p.id
+        )
+
     async def save(self, product):
         if product.id is None:
             product.id = uuid.uuid4()
@@ -132,6 +139,14 @@ class FakeOffers(DiscountOfferRepository):
 
     async def exists_open_by_store(self, store_id, now):
         return any(o.is_open(now) for o in self.items.values())
+
+    async def find_open_by_store_for_update(self, store_id, now):
+        self.events.append("offers_lock_open")
+        pids = {p.id for p in self.products.items.values() if p.store_id == store_id}
+        return sorted(
+            (o for o in self.items.values() if o.product_id in pids and o.is_open(now)),
+            key=lambda o: o.id,
+        )
 
     async def find_by_store(self, store_id, *, statuses, now, page, size):
         self.last_statuses = tuple(statuses)
@@ -523,20 +538,20 @@ async def test_has_open_offers_for_store(ctx):
 
 # ── #9 목록 기본 상태 (D25) ──
 async def test_list_offers_default_statuses(ctx):
-    await ctx.service.list_offers_by_store(ctx.store.id, None, 1, 20)
+    await ctx.service.list_offers_by_store(None, ctx.store.id, None, 1, 20)
     assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES
-    await ctx.service.list_offers_by_store(ctx.store.id, [], 1, 20)
+    await ctx.service.list_offers_by_store(None, ctx.store.id, [], 1, 20)
     assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES
 
 
 async def test_list_offers_dedup_and_explicit(ctx):
     S = OfferStatus
-    await ctx.service.list_offers_by_store(ctx.store.id, [S.CLOSED, S.ON_SALE, S.CLOSED], 1, 20)
+    await ctx.service.list_offers_by_store(None, ctx.store.id, [S.CLOSED, S.ON_SALE, S.CLOSED], 1, 20)
     assert ctx.offers.last_statuses == (S.CLOSED, S.ON_SALE)
-    await ctx.service.list_offers_by_store(ctx.store.id, [S.ON_SALE], 1, 20)
+    await ctx.service.list_offers_by_store(None, ctx.store.id, [S.ON_SALE], 1, 20)
     assert ctx.offers.last_statuses == (S.ON_SALE,)
     with pytest.raises(StoreNotFoundError):
-        await ctx.service.list_offers_by_store(uuid.uuid4(), None, 1, 20)
+        await ctx.service.list_offers_by_store(None, uuid.uuid4(), None, 1, 20)
 
 
 # ── #11 할인 수정 (D26~D30) ──
@@ -625,7 +640,7 @@ async def test_offer_detail_ok_and_no_commit():
     o = await c.service.register_offer(c.owner, p.id, c.offer_data())
     commits = c.session.commits
     c.products.locked.clear()
-    d = await c.service.get_offer_detail(o.offer.id)
+    d = await c.service.get_offer_detail(None, o.offer.id)
     assert c.session.commits == commits and not c.products.locked
     assert d.view.offer.id == o.offer.id
     assert d.description == "식빵" and d.product_image == ["https://e.com/a.jpg"]
@@ -638,12 +653,12 @@ async def test_offer_detail_ok_and_no_commit():
 async def test_offer_detail_not_found_and_store_missing():
     c = Ctx()
     with pytest.raises(OfferNotFoundError):
-        await c.service.get_offer_detail(uuid.uuid4())
+        await c.service.get_offer_detail(None, uuid.uuid4())
     p = await c.product()
     o = await c.service.register_offer(c.owner, p.id, c.offer_data())
     c.stores.items.clear()
     with pytest.raises(OfferNotFoundError, match="할인 판매를 찾을 수 없습니다."):
-        await c.service.get_offer_detail(o.offer.id)
+        await c.service.get_offer_detail(None, o.offer.id)
 
 
 async def test_offer_detail_visible_when_closed_product_inactive_store_closed_no_coords():
@@ -655,6 +670,6 @@ async def test_offer_detail_visible_when_closed_product_inactive_store_closed_no
     c.store.closed_at = NOW
     c.store.latitude = None
     c.store.longitude = None
-    d = await c.service.get_offer_detail(o.offer.id)
+    d = await c.service.get_offer_detail(None, o.offer.id)
     assert d.view.status == OfferStatus.CLOSED and d.view.offer.is_active is False
     assert d.latitude is None and d.longitude is None and d.description is None

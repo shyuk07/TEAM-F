@@ -1,10 +1,20 @@
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from catalog.application.views import DeactivateOfferResult, OfferDetailView, OfferView, StockAdjustResult
 from catalog.domain.discount_offer import OfferStatus
+
+
+class PublicOfferStatus(StrEnum):
+    """공개 목록 status 필터 허용 값. SUSPENDED는 허용하지 않는다 (admin.md D20)."""
+
+    SCHEDULED = "SCHEDULED"
+    ON_SALE = "ON_SALE"
+    SOLD_OUT = "SOLD_OUT"
+    CLOSED = "CLOSED"
 
 
 class ProductCreateRequest(BaseModel):
@@ -110,7 +120,9 @@ class OfferResponse(BaseModel):
     sales_end: datetime
     pickup_start: datetime
     pickup_end: datetime
-    status: OfferStatus = Field(..., description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED")
+    status: OfferStatus = Field(
+        ..., description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED / SUSPENDED(소유자에게만 보임)"
+    )
     is_active: bool = Field(..., description="활성 여부")
 
     @classmethod

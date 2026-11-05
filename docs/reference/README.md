@@ -14,6 +14,7 @@
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
 | [payments.md](payments.md) | `src/payments` 결제·환불 | 4 |
+| [admin.md](admin.md) | `src/admin` 관리자 기능 | 9 |
 
 DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
@@ -51,6 +52,15 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 27 | payments | [결제 정보 조회](payments.md#2-결제-정보-조회) | GET | `/v1/payments/{payment_id}` | 회원(본인) | 200 |
 | 28 | payments | [환불 요청](payments.md#3-환불-요청) | POST | `/v1/payments/{payment_id}/refunds` | 회원(본인) | 201 |
 | 29 | payments | [환불 정보 조회](payments.md#4-환불-정보-조회) | GET | `/v1/refunds/{refund_id}` | 회원(본인) | 200 |
+| 30 | admin | [상점주 계정 승인](admin.md#1-상점주-계정-승인) | PATCH | `/v1/admin/owners/{owner_id}/approve` | 관리자 | 200 |
+| 31 | admin | [상점주 계정 거부](admin.md#2-상점주-계정-거부) | PATCH | `/v1/admin/owners/{owner_id}/reject` | 관리자 | 200 |
+| 32 | admin | [회원 정지](admin.md#3-회원-정지) | PATCH | `/v1/admin/users/{user_id}/suspend` | 관리자 | 200 |
+| 33 | admin | [회원 강제 탈퇴](admin.md#4-회원-강제-탈퇴) | DELETE | `/v1/admin/users/{user_id}` | 관리자 | 200 |
+| 34 | admin | [상점 정지](admin.md#5-상점-정지) | PATCH | `/v1/admin/stores/{store_id}/suspend` | 관리자 | 200 |
+| 35 | admin | [상점 강제 폐점](admin.md#6-상점-강제-폐점) | PATCH | `/v1/admin/stores/{store_id}/close` | 관리자 | 200 |
+| 36 | admin | [할인 상품 정지](admin.md#7-할인-상품-정지) | PATCH | `/v1/admin/offers/{offer_id}/suspend` | 관리자 | 200 |
+| 37 | admin | [회원 포인트 잔액·이력 조회](admin.md#8-회원-포인트-잔액이력-조회) | GET | `/v1/admin/users/{user_id}/points` | 관리자 | 200 |
+| 38 | admin | [회원 포인트 지급](admin.md#9-회원-포인트-지급) | POST | `/v1/admin/users/{user_id}/points` | 관리자 | 201 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -87,11 +97,13 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 ### 상태 값
 | 대상 | 값 | 출처 |
 | --- | --- | --- |
-| 할인 `discount_offers.status` | `SCHEDULED`, `ON_SALE`, `SOLD_OUT`, `CLOSED` | 할인 API |
+| 회원 `users.status` | `PENDING`(승인 대기 상점주), `APPROVED`, `REJECTED`, `SUSPENDED`, `WITHDRAWN`. 상점주는 가입 시 `PENDING`, 그 외 `APPROVED` | 관리자 API ([admin.md](admin.md#공통)) |
+| 상점 (저장 안 함, 날짜로 계산) | `ACTIVE`, `SUSPENDED`, `CLOSED`. `closed_at` → `CLOSED`가 `suspended_at` → `SUSPENDED`보다 우선 | 관리자 API |
+| 할인 `discount_offers.status` | `SCHEDULED`, `ON_SALE`, `SOLD_OUT`, `CLOSED`, `SUSPENDED`(관리자 정지) | 할인 API, 관리자 API |
 | 예약 `pickup_reservations.status` | `PENDING_PAYMENT`, `RESERVED`(?), `CANCELLED`, `PICKED_UP` | 예약 API (**확인 필요**: `RESERVED`와 결제 완료 상태의 관계) |
 | 결제 `payments.status` | `READY`, `PAID` (+ 실패 상태?) | 결제 요청, 포인트 정책 |
 | 환불 `refunds.status` | `COMPLETED` (+ 다른 상태?) | 환불 API |
-| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE` | 포인트 내역 조회 |
+| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE`, `GRANT`(관리자 지급) | 포인트 내역 조회, 관리자 포인트 지급 |
 
 ### 포인트 정책 (노션 포인트 내역 조회 페이지)
 별도 API 없이 payments 서비스가 내부에서 처리합니다.
@@ -147,13 +159,13 @@ ISO 8601에 시간대를 붙입니다. 예: `2026-10-29T18:00:00+09:00`
 
 ### auth
 6. **로그인:** 노션 명세(JSON, `email`)를 따릅니다. 응답 필드가 비어 있어 `access_token`, `token_type`으로 적었습니다. Swagger는 Authorize에 토큰을 붙여 넣어 사용합니다.
-7. **상점주 역할 값**과 **상점주 승인 상태 저장 위치:** 상점 API에 "승인 대기 중인 상점주 계정(403)"이 있는데 `users` 테이블에 승인 상태 컬럼이 없습니다.
+7. **상점주 역할 값**과 **상점주 승인 상태 저장 위치:** 상점 API에 "승인 대기 중인 상점주 계정(403)"이 있는데 `users` 테이블에 승인 상태 컬럼이 없습니다. (승인 상태 저장 위치는 해결됨: `users.status`, [admin.md](admin.md#공통). 역할 값 이름은 코드가 `OWNER`를 쓰며 팀 확정은 남음)
 8. **상점주 가입 정보:** 상점명은 "가입 시 등록한 상호(`name`)"를 쓴다고 되어 있습니다. 회원가입 요청에 `business_number`가 없습니다.
 
 ### stores
 9. **`approval_at`:** 노션은 "개설 시각"(datetime)으로 쓰는데 ERD는 `VARCHAR(20)`입니다. `db-schema` 스킬은 `TIMESTAMPTZ`로 맞췄습니다.
 10. **재개점:** "폐점한 상점은 재개점할 수 있다"고 되어 있지만 API가 없습니다.
-11. **관리자 승인 API 없음:** 상점주 계정을 승인하는 API가 없습니다.
+11. ~~**관리자 승인 API 없음:** 상점주 계정을 승인하는 API가 없습니다.~~ (해결됨: [admin.md 1번](admin.md#1-상점주-계정-승인), 승인 상태는 `users.status`)
 
 ### catalog
 12. **상품 검색 응답:** 상품 필드 없이 `store_name`, `distance`, `unit`, `has_active_offer`만 있습니다.

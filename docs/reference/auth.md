@@ -45,9 +45,12 @@
   "phone": "010-1234-5678",
   "role": "CUSTOMER",
   "users_point": 0,
-  "created_at": "2026-10-29T18:00:00+09:00"
+  "created_at": "2026-10-29T18:00:00+09:00",
+  "status": "APPROVED"
 }
 ```
+
+- `status`: 계정 상태. 상점주(`OWNER`)는 `PENDING`(승인 대기)으로 가입되고, 관리자가 [승인](admin.md#1-상점주-계정-승인)해야 상점을 개설할 수 있다. 그 외 역할은 `APPROVED`.
 
 **에러**
 | HTTP | error_code | 상황 |
@@ -59,7 +62,7 @@
 { "success": false, "error_code": "EMAIL_DUPLICATED", "message": "이미 가입된 이메일입니다." }
 ```
 
-> **확인 필요:** 상점주 `role` 값 이름, 상점주 가입 시 `business_number` 입력 여부, 상점주 승인 대기 상태를 어디에 저장할지
+> **확인 필요:** 상점주 `role` 값 이름(코드는 `OWNER`), 상점주 가입 시 `business_number` 입력 여부. (승인 대기 상태 저장 위치는 해결됨: `users.status`)
 
 ---
 
@@ -88,15 +91,21 @@
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
+  "token_type": "bearer",
+  "status": "APPROVED"
 }
 ```
+
+- `status`: 로그인 시점의 계정 상태 `APPROVED` / `PENDING` / `REJECTED` / `SUSPENDED`. 정지 기간이 끝났으면 `APPROVED`. 정지 사유·기간은 응답에 없다. JWT 클레임은 바뀌지 않는다.
+- 승인 대기·거부된 상점주는 로그인할 수 있다(상점 개설은 403).
+- **정지된 상점주는 로그인할 수 있고** `status: "SUSPENDED"`를 받는다(정지 중 픽업 처리를 위한 설계 D35·D39). 단 보호 API는 403이다. 정지된 고객은 로그인 자체가 403이다(아래 표).
 
 **에러**
 | HTTP | error_code | 상황 |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | `email` 또는 `password` 누락 (form 등 JSON이 아닌 본문 포함) |
-| 401 | `INVALID_CREDENTIALS` | 이메일 또는 비밀번호 불일치 |
+| 401 | `INVALID_CREDENTIALS` | 이메일 또는 비밀번호 불일치, **탈퇴한 회원**(없는 계정과 같은 응답) |
+| 403 | `FORBIDDEN` | 정지된 고객 계정 ("정지된 계정입니다.") |
 
 ```json
 { "success": false, "error_code": "INVALID_CREDENTIALS", "message": "이메일 또는 비밀번호가 올바르지 않습니다." }
@@ -155,19 +164,25 @@
   "phone": "010-1234-5678",
   "role": "CUSTOMER",
   "users_point": 1540,
-  "created_at": "2026-10-29T18:00:00+09:00"
+  "created_at": "2026-10-29T18:00:00+09:00",
+  "status": "APPROVED"
 }
 ```
+
+- `status`: 계정 상태 (`PENDING` / `APPROVED` / `REJECTED` / `SUSPENDED` / `WITHDRAWN`).
 
 **에러**
 | HTTP | error_code | 상황 |
 | --- | --- | --- |
-| 401 | `UNAUTHORIZED` | 토큰 없음 또는 만료 |
+| 401 | `UNAUTHORIZED` | 토큰 없음 또는 만료, 탈퇴한 회원의 토큰 |
 | 401 | `TOKEN_REVOKED` | 로그아웃된 토큰 |
+| 403 | `FORBIDDEN` | 정지된 계정 |
 
 ```json
 { "success": false, "error_code": "UNAUTHORIZED", "message": "로그인이 필요합니다." }
 ```
+
+> **정지·탈퇴 회원 (모든 보호 API 공통):** 로그인이 필요한 모든 API는 정지된 회원에게 403 `FORBIDDEN` "정지된 계정입니다.", 탈퇴한 회원의 토큰에 401 `UNAUTHORIZED` "유효하지 않은 토큰입니다."를 반환한다. 관리자 정지·탈퇴는 [admin.md](admin.md) 3·4번.
 
 ---
 

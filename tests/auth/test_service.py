@@ -17,6 +17,7 @@ from auth.domain.service import PasswordHasher
 from auth.domain.user import Role, User
 from auth.infrastructure.security import JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
+from tests.auth.fakes import FakeClock
 
 pytestmark = pytest.mark.anyio
 
@@ -113,7 +114,8 @@ class FakeBlacklist(TokenBlacklistRepository):
 def build(race=False):
     db = FakeSession()
     parts = dict(users=FakeUsers(race), point_logs=FakeLogs(), blacklist=FakeBlacklist(),
-                 hasher=FakeHasher(), tokens=JwtTokenProvider(AuthSettings(secret_key="k" * 40)))
+                 hasher=FakeHasher(), tokens=JwtTokenProvider(AuthSettings(secret_key="k" * 40)),
+                 clock=FakeClock())
     return AuthApplicationService(db, **parts), db, parts
 
 
@@ -153,8 +155,9 @@ async def test_signup_race_rolls_back():
 async def test_login_paths():
     svc, _, p = build()
     await svc.signup("a@b.com", "password1", "CUSTOMER")
-    token = await svc.login("  A@b.com", "password1")
-    assert (await svc.authenticate(token)).user.email == "a@b.com"
+    result = await svc.login("  A@b.com", "password1")
+    assert result.status == "APPROVED"
+    assert (await svc.authenticate(result.token)).user.email == "a@b.com"
     with pytest.raises(InvalidCredentialsError) as e1:
         await svc.login("a@b.com", "wrongpass1")
     with pytest.raises(InvalidCredentialsError) as e2:
@@ -166,7 +169,7 @@ async def test_login_paths():
 async def test_authenticate_revoked_and_unknown_user():
     svc, db, p = build()
     await svc.signup("a@b.com", "password1", "CUSTOMER")
-    token = await svc.login("a@b.com", "password1")
+    token = (await svc.login("a@b.com", "password1")).token
     principal = await svc.authenticate(token)
     await svc.logout(principal.claims)
     with pytest.raises(TokenRevokedError):

@@ -13,7 +13,13 @@ class StoreRepository(ABC):
     async def find_by_ids(self, store_ids: Sequence[uuid.UUID]) -> list[Store]: ...
 
     @abstractmethod
-    async def find_by_owner_id(self, owner_id: uuid.UUID) -> Store | None: ...
+    async def find_by_owner_id(
+        self, owner_id: uuid.UUID, for_update: bool = False
+    ) -> Store | None: ...
+
+    @abstractmethod
+    async def exists_by_name_and_address(self, name: str, pickup_address: str) -> bool:
+        """정규화된 값의 정확 일치. 폐점·정지 상점도 포함한다."""
 
     @abstractmethod
     async def save(self, store: Store) -> Store: ...

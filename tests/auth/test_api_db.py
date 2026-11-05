@@ -17,6 +17,7 @@ from auth.infrastructure.repositories import (
 from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
 from auth.infrastructure.settings import get_auth_settings
 from main import app, seed_admin
+from auth.infrastructure.clock import SystemClock
 from tests.helpers import bearer, login, signup, token_for
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
@@ -30,6 +31,7 @@ def auth_service(db):
         SqlAlchemyTokenBlacklistRepository(db),
         BcryptPasswordHasher(),
         JwtTokenProvider(),
+        SystemClock(),
     )
 
 

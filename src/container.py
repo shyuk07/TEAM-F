@@ -3,11 +3,19 @@
 from fastapi import Depends, FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from admin.application.ports import ReservationAdminPort
+from admin.application.service import AdminApplicationService
+from admin.domain.service import Clock as AdminClock
+from admin.infrastructure.clock import SystemClock as AdminSystemClock
+from admin.infrastructure.reservation_admin import NoReservationAdmin
+from admin.presentation.dependencies import provide_admin_service
 from auth.application.service import AuthApplicationService
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
+from auth.domain.service import Clock as AuthClock
 from auth.domain.service import PasswordHasher, TokenProvider
+from auth.infrastructure.clock import SystemClock as AuthSystemClock
 from auth.infrastructure.repositories import (
     SqlAlchemyPointLogRepository,
     SqlAlchemyTokenBlacklistRepository,
@@ -67,22 +75,34 @@ from payments.infrastructure.repositories import (
     SqlAlchemyRefundRepository,
 )
 from payments.presentation.dependencies import provide_payment_service
+from stores.application.ports import OpenOffersPort, PickupPendingPort
+from stores.application.query_service import StoreQueryService
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
 from stores.domain.service import Clock as StoresClock
+from stores.domain.service import Geocoder
 from stores.infrastructure.clock import SystemClock
+from stores.infrastructure.geocoder import NaverGeocoder
+from stores.infrastructure.pickup_pending import NoPickupPendingReservations
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
+from stores.infrastructure.settings import get_naver_geocoding_settings
 from stores.presentation.dependencies import provide_store_repository, provide_stores_service
 
 # 상태 없는 유틸은 싱글턴 (세션을 가진 객체는 요청마다 만든다)
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
+_auth_clock: AuthClock = AuthSystemClock()
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
+_pickup_pending: PickupPendingPort = NoPickupPendingReservations()  # 임시 미연계 (stores.md D21): reservations 후속 PR이 교체
+# 네이버 지오코딩: NAVER_MAP_* 환경변수가 없으면 개설이 503 (stores.md D28)
+_geocoder: Geocoder = NaverGeocoder(get_naver_geocoding_settings())
+_admin_clock: AdminClock = AdminSystemClock()
+_reservation_admin: ReservationAdminPort = NoReservationAdmin()  # 임시 (admin.md B-6, C10): reservations 후속 PR이 교체
 
 
 # ── auth ─────────────────────────────
@@ -113,6 +133,7 @@ def create_auth_service(
         blacklist=blacklist,
         hasher=_password_hasher,
         tokens=_token_provider,
+        clock=_auth_clock,
     )
 
 
@@ -131,11 +152,10 @@ def create_store_repository(session: AsyncSession = Depends(get_db)) -> StoreRep
     return SqlAlchemyStoreRepository(session)
 
 
-def create_stores_service(
-    session: AsyncSession = Depends(get_db),
+def create_store_query_service(
     stores: StoreRepository = Depends(create_store_repository),
-) -> StoresApplicationService:
-    return StoresApplicationService(session=session, stores=stores, clock=_stores_clock)
+) -> StoreQueryService:
+    return StoreQueryService(stores=stores)
 
 
 # ── catalog ──────────────────────────
@@ -154,9 +174,9 @@ def create_stock_log_repository(session: AsyncSession = Depends(get_db)) -> Stoc
 
 
 def create_store_port(
-    stores_service: StoresApplicationService = Depends(create_stores_service),
+    query: StoreQueryService = Depends(create_store_query_service),
 ) -> StorePort:
-    return stores_service
+    return query
 
 
 def create_reservation_lookup() -> ReservationLookupPort:
@@ -188,6 +208,38 @@ def create_catalog_service(
         clock=_catalog_clock,
         reservations=reservations,
         reservation_cancel=reservation_cancel,
+    )
+
+
+# ── stores (쓰기: catalog 뒤에 정의, R12) ──
+def create_open_offers_port(
+    catalog: CatalogApplicationService = Depends(create_catalog_service),
+) -> OpenOffersPort:
+    return catalog
+
+
+def create_pickup_pending_port() -> PickupPendingPort:
+    return _pickup_pending
+
+
+def create_geocoder() -> Geocoder:
+    return _geocoder
+
+
+def create_stores_service(
+    session: AsyncSession = Depends(get_db),
+    stores: StoreRepository = Depends(create_store_repository),
+    open_offers: OpenOffersPort = Depends(create_open_offers_port),
+    pickup_pending: PickupPendingPort = Depends(create_pickup_pending_port),
+    geocoder: Geocoder = Depends(create_geocoder),
+) -> StoresApplicationService:
+    return StoresApplicationService(
+        session=session,
+        stores=stores,
+        clock=_stores_clock,
+        open_offers=open_offers,
+        pickup_pending=pickup_pending,
+        geocoder=geocoder,
     )
 
 
@@ -292,6 +344,28 @@ def create_reservation_refund_port(
     return PaymentRefundAdapter(payments)
 
 
+# ── admin ────────────────────────────
+def create_reservation_admin() -> ReservationAdminPort:
+    return _reservation_admin
+
+
+def create_admin_service(
+    session: AsyncSession = Depends(get_db),
+    accounts: AuthApplicationService = Depends(create_auth_service),
+    stores: StoresApplicationService = Depends(create_stores_service),
+    offers: CatalogApplicationService = Depends(create_catalog_service),
+    reservations: ReservationAdminPort = Depends(create_reservation_admin),
+) -> AdminApplicationService:
+    return AdminApplicationService(
+        session=session,
+        accounts=accounts,
+        stores=stores,
+        offers=offers,
+        reservations=reservations,
+        clock=_admin_clock,
+    )
+
+
 def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
@@ -304,6 +378,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_reservation_cancel: create_catalog_reservation_canceller,
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
+            provide_admin_service: create_admin_service,
             provide_payment_service: create_payment_service,
             # 중첩 Depends도 override가 적용된다: create_reservation_service가 받는 RefundPort를 결제 어댑터로 교체
             create_refund_port: create_reservation_refund_port,

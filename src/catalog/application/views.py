@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from catalog.domain.discount_offer import CancelPolicy, DiscountOffer, OfferStatus
 from catalog.domain.product import Product
@@ -41,6 +42,18 @@ class StockAdjustResult:
 class DeactivateOfferResult:
     view: OfferView
     cancelled_reservation_count: int
+
+
+@dataclass(frozen=True)
+class OfferSuspensionView:
+    """suspend_offer 결과. admin.md 6.2 EP 7 응답 필드(id, store_id, title, status, suspended_*)와 같은 평평한 속성."""
+
+    id: uuid.UUID
+    store_id: uuid.UUID
+    title: str  # 상품명
+    status: OfferStatus
+    suspended_reason: str
+    suspended_at: datetime
 
 
 @dataclass(frozen=True)

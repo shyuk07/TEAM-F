@@ -110,10 +110,11 @@ def test_points():
 
 def test_point_log_rules():
     uid = uuid.uuid4()
-    assert PointLog.record(uid, PointType.EARN, 10).created_at.tzinfo is not None
-    PointLog.record(uid, PointType.USE, -10)
-    PointLog.record(uid, PointType.REVOKE, -1)
-    PointLog.record(uid, PointType.RESTORE, 1)
+    assert PointLog.record(uid, PointType.EARN, 10, 10).created_at.tzinfo is not None
+    PointLog.record(uid, PointType.USE, -10, 0)
+    PointLog.record(uid, PointType.REVOKE, -1, 0)
+    PointLog.record(uid, PointType.RESTORE, 1, 1)
+    PointLog.record(uid, PointType.GRANT, 5, 5)
     for t, a in [(PointType.EARN, -1), (PointType.RESTORE, -1), (PointType.USE, 1),
                  (PointType.REVOKE, 1), (PointType.EARN, 0)]:
         with pytest.raises(ValueError):
@@ -123,7 +124,7 @@ def test_point_log_rules():
 
 
 def test_point_log_immutable():
-    log = PointLog.record(uuid.uuid4(), PointType.EARN, 10)
+    log = PointLog.record(uuid.uuid4(), PointType.EARN, 10, 10)
     with pytest.raises(AttributeError):
         log.amount = 5
     log.id = uuid.uuid4()  # 영속화 시 최초 1회만 허용

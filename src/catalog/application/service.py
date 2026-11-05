@@ -12,6 +12,7 @@ from catalog.application.ports import (
 from catalog.application.views import (
     DeactivateOfferResult,
     OfferDetailView,
+    OfferSuspensionView,
     OfferView,
     Page,
     ProductDetailView,
@@ -85,7 +86,9 @@ class CatalogApplicationService:
         )
 
     # ── 읽기 ──────────────────────────────
-    async def get_offer_detail(self, offer_id: uuid.UUID) -> OfferDetailView:
+    async def get_offer_detail(
+        self, viewer_id: uuid.UUID | None, offer_id: uuid.UUID
+    ) -> OfferDetailView:
         now = self.clock.now()
         found = await self.offers.find_with_product(offer_id)
         if found is None:
@@ -95,6 +98,10 @@ class CatalogApplicationService:
         if info is None:
             raise OfferNotFoundError()  # 명세 §10·D56: 404는 "할인 판매를 찾을 수 없습니다." 하나
         store = StoreRef.from_info(info)
+        # D17·D20: 정지된 상점·정지된 할인은 소유자 외 404. 명세 D56대로 404 문구는 하나다.
+        is_owner = store.is_owned_by(viewer_id)
+        if not store.is_visible_to(viewer_id) or not offer.is_visible(now, viewer_is_owner=is_owner):
+            raise OfferNotFoundError()
         return OfferDetailView(
             view=self._offer_view(offer, product, store.name, now),
             description=product.description,
@@ -289,6 +296,7 @@ class CatalogApplicationService:
         size: int,
     ) -> Page[Product]:
         store = await self._load_store(store_id)
+        store.ensure_visible_to(viewer_id)
         if not is_active and not store.is_owned_by(viewer_id):
             raise NotStoreOwnerError("본인 상점의 비활성 상품만 조회할 수 있습니다.")  # D6
         items, total = await self.products.find_by_store(
@@ -299,15 +307,22 @@ class CatalogApplicationService:
     async def get_product(self, viewer_id: uuid.UUID | None, product_id: uuid.UUID) -> ProductDetailView:
         product = await self._get_product(product_id)
         store = await self._load_store(product.store_id)
+        store.ensure_visible_to(viewer_id)
         if not product.is_active and not store.is_owned_by(viewer_id):
             raise ProductNotFoundError()  # D7
         return ProductDetailView(product=product, store_name=store.name, pickup_address=store.pickup_address)
 
     async def list_offers_by_store(
-        self, store_id: uuid.UUID, statuses: Sequence[OfferStatus] | None, page: int, size: int
+        self,
+        viewer_id: uuid.UUID | None,
+        store_id: uuid.UUID,
+        statuses: Sequence[OfferStatus] | None,
+        page: int,
+        size: int,
     ) -> Page[OfferView]:
         now = self.clock.now()
         store = await self._load_store(store_id)
+        store.ensure_visible_to(viewer_id)
         selected = tuple(dict.fromkeys(statuses)) if statuses else OPEN_OFFER_STATUSES
         rows, total = await self.offers.find_by_store(
             store_id, statuses=selected, now=now, page=page, size=size
@@ -318,3 +333,43 @@ class CatalogApplicationService:
     async def has_open_offers_for_store(self, store_id: uuid.UUID, *, now: datetime | None = None) -> bool:
         current = now if now is not None else self.clock.now()
         return await self.offers.exists_open_by_store(store_id, current)
+
+    # ── 관리자용 (admin 모듈이 OfferAdminPort로 호출, admin.md 5.2·5.3) ──
+    async def suspend_offer(
+        self, offer_id: uuid.UUID, reason: str, *, now: datetime, commit: bool = True
+    ) -> OfferSuspensionView:
+        # 잠금 순서: product -> offer (D34). product_id를 얻으려고 먼저 잠금 없이 읽는다.
+        old = await self.offers.find_by_id(offer_id)
+        if old is None:
+            raise OfferNotFoundError()
+        product = await self._get_product(old.product_id, for_update=True)
+        offer = await self.offers.find_by_id(offer_id, for_update=True)
+        if offer is None:
+            raise OfferNotFoundError()
+        offer.suspend(reason, now)
+        await self.offers.save(offer)
+        if commit:
+            await self.session.commit()
+        return OfferSuspensionView(
+            id=offer.id,
+            store_id=product.store_id,
+            title=product.name,
+            status=offer.effective_status(now),
+            suspended_reason=offer.suspended_reason,
+            suspended_at=offer.suspended_at,
+        )
+
+    async def end_all_sales_of_store(
+        self, store_id: uuid.UUID, *, now: datetime, commit: bool = True
+    ) -> int:
+        """상점의 진행 중 할인을 모두 종료하고 종료한 수를 돌려준다. 재고·stock_log는 건드리지 않는다 (D18)."""
+        await self.products.find_all_by_store_for_update(store_id)  # product -> offer 순서 (D34)
+        offers = await self.offers.find_open_by_store_for_update(store_id, now)
+        ended = 0
+        for offer in offers:
+            if offer.end_sale(now):
+                await self.offers.save(offer)
+                ended += 1
+        if commit:
+            await self.session.commit()
+        return ended
