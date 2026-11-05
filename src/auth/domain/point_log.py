@@ -40,13 +40,6 @@ class PointLog:
             raise ValueError("사용·회수·소멸 내역의 금액은 음수여야 합니다.")
         if balance_after is not None and balance_after < 0:
             raise ValueError("변경 후 잔액은 0 이상이어야 합니다.")
-        if point_type is PointType.EXPIRE and balance_after != 0:
-            raise ValueError("소멸 내역의 변경 후 잔액은 0이어야 합니다.")
-        if point_type is PointType.GRANT:
-            if not reason or created_by is None:
-                raise ValueError("지급 내역에는 사유와 처리자가 필요합니다.")
-        elif reason is not None or created_by is not None:
-            raise ValueError("지급 외 내역에는 사유·처리자를 둘 수 없습니다.")
         if created_at is not None and created_at.tzinfo is None:
             raise ValueError("created_at은 timezone 정보가 있어야 합니다.")
         object.__setattr__(self, "id", id)
@@ -78,6 +71,14 @@ class PointLog:
         """신규 기록. balance_after(변경 후 잔액)는 필수다 (D23)."""
         if balance_after is None:
             raise ValueError("변경 후 잔액은 필수입니다.")
+        # 유형별 불변식은 새 내역에만 건다. DB 복원(생성자 직접 호출)은 기존 행을 읽을 수 있게 검사하지 않는다.
+        if point_type is PointType.EXPIRE and balance_after != 0:
+            raise ValueError("소멸 내역의 변경 후 잔액은 0이어야 합니다.")
+        if point_type is PointType.GRANT:
+            if not reason or created_by is None:
+                raise ValueError("지급 내역에는 사유와 처리자가 필요합니다.")
+        elif reason is not None or created_by is not None:
+            raise ValueError("지급 외 내역에는 사유·처리자를 둘 수 없습니다.")
         return cls(
             user_id,
             amount,

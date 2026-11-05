@@ -38,17 +38,28 @@ class PasswordResetCode:
 
     @classmethod
     def issue(
-        cls, user_id: uuid.UUID, raw_code: str, hasher: PasswordHasher, now: datetime
+        cls,
+        user_id: uuid.UUID,
+        raw_code: str,
+        hasher: PasswordHasher,
+        now: datetime,
+        previous: "PasswordResetCode | None" = None,
     ) -> "PasswordResetCode":
+        """새 코드 발급. 이전 코드가 아직 만료 전이면 실패 횟수를 이어받는다.
+
+        재요청으로 5회 제한을 초기화하는 추측 공격을 막기 위해서다. 이미 5회면 새 코드도 잠긴 상태다.
+        이전 코드가 없거나 만료됐으면 0에서 시작한다.
+        """
         if not cls.is_valid_format(raw_code):
             raise ValueError(f"재설정 코드는 {cls.CODE_LENGTH}자리 숫자여야 합니다.")
         if now.tzinfo is None:
             raise ValueError("now는 timezone 정보가 있어야 합니다.")
+        carried = previous.failed_attempts if previous is not None and now < previous.expires_at else 0
         return cls(
             user_id=user_id,
             code_hash=hasher.hash(raw_code),
             expires_at=now + cls.TTL,
-            failed_attempts=0,
+            failed_attempts=carried,
             created_at=now,
         )
 

@@ -89,9 +89,9 @@ async def test_patch_profile_legacy_member_missing_phone(client):
         await s.execute(text("UPDATE users SET phone = NULL"))
         await s.commit()
     r = await client.patch("/v1/users/me", json={"name": "새이름"}, headers=bearer(t))
-    assert_error(r, 400, "VALIDATION_ERROR")
-    r = await client.patch("/v1/users/me", json={"name": "새이름", "phone": "010"}, headers=bearer(t))
-    assert r.status_code == 200
+    assert r.status_code == 200 and r.json()["name"] == "새이름" and r.json()["phone"] is None
+    r = await client.patch("/v1/users/me", json={"phone": "010"}, headers=bearer(t))
+    assert r.status_code == 200 and r.json()["phone"] == "010"
 
 
 # ── 비밀번호 변경 (REQ-24) ──
@@ -231,6 +231,47 @@ async def test_password_reset_expired_and_rerequest(client, notifier):
     r = await client.post("/v1/auth/password-reset/confirm",
                           json={"email": "user@test.com", "code": second, "new_password": "resetpass12"})
     assert_error(r, 400, "INVALID_RESET_CODE")
+
+
+async def test_five_failures_then_rerequest_keeps_lock_via_api(client, notifier):
+    await signup(client)
+    await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    wrong = "000000" if notifier.last("user@test.com") != "000000" else "111111"
+    for _ in range(5):
+        r = await client.post("/v1/auth/password-reset/confirm",
+                              json={"email": "user@test.com", "code": wrong, "new_password": "resetpass12"})
+        assert_error(r, 400, "INVALID_RESET_CODE")
+    r = await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    assert r.status_code == 204
+    assert await scalar(client, "SELECT failed_attempts FROM password_reset_codes") == 5
+    new_code = notifier.last("user@test.com")
+    r = await client.post("/v1/auth/password-reset/confirm",
+                          json={"email": "user@test.com", "code": new_code, "new_password": "resetpass12"})
+    assert_error(r, 400, "INVALID_RESET_CODE")  # 맞는 새 코드도 거부
+    assert (await login(client, password="password123")).status_code == 200  # 비밀번호 그대로
+    async with client.session_factory() as s:  # 이전 코드가 만료되면 새로 시작
+        await s.execute(text("UPDATE password_reset_codes SET expires_at = now() - interval '1 second'"))
+        await s.commit()
+    await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    assert await scalar(client, "SELECT failed_attempts FROM password_reset_codes") == 0
+    r = await client.post("/v1/auth/password-reset/confirm",
+                          json={"email": "user@test.com", "code": notifier.last("user@test.com"),
+                                "new_password": "resetpass12"})
+    assert r.status_code == 204
+
+
+async def test_points_endpoint_reads_rows_violating_new_invariants(client):
+    token = await token_for(client)
+    uid = await user_id(client, "user@test.com")
+    async with client.session_factory() as s:
+        await s.execute(text(
+            "INSERT INTO point_log (user_id, amount, point_type, reason, balance_after, created_by) VALUES "
+            "(:u, 100, 'GRANT', NULL, NULL, NULL), (:u, 50, 'EARN', '옛 사유', NULL, :u), "
+            "(:u, -10, 'EXPIRE', NULL, 7, NULL)"), {"u": uid})
+        await s.commit()
+    r = await client.get("/v1/users/me/points", headers=bearer(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["total_elements"] == 3
 
 
 # ── 정지 회원 로그아웃 (B-2) ──

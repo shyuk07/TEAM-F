@@ -87,12 +87,15 @@ def test_update_profile_rejects_none_blank_long():
     assert (u.name, u.phone) == ("n", "010")
 
 
-def test_update_profile_legacy_member_must_fill_both():
+def test_update_profile_legacy_member_can_change_only_one_field():
     u = user(phone=None)
+    u.update_profile("새이름", None)  # 요청에 든 필드만 검사한다
+    assert (u.name, u.phone) == ("새이름", None)
+    legacy = user(name=None)
+    legacy.update_profile(None, "011")
+    assert (legacy.name, legacy.phone) == (None, "011")
     with pytest.raises(ValueError):
-        u.update_profile("새이름", None)  # 적용 뒤 전화번호가 비어 있음
-    u.update_profile("새이름", "011")
-    assert u.phone == "011"
+        u.update_profile("  ", None)  # 보낸 값은 여전히 검사
 
 
 def test_update_profile_admin_may_stay_empty():
@@ -227,6 +230,16 @@ def test_point_log_expire_invariants():
         PointLog.record(uid, PointType.EXPIRE, -300, 5)
 
 
+def test_point_log_restore_path_accepts_legacy_rows():
+    """DB 복원(생성자)은 유형별 불변식을 검사하지 않는다: created_by NULL GRANT, reason 있는 EARN 등."""
+    uid = uuid.uuid4()
+    PointLog(uid, 10, PointType.GRANT)
+    PointLog(uid, 10, PointType.EARN, reason="옛 사유", created_by=uuid.uuid4())
+    PointLog(uid, -5, PointType.EXPIRE, balance_after=3)
+    with pytest.raises(ValueError):
+        PointLog(uid, -5, PointType.EARN)  # 부호 규칙은 복원에도 유지
+
+
 def test_point_log_grant_and_other_types_reason_creator():
     uid, admin = uuid.uuid4(), uuid.uuid4()
     PointLog.record(uid, PointType.GRANT, 100, 100, reason="이벤트", created_by=admin)
@@ -241,6 +254,21 @@ def test_point_log_grant_and_other_types_reason_creator():
 
 
 # ── PasswordResetCode (REQ-28·29) ──
+def test_reissue_carries_failed_attempts_until_expiry():
+    old = issued()
+    old.failed_attempts = 5
+    now = T0 + timedelta(minutes=14)
+    new = PasswordResetCode.issue(old.user_id, "654321", H, now, old)
+    assert new.failed_attempts == 5 and not new.is_usable(now)
+    with pytest.raises(InvalidResetCodeError):
+        new.check("654321", H, now)  # 맞는 새 코드도 거부
+    old.failed_attempts = 3
+    assert PasswordResetCode.issue(old.user_id, "654321", H, now, old).failed_attempts == 3
+    # 만료된 이전 코드 뒤에는 0, 이전 코드가 없어도 0
+    assert PasswordResetCode.issue(old.user_id, "654321", H, T0 + timedelta(minutes=15), old).failed_attempts == 0
+    assert PasswordResetCode.issue(old.user_id, "654321", H, now, None).failed_attempts == 0
+
+
 def issued(raw="123456"):
     return PasswordResetCode.issue(uuid.uuid4(), raw, H, T0)
 
