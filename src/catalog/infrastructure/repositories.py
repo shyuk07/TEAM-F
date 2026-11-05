@@ -196,6 +196,19 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
         )
         return (await self.session.execute(stmt)).first() is not None
 
+    async def find_ids_by_store(
+        self, store_id: uuid.UUID, *, for_update: bool = False
+    ) -> list[uuid.UUID]:
+        stmt = (
+            select(DiscountOfferModel.id)
+            .join(ProductModel, ProductModel.id == DiscountOfferModel.product_id)
+            .where(ProductModel.store_id == store_id)
+            .order_by(DiscountOfferModel.id)  # 잠금 순서 고정(교착 방지)
+        )
+        if for_update:
+            stmt = stmt.with_for_update(of=DiscountOfferModel)
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def find_by_store(
         self,
         store_id: uuid.UUID,

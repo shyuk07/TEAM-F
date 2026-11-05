@@ -79,6 +79,18 @@ class FakeRepo(ReservationRepository):
     async def exists_by_offer(self, offer_id):
         return any(r.offer_id == offer_id for r in self.items.values())
 
+    async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
+        self.log.events.append("res_lock_user" if for_update else "res_read_user")
+        rows = [r for r in self.items.values() if r.user_id == user_id and r.status in statuses]
+        return sorted(rows, key=lambda r: (str(r.offer_id), str(r.id)))
+
+    async def exists_by_offers_and_status(self, offer_ids, status, *, excluding_user_id=None):
+        self.log.events.append("res_exists")
+        return any(
+            r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id
+            for r in self.items.values()
+        )
+
     async def save(self, reservation):
         if reservation.id is None:
             reservation.id = uuid.uuid4()

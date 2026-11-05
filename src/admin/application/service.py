@@ -20,7 +20,7 @@ from admin.domain.service import Clock
 
 @dataclass(frozen=True)
 class UserWithdrawalResult:
-    """EP 4 결과. cancelled_reservation_count는 NoReservationAdmin인 동안 항상 0 (미연계, R16)."""
+    """EP 4 결과. cancelled_reservation_count는 취소한 결제 대기·RESERVED 예약 수."""
 
     id: uuid.UUID
     status: str
@@ -89,9 +89,14 @@ class AdminApplicationService:
         open_store = store is not None and not store.is_closed
         if open_store:
             await self.offers.end_all_sales_of_store(store.id, now=now, commit=False)
-        cancelled = await self.reservations.cancel_reserved_for_user(user_id, reason=reason)
+        reserved = False
         if open_store:
-            reserved = await self.reservations.has_reserved_for_store(store.id)
+            # 매장 확인을 취소보다 먼저(잠금 순서 offers -> ... -> users, D-32). 본인 예약은 아래에서 취소되므로 제외한다.
+            reserved = await self.reservations.has_reserved_for_store(
+                store.id, excluding_user_id=user_id
+            )
+        cancelled = await self.reservations.cancel_active_for_user(user_id, reason=reason)
+        if open_store:
             await self.stores.close_store_by_admin(
                 store.id, reason, has_reserved_reservations=reserved, now=now, commit=False
             )

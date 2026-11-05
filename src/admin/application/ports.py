@@ -151,8 +151,15 @@ class OfferAdminPort(Protocol):
 
 
 class ReservationAdminPort(Protocol):
-    """이번 라운드는 NoReservationAdmin(미연계, R16). 두 메서드 모두 절대 commit하지 않는다 (R13)."""
+    """reservations 어댑터(ReservationAdminAdapter)가 만족한다. 두 메서드 모두 절대 commit하지 않는다 (R13).
 
-    async def cancel_reserved_for_user(self, user_id: uuid.UUID, *, reason: str) -> int: ...
+    불일치(500)는 admin.domain.exceptions.ReservationDataInconsistentError로 낸다.
+    """
 
-    async def has_reserved_for_store(self, store_id: uuid.UUID) -> bool: ...
+    # 결제 대기·RESERVED 예약을 취소(재고 복구, RESERVED는 위약금 없는 전액 환불)한다. 취소 수를 돌려준다.
+    async def cancel_active_for_user(self, user_id: uuid.UUID, *, reason: str) -> int: ...
+
+    # 매장에 RESERVED 예약이 있는지. excluding_user_id의 예약은 제외한다. offer 행을 잠근다.
+    async def has_reserved_for_store(
+        self, store_id: uuid.UUID, *, excluding_user_id: uuid.UUID | None = None
+    ) -> bool: ...

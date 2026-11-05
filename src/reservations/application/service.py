@@ -150,6 +150,37 @@ class ReservationApplicationService:
             raise DataInconsistentError(inconsistent)
         return len(cancelled)
 
+    async def cancel_all_for_user(self, user_id: uuid.UUID, *, reason: str) -> int:
+        """admin·탈퇴 흐름용(D-31). 정상이면 commit하지 않는다 (R13).
+
+        PENDING_PAYMENT·RESERVED를 취소하고 재고를 복구한다. RESERVED는 위약금 없이 전액 환불한다.
+        불일치(재고 복구·RD-38·RD-39)가 있으면 전체 롤백하고 ERROR 로그 1건을 남긴 뒤 DataInconsistentError를 낸다(D-37).
+        """
+        try:
+            cancelled = await self.lifecycle.cancel_all_for_user(user_id, reason=reason)
+        except DataInconsistentError as error:
+            await self.session.rollback()
+            self._log_inconsistency("cancel_all_for_user", error.details)
+            raise
+        inconsistent: list[InconsistencyDetail] = []
+        for item in cancelled:
+            try:
+                if item.refund_target is not None:
+                    await self.refunds.refund_for_cancelled_reservation(
+                        item.refund_target, reason=reason, waive_penalty=True
+                    )
+                elif item.check_paid_payment:
+                    await self.refunds.ensure_no_paid_payment(item.reservation.id)  # type: ignore[arg-type]
+            except DataInconsistentError as error:
+                inconsistent.extend(
+                    error.details or (InconsistencyDetail(item.reservation.id, "UNKNOWN"),)
+                )
+        if inconsistent:
+            await self.session.rollback()
+            self._log_inconsistency("cancel_all_for_user", inconsistent)
+            raise DataInconsistentError(inconsistent)
+        return len(cancelled)
+
     @staticmethod
     def _log_inconsistency(flow: str, details: tuple[InconsistencyDetail, ...] | list[InconsistencyDetail]) -> None:
         """요청당 ERROR 로그 1건. 예약·결제 ID와 불일치 종류만 남긴다(개인정보 금지)."""

@@ -356,11 +356,12 @@ async def test_close_store_pickup_pending_override(client):
             return True
 
     token, sid = await owner_with_store(client)
+    original = app.dependency_overrides[create_pickup_pending_port]  # wire_dependencies가 넣은 실제 연결
     app.dependency_overrides[create_pickup_pending_port] = lambda: AlwaysPending()
     try:
         r = await _close(client, token, sid)
     finally:
-        app.dependency_overrides.pop(create_pickup_pending_port, None)
+        app.dependency_overrides[create_pickup_pending_port] = original
     _fail(r, 400, "STORE_HAS_RESERVED_RESERVATIONS", "픽업 대기 중인 예약이 있어 폐점할 수 없습니다.")
     assert await _closed_at_in_db(client, sid) is None
 

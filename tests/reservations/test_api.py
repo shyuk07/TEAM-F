@@ -11,7 +11,11 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from auth.domain.exceptions import AuthenticationError
 from auth.domain.user import Role, User
-from auth.presentation.dependencies import bearer_scheme, get_current_user
+from auth.presentation.dependencies import (
+    bearer_scheme,
+    get_current_user,
+    get_current_user_allow_suspended,
+)
 from main import app
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.service import ReservationApplicationService
@@ -54,7 +58,11 @@ def env():
         session=session, lifecycle=lifecycle, reservations=repo, stock=stock,
         refunds=FakeRefunds(log), clock=FakeClock(), code_generator=FakeCodes(),
     )
-    new = {provide_reservation_service: lambda: service, get_current_user: fake_current_user}
+    new = {
+        provide_reservation_service: lambda: service,
+        get_current_user: fake_current_user,
+        get_current_user_allow_suspended: fake_current_user,  # 픽업 EP (D-38)
+    }
     previous = {key: app.dependency_overrides.get(key) for key in new}
     app.dependency_overrides.update(new)
     yield service, session, repo, offer, owner_id

@@ -142,3 +142,42 @@ class ReservationLifecycleService:
             await self.reservations.save(reservation)
             cancelled.append(CancelledReservation(reservation, target, check_paid_payment))
         return cancelled
+
+    async def cancel_all_for_user(self, user_id: uuid.UUID, *, reason: str) -> list[CancelledReservation]:
+        """회원의 PENDING_PAYMENT·RESERVED를 취소하고 재고를 복구한다. PICKED_UP·CANCELLED는 건드리지 않는다. commit하지 않는다.
+
+        잠금 순서: offer(id 오름차순) -> reservation(offer_id, id 오름차순) (D-6).
+        """
+        active = [ReservationStatus.PENDING_PAYMENT, ReservationStatus.RESERVED]
+        peek = await self.reservations.find_by_user_and_statuses(user_id, active)
+        if not peek:
+            return []
+        terms_by_offer = {}
+        for offer_id in sorted({r.offer_id for r in peek}):
+            terms_by_offer[offer_id] = await self.stock.get_terms(offer_id, for_update=True)
+        # offer를 모두 잠근 뒤 정본 목록을 다시 읽는다(그 사이 취소·결제된 예약 반영, 멱등)
+        reservations = await self.reservations.find_by_user_and_statuses(user_id, active, for_update=True)
+        cancelled: list[CancelledReservation] = []
+        now = self.clock.now()
+        for reservation in reservations:
+            if not reservation.holds_stock:
+                continue
+            target = None
+            check_paid_payment = reservation.is_pending_payment  # 취소하기 전 상태로 판단
+            if reservation.is_paid:
+                terms = terms_by_offer.get(reservation.offer_id)
+                if terms is None:  # 재조회에서 새로 나타난 offer(드문 경우): 잠그고 추가
+                    terms = await self.stock.get_terms(reservation.offer_id, for_update=True)
+                    terms_by_offer[reservation.offer_id] = terms
+                target = RefundTarget(
+                    reservation_id=reservation.id,  # type: ignore[arg-type]
+                    user_id=reservation.user_id,
+                    total_price=reservation.total_price,
+                    pickup_start=terms.pickup_start,
+                    status=str(ReservationStatus.RESERVED),
+                )
+            reservation.cancel(now)
+            await self._release_stock(reservation, user_id=reservation.user_id, reason=reason)
+            await self.reservations.save(reservation)
+            cancelled.append(CancelledReservation(reservation, target, check_paid_payment))
+        return cancelled

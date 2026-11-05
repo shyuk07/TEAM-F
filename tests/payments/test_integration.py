@@ -23,7 +23,11 @@ from fastapi.security import HTTPAuthorizationCredentials
 import container
 from auth.domain.exceptions import AuthenticationError
 from auth.domain.user import Role, User
-from auth.presentation.dependencies import bearer_scheme, get_current_user
+from auth.presentation.dependencies import (
+    bearer_scheme,
+    get_current_user,
+    get_current_user_allow_suspended,
+)
 from catalog.domain.discount_offer import DiscountOffer
 from database import get_db
 from main import app
@@ -114,6 +118,15 @@ class ResRepo(ReservationRepository):
 
     async def exists_by_offer(self, offer_id):
         return any(r.offer_id == offer_id for r in self.store.all())
+
+    async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
+        return [r for r in self.store.all() if r.user_id == user_id and r.status in statuses]
+
+    async def exists_by_offers_and_status(self, offer_ids, status, *, excluding_user_id=None):
+        return any(
+            r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id
+            for r in self.store.all()
+        )
 
     async def save(self, reservation):
         if reservation.id is None:
@@ -259,6 +272,7 @@ class Env:
             {
                 get_db: tx_session,
                 get_current_user: fake_current_user,
+                get_current_user_allow_suspended: fake_current_user,  # 픽업 EP (D-38)
                 container.create_reservation_repository: lambda: self.res,
                 container.create_payment_repository: lambda: self.pay,
                 container.create_refund_repository: lambda: self.refund,
