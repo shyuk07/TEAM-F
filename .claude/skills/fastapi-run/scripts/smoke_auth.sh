@@ -85,10 +85,10 @@ echo "--- 회원가입"
 check "가입 CUSTOMER" 201 POST /v1/auth/signup "${J[@]}" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"name\":\"스모크\",\"phone\":\"010-0000-0000\",\"role\":\"CUSTOMER\"}"
 expect "  ↳ 응답에 password 없음" "d and 'id' in d and not any('password' in k for k in d)"
-check "가입 중복" 409 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"role\":\"CUSTOMER\"}"; err EMAIL_DUPLICATED
-check "가입 ADMIN 거부" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"adm_$EMAIL\",\"password\":\"$PW\",\"role\":\"ADMIN\"}"; err VALIDATION_ERROR
-check "가입 잘못된 role" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"x_$EMAIL\",\"password\":\"$PW\",\"role\":\"FOO\"}"; err VALIDATION_ERROR
-check "가입 password 누락" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"y_$EMAIL\",\"role\":\"CUSTOMER\"}"; err VALIDATION_ERROR
+check "가입 중복" 409 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"name\":\"스모크\",\"phone\":\"010-0000-0000\",\"role\":\"CUSTOMER\"}"; err EMAIL_DUPLICATED
+check "가입 ADMIN 거부" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"adm_$EMAIL\",\"password\":\"$PW\",\"name\":\"스모크\",\"phone\":\"010-0000-0000\",\"role\":\"ADMIN\"}"; err VALIDATION_ERROR
+check "가입 잘못된 role" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"x_$EMAIL\",\"password\":\"$PW\",\"name\":\"스모크\",\"phone\":\"010-0000-0000\",\"role\":\"FOO\"}"; err VALIDATION_ERROR
+check "가입 password 누락" 400 POST /v1/auth/signup "${J[@]}" -d "{\"email\":\"y_$EMAIL\",\"name\":\"스모크\",\"phone\":\"010-0000-0000\",\"role\":\"CUSTOMER\"}"; err VALIDATION_ERROR
 
 echo "--- 로그인"
 check "로그인 비밀번호 틀림" 401 POST /v1/auth/login "${J[@]}" -d "{\"email\":\"$EMAIL\",\"password\":\"wrong-pass\"}"; err INVALID_CREDENTIALS
