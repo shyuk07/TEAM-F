@@ -36,6 +36,9 @@ class ReservationCancelPort(Protocol):
     - 픽업 완료 예약이 하나라도 있으면 아무것도 취소하기 전에 PickedUpReservationExistsError를 낸다.
     - commit하지 않는다(R5, R13). 같은 요청 세션에서 동작하고 commit은 catalog 서비스가 한다.
     - 재고를 되돌리지 않는다(순환 의존 방지, R12).
+    - 예약·결제 데이터 불일치가 발견되면 구현체가 전부 롤백하고 로그를 남긴 뒤
+      ReservationDataInconsistentError(catalog/domain/exceptions.py)를 낸다. catalog 서비스는 잡지 않고 commit 전에
+      그대로 올리며(할인 중단·예약 취소·환불이 모두 롤백된다), catalog 라우터가 500으로 바꾼다. 로그는 다시 남기지 않는다.
     """
 
     async def cancel_all_for_offer(self, offer_id: uuid.UUID, *, reason: str) -> int: ...

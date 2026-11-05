@@ -18,6 +18,7 @@ from payments.domain.exceptions import (
 )
 from payments.domain.payment import PaymentStatus
 from payments.domain.refund import RefundStatus
+from payments.infrastructure.mock_gateway import MockPaymentGateway
 from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
 from tests.payments.fakes import (
     FailingGateway,
@@ -25,6 +26,7 @@ from tests.payments.fakes import (
     FakePaymentRepository,
     FakeRefundRepository,
     FakeReservationPort,
+    FixedClock,
     FakeSession,
 )
 
@@ -46,13 +48,16 @@ class Env:
         self.refunds = FakeRefundRepository()
         self.reservations = FakeReservationPort()
         self.gateway = gateway or FakeGateway()
+        self.clock = FixedClock()
+        extra = {} if policy is None else {"policy": policy}
         self.service = PaymentApplicationService(
             self.db,
             reservations=self.reservations,
             payments=self.payments,
             refunds=self.refunds,
             gateway=self.gateway,
-            policy=policy,
+            clock=self.clock,
+            **extra,
         )
 
 
@@ -78,10 +83,15 @@ async def test_pay_success(env):
 
 
 async def test_pay_with_default_mock_gateway_and_zero_penalty_policy():
-    # 게이트웨이·정책을 주입하지 않으면 모의 게이트웨이(항상 성공)와 0원 정책이 쓰인다.
+    # 모의 게이트웨이(항상 성공)를 주입하고 정책을 생략하면 기본 0원 정책이 쓰인다.
     db, payments, reservations = FakeSession(), FakePaymentRepository(), FakeReservationPort()
     service = PaymentApplicationService(
-        db, reservations=reservations, payments=payments, refunds=FakeRefundRepository()
+        db,
+        reservations=reservations,
+        payments=payments,
+        refunds=FakeRefundRepository(),
+        gateway=MockPaymentGateway(),
+        clock=FixedClock(),
     )
     rid = reservations.add(USER)
     payment = await service.pay(USER, rid)
@@ -256,12 +266,14 @@ async def test_refund_policy_out_of_range_is_value_error():
     assert env.db.commits == commits_before and env.refunds.items == {}
 
 
-async def test_refund_does_not_change_reservation(env):
-    # TODO(D-6): 예약 취소 연동은 아직 없다. 서비스는 예약 상태를 바꾸지 않는다.
+async def test_refund_cancels_reservation_without_own_commit(env):
+    # RD-2: 환불 API는 예약 취소(+재고 복구)까지. 예약 쪽은 commit=False로 부르고 서비스가 commit 1회.
     payment = await paid(env)
+    commits_before = env.db.commits
     await env.service.refund(USER, payment.id, "사유")
-    assert env.reservations.items[payment.reservation_id].status == RESERVATION_PAID_STATUS
-    assert len(env.reservations.mark_paid_calls) == 1  # 결제 때의 1회뿐
+    assert env.reservations.items[payment.reservation_id].status == "CANCELLED"
+    assert env.reservations.cancel_calls == [(payment.reservation_id, "사유", False)]
+    assert env.db.commits == commits_before + 1
 
 
 async def test_refund_twice_is_409(env):
@@ -302,7 +314,8 @@ async def test_refund_missing_payment_is_404(env):
         await env.service.refund(USER, uuid.uuid4(), "사유")
 
 
-@pytest.mark.parametrize("status", ["CANCELLED", "PICKED_UP", RESERVATION_PAYABLE_STATUS])
+# CANCELLED/PENDING_PAYMENT + 결제 PAID는 데이터 불일치라 500이다(test_inconsistency.py, RD-38). 그 밖의 상태만 400.
+@pytest.mark.parametrize("status", ["PICKED_UP"])
 async def test_refund_not_refundable_reservation_state_is_400(env, status):
     payment = await paid(env)
     env.reservations.set_status(payment.reservation_id, status)
@@ -347,6 +360,7 @@ async def test_refund_race_conflict_rolls_back(env):
             return await self.real.save(refund)
 
     env.payments.items[payment.id].status = PaymentStatus.PAID  # 사전 검사를 통과시키기 위해
+    env.reservations.set_status(payment.reservation_id, RESERVATION_PAID_STATUS)
     env.service.refunds = StaleRefunds(env.refunds)
     commits_before, rollbacks_before = env.db.commits, env.db.rollbacks
     with pytest.raises(PaymentAlreadyRefundedError):
@@ -365,3 +379,16 @@ async def test_get_refund_owner_only(env):
         await env.service.get_refund(OTHER, refund.id)
     with pytest.raises(RefundNotFoundError):
         await env.service.get_refund(USER, uuid.uuid4())
+
+
+async def test_pay_and_refund_use_injected_clock(env):
+    rid = env.reservations.add(USER)
+    payment = await env.service.pay(USER, rid)
+    assert payment.paid_at == env.clock.current
+    refund = await env.service.refund(USER, payment.id, "단순 변심")
+    assert refund.completed_at == env.clock.current
+
+
+def test_service_constructor_requires_all_args():
+    with pytest.raises(TypeError):
+        PaymentApplicationService(FakeSession(), reservations=FakeReservationPort())  # type: ignore[call-arg]

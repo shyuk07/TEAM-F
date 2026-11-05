@@ -2,12 +2,15 @@
 
 import uuid
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 
 from payments.domain.exceptions import PaymentAlreadyExistsError, PaymentAlreadyRefundedError
 from payments.domain.gateway_result import GatewayResult
+from payments.domain.repository.payment_repository import PaymentRepository
+from payments.domain.repository.refund_repository import RefundRepository
 from payments.domain.reservation_snapshot import ReservationSnapshot
 from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
+from payments.domain.service import Clock, PaymentGateway
 
 
 class FakeSession:
@@ -22,7 +25,7 @@ class FakeSession:
         self.rollbacks += 1
 
 
-class FakePaymentRepository:
+class FakePaymentRepository(PaymentRepository):
     """메모리 저장소. 실제 DB처럼 reservation_id UNIQUE를 흉내 낸다."""
 
     def __init__(self):
@@ -43,7 +46,7 @@ class FakePaymentRepository:
         return payment
 
 
-class FakeRefundRepository:
+class FakeRefundRepository(RefundRepository):
     """메모리 저장소. 실제 DB처럼 payment_id UNIQUE를 흉내 낸다."""
 
     def __init__(self):
@@ -69,6 +72,8 @@ class FakeReservationPort:
         self.mark_paid_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, commit)
         self.get_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, for_update)
         self.raise_on_mark_paid: Exception | None = None
+        self.cancel_calls: list[tuple[uuid.UUID, str, bool]] = []  # (reservation_id, reason, commit)
+        self.raise_on_cancel: Exception | None = None
 
     def add(
         self,
@@ -100,8 +105,14 @@ class FakeReservationPort:
             raise self.raise_on_mark_paid
         self.set_status(reservation_id, RESERVATION_PAID_STATUS)
 
+    async def cancel_for_refund(self, reservation_id, reason, *, commit=False):
+        self.cancel_calls.append((reservation_id, reason, commit))
+        if self.raise_on_cancel is not None:
+            raise self.raise_on_cancel
+        self.set_status(reservation_id, "CANCELLED")
 
-class FakeGateway:
+
+class FakeGateway(PaymentGateway):
     def __init__(self):
         self.charged = []
 
@@ -110,6 +121,15 @@ class FakeGateway:
         return GatewayResult(success=True, provider_payment_id="fake_pg_1")
 
 
-class FailingGateway:
+class FailingGateway(PaymentGateway):
     async def charge(self, payment):
         return GatewayResult(success=False, failure_response={"code": "CARD_DECLINED"})
+
+
+class FixedClock(Clock):
+    def __init__(self, now: datetime | None = None):
+        self.current = now or datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+    def now(self) -> datetime:
+        return self.current
+

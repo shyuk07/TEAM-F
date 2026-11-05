@@ -5,9 +5,9 @@ from fastapi import FastAPI
 
 from catalog.application.service import CatalogApplicationService
 from catalog.presentation import dependencies as deps
-from catalog.infrastructure.reservation_cancel import NoReservationCancel
-from catalog.infrastructure.reservation_lookup import NoReservationLookup
 from container import (
+    create_catalog_reservation_canceller,
+    create_catalog_reservation_lookup,
     create_catalog_service,
     create_reservation_cancel,
     create_reservation_lookup,
@@ -40,12 +40,57 @@ def test_all_provides_are_wired():
         assert fn in app.dependency_overrides, fn.__name__
     assert fresh.dependency_overrides[deps.provide_catalog_service] is create_catalog_service
     assert fresh.dependency_overrides[deps.provide_store_port] is create_store_port
-    assert fresh.dependency_overrides[deps.provide_reservation_lookup] is create_reservation_lookup
-    # 임시 구현. reservations 구현 시 어댑터로 교체하며 이 단언이 실패해 상기시킨다 (CI-10)
-    assert isinstance(create_reservation_lookup(), NoReservationLookup)
-    assert fresh.dependency_overrides[deps.provide_reservation_cancel] is create_reservation_cancel
-    # 임시 구현. reservations 구현 시 어댑터로 교체하며 이 단언이 실패해 상기시킨다 (CI-11)
-    assert isinstance(create_reservation_cancel(), NoReservationCancel)
+    # 실제 예약 어댑터로 연결된다. 위쪽 catalog 구역의 자리 표시 함수(create_reservation_*)도 같은 팩토리로 override된다
+    for overrides in (fresh.dependency_overrides, app.dependency_overrides):
+        assert overrides[deps.provide_reservation_lookup] is create_catalog_reservation_lookup
+        assert overrides[create_reservation_lookup] is create_catalog_reservation_lookup
+        assert overrides[deps.provide_reservation_cancel] is create_catalog_reservation_canceller
+        assert overrides[create_reservation_cancel] is create_catalog_reservation_canceller
+
+
+def test_reservation_port_placeholders_are_not_silent_stubs():
+    with pytest.raises(NotImplementedError):
+        create_reservation_lookup()
+    with pytest.raises(NotImplementedError):
+        create_reservation_cancel()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_container_graph_connects_real_reservation_adapters_on_same_session(anyio_backend):
+    """catalog 서비스가 실제 예약 어댑터를 받고, 예약 서비스와 같은 세션을 쓴다. NameError·순환 없음."""
+    import httpx
+    from fastapi import Depends
+
+    from database import get_db
+    from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
+    from reservations.application.catalog_stock_adapter import CatalogStockAdapter
+
+    probe = FastAPI()
+    wire_dependencies(probe)
+    session = object()
+    probe.dependency_overrides[get_db] = lambda: session
+    seen = {}
+
+    @probe.get("/probe")
+    async def route(service: CatalogApplicationService = Depends(deps.provide_catalog_service)):
+        seen["catalog"] = service
+        return {}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=probe), base_url="http://t") as client:
+        assert (await client.get("/probe")).status_code == 200
+
+    catalog = seen["catalog"]
+    assert isinstance(catalog.reservations, OfferReservationLookup)
+    assert isinstance(catalog.reservation_cancel, OfferReservationCanceller)
+    reservation_service = catalog.reservation_cancel.service
+    assert catalog.session is session and reservation_service.session is session  # 같은 요청 세션 (R13)
+    stock = reservation_service.stock
+    assert isinstance(stock, CatalogStockAdapter)
+    # R12: 예약·결제·재고 어댑터 경로에 catalog 서비스가 되돌아오지 않는다 (재고 어댑터는 catalog 레포만 쓴다)
+    for owner in (stock, reservation_service.lifecycle, reservation_service.refunds, reservation_service.refunds.payments):
+        assert not isinstance(owner, CatalogApplicationService)
+    assert not any(isinstance(v, CatalogApplicationService) for v in vars(stock).values())
 
 
 def test_placeholders_raise_when_not_wired():
