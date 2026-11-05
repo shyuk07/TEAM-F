@@ -518,3 +518,83 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 ## 11. 불변 규칙 점검 (설계 기준)
 
 R1(domain은 `hmac` 등 표준 라이브러리만, `secrets`는 infrastructure에서 사용), R2(application은 포트·도메인만, infrastructure·presentation import 없음), R3(전이·소유·코드 검증은 엔티티), R4(`*Model` 미노출), R5(commit은 ApplicationService, 레포 `flush`), R6(도메인 예외, HTTPException 없음), R7(전역 핸들러), R8(생성자 필수·기본 생성 없음), R9(`provide_*` 2개 매핑), R10(포트 선언 메서드만 호출), R11(catalog·payments는 reservations 정의 포트로만, ORM·레포·서비스 내부 미사용), R12(5.2절의 한 방향 생성 그래프), R13(같은 세션, 호출되는 쪽 `commit=False`/commit 없음), R14(`schema.sql`과 동일, `price`는 매핑 제외 사유 명시), R15(명세 필드·URI, 추가·변경은 D-16·D-18·D-19·Q-14로 표시), R16(새 의존성·시크릿 없음).
+
+---
+
+## 통합 기록 (2026-11-05)
+
+이 절은 **새로 추가한 절**입니다. 기존 절(1~11)은 고치지 않았습니다. 두 갈래의 번호를 **섞지 않고 병행**합니다.
+
+- **D-/C-/Q-/S-**: 이 문서(main, PR #15)의 번호.
+- **RD-/RC-**: 원래 브랜치 `feature/reservations`(커밋 b7eae41)의 `docs/design/reservations.md`에서 온 번호. 이 브랜치(`integrate/reservations-on-main`)에는 그 문서가 없고, 이 절이 요약만 옮깁니다.
+- 충돌하는 경우 이 절의 "사용자 확정"이 해당 D-번호의 본문(7.1절, 8절)을 **덮어씁니다**. 코드·DB·git은 바꾸지 않았습니다.
+
+### 통합.1 사용자 확정으로 대체된 main 결정
+
+| main 결정 | 대체 | 확정 내용 | 이유 |
+| --- | --- | --- | --- |
+| D-15 (임시 `NoPaymentRefund`가 환불 없이 통과) | **RD-26** | **fail-closed**. 결제된(`RESERVED`였던) 예약의 취소는 **503 `REFUND_NOT_CONNECTED`** | 돈이 나가야 하는데 오류 없이 넘어가는 사고를 막기 위해 |
+| D-25 (읽기 전용 임시 재고 포트로 예약 생성 통과) | **RD-25** | 재고 미연동 시 **예약 생성 503 `STOCK_NOT_CONNECTED`**. 할인 없음 404, 판매 불가·재고 부족 409 검사는 먼저 하고 통과하면 503 | 가짜 성공·초과 판매를 막기 위해. 임시 기간에 예약이 생기지 않으므로, 실제 재고 연동 후 `release`할 때 재고 초과 오류 위험이 없음 |
+
+- **503 변환 위치(사용자 결정)**: 예약 라우터(`presentation/router.py`)에서 변환. `src/error_handlers.py`는 수정하지 않음. 공통 에러 형식 `{"success": false, "error_code", "message"}`는 유지(R7). R6·R7 예외이며 임시(연동 후 제거, 코드에 TODO 표시).
+- **409**: main 공용 핸들러 사용(`src/error_handlers.py`의 `ReservationConflictError` 핸들러, D-16·C-6). 원래 RD-29(router 변환)는 채택하지 않음.
+- **수량**: `ReservationCreateRequest.quantity`는 `StrictInt` + `Field(ge=1)`. `true`·`1.5`·문자열은 400 `VALIDATION_ERROR`.
+
+현재 코드 위치(작업 폴더 `src/reservations/` 기준, 커밋 전 작업 트리 변경)
+
+| 대상 | 파일:심볼 |
+| --- | --- |
+| 재고 임시 포트, 503 | `application/interim_stock_port.py`: `reserve`(검사 통과 후 `StockNotConnectedError`) |
+| 환불 임시 포트, 503 | `infrastructure/payment_refund_stub.py`: `NoPaymentRefund.refund_for_cancelled_reservation`(`RefundNotConnectedError`) |
+| 예외 | `domain/exceptions.py`: `ReservationConflictError`(1행, 409 기반), `IntegrationNotReadyError`(99행, `Exception` 상속이라 400·403·404·409로 잡히지 않음), `StockNotConnectedError`(113행), `RefundNotConnectedError`(122행) |
+| 503 변환 | `presentation/router.py`: `_not_ready_response`, `create_reservation`·`cancel_reservation`의 `except IntegrationNotReadyError` |
+| 수량 검증 | `presentation/schemas.py`: `ReservationCreateRequest.quantity` (`StrictInt`) |
+
+### 통합.2 번호 대응표 (병행)
+
+| 원래(RD) | main(D/C/S) | 내용 | 채택 |
+| --- | --- | --- | --- |
+| RD-2 | D-11 | 결제한 예약 취소 시 환불 자동 호출, 환불 API도 `cancel_for_refund`로 예약 취소·재고 복구까지(RD-2 확정 = A안) | 같은 방향, 병합 |
+| RD-25 | D-25 | 임시 재고 포트 | **RD-25**(503), D-25 대체 |
+| RD-26 | D-15 | 임시 환불 포트 | **RD-26**(fail-closed 503), D-15 대체 |
+| RD-29 | D-16 / C-6 | 409 변환 방식 | **main 공용 409 핸들러**, RD-29 미채택 |
+| RD-8 | D-13 | `pickup_code` 형식 | main(통합.3) |
+| RD-14 | D-19 | 목록·응답에 `pickup_code` 포함 | main(통합.3) |
+| RD-30 | S-3 | `price` 매핑 | main S-3 |
+
+원래 문서의 그 밖의 **확정** 결정(main에 같은 번호 없음, 요약)
+
+| 번호 | 확정 내용 | 원래 문서 위치 |
+| --- | --- | --- |
+| RD-3 | 위약금은 결제 모듈이 계산, 금액은 당분간 0원. reservations는 `pickup_start`·`cancellable_until`만 제공 | 13.6.1 |
+| RD-5 | 전역 잠금 순서 상품 → 할인 → 예약 → 결제 → 환불 → 회원(건너뛰기 허용, 역방향 금지), 순서 회귀 테스트 필수 | 13.6.1 (7.2절) |
+| RD-32 | 개발 DB는 서버 재시작 + 수동 `ALTER`, 재생성·alembic 안 함, 실행은 사용자 | 13.6.1 |
+| RD-33 | `payments.reservation_id` FK는 가짜 예약 스텁 제거와 같은 작업에서 모델 FK + `ALTER` | 13.6.1 |
+| RD-34 | 모듈 경계 예외는 어댑터가 번역, 공용 `error_handlers.py` 수정 안 함 | 13.6.1 |
+| RD-35 | 직전 `RESERVED`인데 결제 없음·이미 환불 등 불일치는 통과가 아니라 드러냄(기본값과 다르게 확정) | 13.6.2~13.6.5 |
+| RD-36 | `OfferPort`의 `get_snapshot`·`reserve`·`release`를 한 번에 교체, 부분 교체 금지 | 13.6.1 |
+| RD-37 | DB 테스트·개발 DB 변경은 승인 절차 | 13.4.5 |
+| RD-38 | 불일치 시 500 `DATA_INCONSISTENT` + ERROR 로그 + 전부 롤백 | 13.7 |
+| RD-39 | `PENDING_PAYMENT` 취소 시 `PAID` 결제가 남아 있으면 같은 방식으로 막음 | 13.8 |
+| RD-40 | `PENDING_PAYMENT` + 결제 `REFUNDED`도 불일치로 볼지: **미정**(임시 기본값: 막지 않음) | 13.8 마지막 표 |
+
+- 위 위치는 원래 브랜치 `feature/reservations`의 커밋 `b7eae41`의 `docs/design/reservations.md` 13.6~13.8절입니다. 결제 쪽 정본은 `payments.md` 10.7~10.9절이며, **이 브랜치의 `docs/design/payments.md`에 10.7(결정 확정 기록), 10.8(D-29), 10.9(RD-39)가 이미 있습니다**(결제 2차 merge, `809976b`, 열람으로 확인).
+- RD-35·RD-38·RD-39의 구현(500 `DATA_INCONSISTENT`)은 이 통합에서 다루지 않았습니다. main 코드에 해당 변환이 있는지는 **확인 필요**.
+
+### 통합.3 남은 미정 (사용자 지시로 main 쪽을 기본값으로 둠)
+
+| 항목 | main | 원래 | 현재 기본값 |
+| --- | --- | --- | --- |
+| 픽업 코드 형식 | D-13 | RD-8 | main 형식 |
+| 목록의 `pickup_code` 포함 | D-19 | RD-14 | main(포함) |
+| `PICKED_UP` 취소 에러 코드 | main의 예외·`error_code` | 원래 `ReservationNotCancellableError` 등 | main 사용 |
+| `price` 매핑 | S-3 | RD-30 | main S-3 |
+
+모두 확정이 아니라 **임시 기본값**입니다. 바꿀 때는 해당 상수·예외 한곳에서 바꿉니다.
+
+### 통합.4 정합 이슈 (신규)
+
+| # | 이슈 | 근거 | 제안 |
+| --- | --- | --- | --- |
+| C-통합-1 | **취소 흐름의 순서**: main `cancel_reservation`은 `lifecycle.cancel(commit=False)` 안에서 `stock.release`가 `refund_for_cancelled_reservation`보다 **먼저** 호출됨 | `application/lifecycle_service.py:60-78`(`cancel`, `release` 73행), `application/service.py:59-84`(환불 81행, commit 84행) | 같은 트랜잭션이라 환불 단계에서 예외가 나면 롤백되므로 지금은 안전함(RD-26의 503도 `commit` 전). 실제 재고 연동 시 `release`가 외부 효과를 내면 순서를 재검토하고, 환불을 먼저 하는 순서(원래 RD-2: 환불 먼저·재고 복구 나중)와 맞출지 결정 필요 |
+
