@@ -55,7 +55,7 @@ CREATE TABLE password_reset_codes (
     user_id          UUID         PRIMARY KEY REFERENCES users (id),
     code_hash        VARCHAR(255) NOT NULL,
     expires_at       TIMESTAMPTZ  NOT NULL,
-    failed_attempts  INTEGER      NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+    failed_attempts  INTEGER      NOT NULL DEFAULT 0 CONSTRAINT ck_password_reset_attempts_nonneg CHECK (failed_attempts >= 0),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
