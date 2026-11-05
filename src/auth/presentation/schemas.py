@@ -49,7 +49,3 @@ class PointLogListResponse(BaseModel):
     page: int = Field(..., description="페이지 (0부터)")
     size: int = Field(..., description="페이지 크기")
     total_elements: int = Field(..., description="전체 건수")
-
-
-class PurgeTokensResponse(BaseModel):
-    deleted_count: int = Field(..., description="삭제된 만료 토큰 수")

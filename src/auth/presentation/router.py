@@ -1,4 +1,3 @@
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -6,7 +5,6 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from auth.application.service import AuthApplicationService
 from auth.domain.point_log import PointType
 from auth.presentation.dependencies import (
-    AdminUser,
     CurrentPrincipal,
     CurrentUser,
     provide_auth_service,
@@ -14,7 +12,6 @@ from auth.presentation.dependencies import (
 from auth.presentation.schemas import (
     LoginRequest,
     PointLogListResponse,
-    PurgeTokensResponse,
     SignupRequest,
     TokenResponse,
     UserResponse,
@@ -78,23 +75,3 @@ async def read_my_points(
     size: Annotated[int, Query(ge=1, le=100, description="페이지 크기 (최대 100)")] = 20,
 ):
     return await service.list_point_logs(user, type, page, size)
-
-
-@router.get(
-    "/admin/users/{user_id}",
-    response_model=UserResponse,
-    tags=["관리자"],
-    summary="회원 조회(관리자)",
-)
-async def admin_read_user(user_id: uuid.UUID, admin: AdminUser, service: Service):
-    return await service.get_user(user_id)
-
-
-@router.post(
-    "/admin/token-blacklist/purge",
-    response_model=PurgeTokensResponse,
-    tags=["관리자"],
-    summary="만료된 블랙리스트 토큰 정리",
-)
-async def admin_purge_tokens(admin: AdminUser, service: Service):
-    return PurgeTokensResponse(deleted_count=await service.purge_expired_tokens())
