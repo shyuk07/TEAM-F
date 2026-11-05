@@ -62,6 +62,15 @@ class ReservationNotPayableError(ValueError):
         super().__init__(message)
 
 
+class InvalidPointAmountError(ValueError):
+    """400 INVALID_POINT_AMOUNT (사용 포인트가 정수가 아니거나 음수이거나 결제 총액 초과, REQ-43)"""
+
+    error_code = "INVALID_POINT_AMOUNT"
+
+    def __init__(self, message: str = "사용할 수 없는 포인트 금액입니다."):
+        super().__init__(message)
+
+
 class PaymentNotRefundableError(ValueError):
     """400 PAYMENT_NOT_REFUNDABLE"""
 

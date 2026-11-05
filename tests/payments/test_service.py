@@ -22,6 +22,7 @@ from payments.infrastructure.mock_gateway import MockPaymentGateway
 from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
 from tests.payments.fakes import (
     FailingGateway,
+    FakeAuth,
     FakeGateway,
     FakePaymentRepository,
     FakeRefundRepository,
@@ -47,6 +48,7 @@ class Env:
         self.payments = FakePaymentRepository()
         self.refunds = FakeRefundRepository()
         self.reservations = FakeReservationPort()
+        self.auth = FakeAuth()
         self.gateway = gateway or FakeGateway()
         self.clock = FixedClock()
         extra = {} if policy is None else {"policy": policy}
@@ -55,6 +57,7 @@ class Env:
             reservations=self.reservations,
             payments=self.payments,
             refunds=self.refunds,
+            auth=self.auth,
             gateway=self.gateway,
             clock=self.clock,
             **extra,
@@ -90,6 +93,7 @@ async def test_pay_with_default_mock_gateway_and_zero_penalty_policy():
         reservations=reservations,
         payments=payments,
         refunds=FakeRefundRepository(),
+        auth=FakeAuth(),
         gateway=MockPaymentGateway(),
         clock=FixedClock(),
     )
@@ -392,3 +396,203 @@ async def test_pay_and_refund_use_injected_clock(env):
 def test_service_constructor_requires_all_args():
     with pytest.raises(TypeError):
         PaymentApplicationService(FakeSession(), reservations=FakeReservationPort())  # type: ignore[call-arg]
+
+
+# ---------- 포인트 (REQ-42~51) ----------
+from payments.domain.exceptions import InvalidPointAmountError  # noqa: E402
+
+
+async def test_pay_with_point_orders_calls_and_commits_once(env):
+    rid = env.reservations.add(USER, total_price=10000)
+
+    payment = await env.service.pay(USER, rid, use_point=5000)
+
+    assert payment.amount == 5000 and payment.point_used == 5000
+    assert env.auth.calls == [
+        ("use_points", USER, 5000, False),
+        ("earn_points", USER, 50, False),  # 포인트 사용분 제외 금액의 1%
+    ]
+    assert env.db.commits == 1 and env.db.rollbacks == 0
+    assert env.payments.items[payment.id].point_used == 5000
+
+
+async def test_pay_without_point_skips_use_points_and_skips_zero_earn(env):
+    rid = env.reservations.add(USER, total_price=50)  # 적립 0
+
+    await env.service.pay(USER, rid)
+
+    assert env.auth.calls == []
+    assert env.db.commits == 1
+
+
+async def test_pay_without_point_earns_one_percent(env):
+    rid = env.reservations.add(USER, total_price=12000)
+
+    await env.service.pay(USER, rid)
+
+    assert env.auth.calls == [("earn_points", USER, 120, False)]
+
+
+async def test_zero_won_payment_calls_gateway_but_not_earn(env):
+    rid = env.reservations.add(USER, total_price=3000)
+
+    payment = await env.service.pay(USER, rid, use_point=3000)
+
+    assert payment.amount == 0 and payment.status == PaymentStatus.PAID
+    assert len(env.gateway.charged) == 1
+    assert env.auth.names() == ["use_points"]
+
+
+@pytest.mark.parametrize("use", [10100, -100])
+async def test_pay_point_over_total_or_negative_touches_nothing(env, use):
+    rid = env.reservations.add(USER, total_price=10000)
+
+    with pytest.raises(InvalidPointAmountError):
+        await env.service.pay(USER, rid, use_point=use)
+
+    assert env.auth.calls == [] and env.db.commits == 0
+    assert env.payments.items == {} and env.reservations.mark_paid_calls == []
+
+
+@pytest.mark.parametrize("use", [150, 100000 + 100])
+async def test_pay_point_unit_or_balance_violation_saves_nothing(env, use):
+    rid = env.reservations.add(USER, total_price=500000)
+
+    with pytest.raises(ValueError):
+        await env.service.pay(USER, rid, use_point=use)
+
+    assert env.payments.items == {} and env.reservations.mark_paid_calls == []
+    assert env.db.commits == 0 and env.db.rollbacks >= 1
+
+
+async def test_gateway_failure_rolls_back_point_use(env):
+    failing = Env(gateway=FailingGateway())
+    rid = failing.reservations.add(USER, total_price=10000)
+
+    with pytest.raises(PaymentFailedError):
+        await failing.service.pay(USER, rid, use_point=1000)
+
+    assert failing.auth.names() == ["use_points"]  # 적립 없음
+    assert failing.db.rollbacks >= 1 and failing.db.commits == 0  # REQ-45
+    assert failing.payments.items == {}
+
+
+async def test_earn_failure_rolls_back_everything(env):
+    env.auth.raise_on["earn_points"] = ValueError("상한")
+    rid = env.reservations.add(USER, total_price=10000)
+
+    with pytest.raises(ValueError):
+        await env.service.pay(USER, rid, use_point=1000)
+
+    assert env.db.commits == 0 and env.db.rollbacks >= 1
+    assert env.reservations.mark_paid_calls == []
+
+
+async def test_refund_restores_then_revokes_with_payment_user(env):
+    payment = await paid(env, 10000)  # 적립 없이 시작하려고 아래에서 기록 초기화
+    env.auth.calls.clear()
+    payment.point_used = 3000  # 결제 시점에 3000P를 쓴 결제로 가정
+    payment.amount = 7000
+    commits = env.db.commits
+
+    await env.service.refund(USER, payment.id, "단순 변심")
+
+    assert env.auth.calls == [
+        ("restore_points", USER, 3000, False),
+        ("revoke_points", USER, 70, False),
+    ]
+    assert env.db.commits == commits + 1
+
+
+async def test_refund_without_point_only_revokes(env):
+    payment = await paid(env, 12000)
+    env.auth.calls.clear()
+
+    await env.service.refund(USER, payment.id, "단순 변심")
+
+    assert env.auth.calls == [("revoke_points", USER, 120, False)]
+
+
+async def test_refund_restores_full_point_even_with_penalty():
+    from payments.domain.cancellation_policy import CancellationPolicy
+
+    class Penalty(CancellationPolicy):
+        def penalty(self, amount, pickup_start, now):
+            return amount // 2
+
+    env = Env(policy=Penalty())
+    rid = env.reservations.add(USER, total_price=10000)
+    payment = await env.service.pay(USER, rid, use_point=4000)
+    env.auth.calls.clear()
+
+    refund = await env.service.refund(USER, payment.id, "변심")
+
+    assert refund.penalty_amount == 3000
+    assert env.auth.calls[0] == ("restore_points", USER, 4000, False)  # REQ-49 위약금 무관
+    assert env.auth.calls[1] == ("revoke_points", USER, 60, False)  # REQ-50 amount 기준
+
+
+async def test_refund_by_admin_targets_payer(env):
+    payment = await paid(env, 12000)
+    env.auth.calls.clear()
+    # 환불자(관리자 등)와 무관하게 대상은 payment.user_id(결제자)다.
+    await env.service._apply_refund(payment)
+
+    assert all(call[1] == USER for call in env.auth.calls)
+
+
+async def test_duplicate_refund_does_not_touch_points(env):
+    payment = await paid(env, 12000)
+    await env.service.refund(USER, payment.id, "변심")
+    env.auth.calls.clear()
+
+    with pytest.raises(PaymentAlreadyRefundedError):
+        await env.service.refund(USER, payment.id, "변심")
+
+    assert env.auth.calls == []  # REQ-51
+
+
+async def test_refund_point_failure_rolls_back_refund(env):
+    payment = await paid(env, 12000)
+    env.auth.raise_on["revoke_points"] = ValueError("x")
+    commits = env.db.commits
+
+    with pytest.raises(ValueError):
+        await env.service.refund(USER, payment.id, "변심")
+
+    assert env.db.rollbacks == 1 and env.db.commits == commits
+    assert env.reservations.cancel_calls == []
+
+
+async def test_cancelled_reservation_refund_restores_and_revokes_without_commit(env):
+    rid = env.reservations.add(USER, total_price=10000)
+    payment = await env.service.pay(USER, rid, use_point=2000)
+    env.auth.calls.clear()
+    commits = env.db.commits
+
+    await env.service.refund_for_cancelled_reservation(
+        rid, reservation_status=RESERVATION_PAID_STATUS, pickup_start=None, reason="취소"
+    )
+
+    assert env.auth.calls == [
+        ("restore_points", USER, 2000, False),
+        ("revoke_points", USER, 80, False),
+    ]
+    assert env.db.commits == commits  # R13: commit은 호출자
+    assert payment.point_used == 2000
+
+
+async def test_cancelled_reservation_refund_with_waive_penalty_still_restores(env):
+    rid = env.reservations.add(USER, total_price=10000)
+    await env.service.pay(USER, rid, use_point=2000)
+    env.auth.calls.clear()
+
+    await env.service.refund_for_cancelled_reservation(
+        rid,
+        reservation_status=RESERVATION_PAID_STATUS,
+        pickup_start=None,
+        reason="상점 중단",
+        waive_penalty=True,
+    )
+
+    assert env.auth.names() == ["restore_points", "revoke_points"]

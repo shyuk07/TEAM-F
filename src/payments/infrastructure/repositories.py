@@ -68,6 +68,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
                 reservation_id=payment.reservation_id,
                 user_id=payment.user_id,
                 amount=payment.amount,
+                point_used=payment.point_used,
                 status=str(payment.status),
                 paid_at=payment.paid_at,
             )
@@ -99,6 +100,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
             reservation_id=model.reservation_id,
             user_id=model.user_id,
             amount=model.amount,
+            point_used=model.point_used,
             status=PaymentStatus(model.status),
             paid_at=model.paid_at,
         )

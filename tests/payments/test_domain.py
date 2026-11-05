@@ -302,3 +302,49 @@ def test_default_policy_is_zero_penalty():
     assert isinstance(DEFAULT_CANCELLATION_POLICY, FullRefundPolicy)
     assert DEFAULT_CANCELLATION_POLICY.penalty(12000, None, NOW) == 0
     assert FullRefundPolicy().penalty(12000, NOW, NOW) == 0
+
+
+# ---------- 포인트 (REQ-42~50) ----------
+from payments.domain.exceptions import InvalidPointAmountError  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("total", "use", "amount"),
+    [(10000, 0, 10000), (10000, 100, 9900), (10000, 10000, 0), (1050, 1000, 50)],
+)
+def test_request_with_use_point(total, use, amount):
+    payment = Payment.request(uuid.uuid4(), uuid.uuid4(), total, use_point=use)
+    assert payment.amount == amount and payment.point_used == use
+
+
+@pytest.mark.parametrize("use", [10001, -1, True, 1.5, "100", None])
+def test_request_invalid_use_point(use):
+    with pytest.raises(InvalidPointAmountError) as error:
+        Payment.request(uuid.uuid4(), uuid.uuid4(), 10000, use_point=use)
+    assert error.value.error_code == "INVALID_POINT_AMOUNT"
+    assert isinstance(error.value, ValueError)
+
+
+def test_request_invalid_total_still_not_payable():
+    with pytest.raises(ReservationNotPayableError):
+        Payment.request(uuid.uuid4(), uuid.uuid4(), None, use_point=0)
+
+
+@pytest.mark.parametrize(
+    ("amount", "earn"), [(0, 0), (99, 0), (100, 1), (199, 1), (200, 2), (5000, 50)]
+)
+def test_earn_point_amount(amount, earn):
+    assert Payment(uuid.uuid4(), uuid.uuid4(), amount).earn_point_amount() == earn
+
+
+def test_earn_excludes_used_point_and_restorable_is_point_used():
+    payment = Payment.request(uuid.uuid4(), uuid.uuid4(), 10000, use_point=5000)
+    assert payment.amount == 5000
+    assert payment.earn_point_amount() == 50
+    assert payment.restorable_point_amount() == 5000
+
+
+@pytest.mark.parametrize("bad", [-1, True, 1.5])
+def test_constructor_rejects_invalid_point_used(bad):
+    with pytest.raises(ValueError):
+        Payment(uuid.uuid4(), uuid.uuid4(), 100, point_used=bad)

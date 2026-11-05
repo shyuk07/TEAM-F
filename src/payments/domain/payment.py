@@ -5,6 +5,7 @@ from enum import StrEnum
 from payments.domain.exceptions import (
     InconsistencyKind,
     InvalidPaymentTransitionError,
+    InvalidPointAmountError,
     PaymentAlreadyRefundedError,
     PaymentNotRefundableError,
     PaymentStateInconsistentError,
@@ -12,6 +13,7 @@ from payments.domain.exceptions import (
 )
 from payments.domain.refund import Refund, RefundStatus
 from payments.domain.rules import (
+    POINT_EARN_PERCENT,
     PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES,
     REFUNDABLE_RESERVATION_STATUSES,
     RESERVATION_CANCELLED_STATUS,
@@ -49,10 +51,13 @@ class Payment:
         paid_at: datetime | None = None,
         failed_at: datetime | None = None,
         failed_response: dict | None = None,
+        point_used: int = 0,
     ):
         # 0원 결제도 허용한다(D-19).
         if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
             raise ValueError("결제 금액은 0원 이상의 정수여야 합니다.")
+        if not isinstance(point_used, int) or isinstance(point_used, bool) or point_used < 0:
+            raise ValueError("사용 포인트는 0 이상의 정수여야 합니다.")
         status = PaymentStatus(status)
         for name, value in (
             ("created_at", created_at),
@@ -71,6 +76,7 @@ class Payment:
         self.reservation_id = reservation_id
         self.user_id = user_id
         self.amount = amount
+        self.point_used = point_used
         self.status = status
         self.provider_payment_id = provider_payment_id
         self.created_at = created_at
@@ -85,18 +91,31 @@ class Payment:
         user_id: uuid.UUID,
         total_price: int | None,
         now: datetime | None = None,
+        *,
+        use_point: int = 0,
     ) -> "Payment":
-        """READY 결제를 만든다. 금액은 예약 총액을 그대로 쓴다. (포인트 사용은 D-10 미정이라 제외)"""
+        """READY 결제를 만든다. amount = 예약 총액 - use_point, point_used = use_point (REQ-43·44).
+
+        100P 단위·잔액 검사는 auth User.use_points가 한다(단위 정본은 auth).
+        """
         if (
             not isinstance(total_price, int)
             or isinstance(total_price, bool)
             or total_price < 0
         ):
             raise ReservationNotPayableError()
+        if (
+            not isinstance(use_point, int)
+            or isinstance(use_point, bool)
+            or use_point < 0
+            or use_point > total_price
+        ):
+            raise InvalidPointAmountError()
         return cls(
             reservation_id=reservation_id,
             user_id=user_id,
-            amount=total_price,
+            amount=total_price - use_point,
+            point_used=use_point,
             created_at=now or datetime.now(UTC),
         )
 
@@ -119,6 +138,14 @@ class Payment:
         self.status = PaymentStatus.FAILED
         self.failed_response = dict(response) if response else None
         self.failed_at = now or datetime.now(UTC)
+
+    def earn_point_amount(self) -> int:
+        """적립 포인트(REQ-46·47·50). 포인트 사용분을 뺀 결제 금액의 1%, 정수 연산. 위약금과 무관."""
+        return (self.amount * POINT_EARN_PERCENT) // 100
+
+    def restorable_point_amount(self) -> int:
+        """환불 시 복구할 포인트(REQ-49). 결제 때 쓴 포인트 전액, 위약금과 무관."""
+        return self.point_used
 
     @property
     def is_paid(self) -> bool:
