@@ -341,12 +341,14 @@ def create_payment_service(
     reservations: ReservationPort = Depends(create_payment_reservation_port),
     payments: PaymentRepository = Depends(create_payment_repository),
     refunds: RefundRepository = Depends(create_refund_repository),
+    auth: AuthApplicationService = Depends(create_auth_service),  # 같은 요청 세션
 ) -> PaymentApplicationService:
     return PaymentApplicationService(
         session=session,
         reservations=reservations,
         payments=payments,
         refunds=refunds,
+        auth=auth,
         gateway=_payments_gateway,
         clock=_payments_clock,
     )

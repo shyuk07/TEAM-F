@@ -57,7 +57,7 @@ ServiceDep = Annotated[PaymentApplicationService, Depends(provide_payment_servic
 )
 async def create_payment(body: PaymentCreate, user: CurrentUser, service: ServiceDep):
     try:
-        return await service.pay(user.id, body.reservation_id)
+        return await service.pay(user.id, body.reservation_id, use_point=body.use_point)
     except PaymentStateInconsistentError as error:
         return _data_inconsistent_response(error)
     except PaymentConflictError as error:

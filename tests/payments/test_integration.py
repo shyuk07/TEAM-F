@@ -40,6 +40,7 @@ from reservations.domain.offer_ref import OfferRef
 from reservations.domain.pickup_reservation import PickupReservation
 from reservations.domain.pickup_reservation import ReservationStatus as S
 from reservations.domain.repository import ReservationRepository
+from tests.payments.fakes import FakeAuth
 from tests.reservations.fakes import NOW, FakeStock, Log, Terms
 from tests.reservations.test_adapters import Offers, Products, Stores
 
@@ -262,6 +263,8 @@ class Env:
             self.offer_id = self.stock.offer_id
             self.overrides[container.create_stock_port] = lambda: self.stock
 
+        self.auth = FakeAuth()
+
         async def tx_session():
             try:
                 yield self.tx
@@ -276,6 +279,7 @@ class Env:
                 container.create_reservation_repository: lambda: self.res,
                 container.create_payment_repository: lambda: self.pay,
                 container.create_refund_repository: lambda: self.refund,
+                container.create_auth_service: lambda: self.auth,  # 포인트는 fake (DB 없음)
             }
         )
 

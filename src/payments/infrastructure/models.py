@@ -19,6 +19,7 @@ class PaymentModel(Base):
     # TODO: users 테이블이 생기면 ForeignKey("users.id") 추가
     user_id: Mapped[UUID] = mapped_column(index=True)
     amount: Mapped[int] = mapped_column(Integer)
+    point_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     status: Mapped[str] = mapped_column(String(20))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
