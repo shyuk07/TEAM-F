@@ -2,11 +2,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from auth.domain.exceptions import AuthenticationError
 from auth.presentation.dependencies import OwnerUser
 from catalog.application.service import CatalogApplicationService
 from catalog.domain.discount_offer import OfferStatus
+from catalog.domain.exceptions import ReservationDataInconsistentError
 from catalog.presentation.dependencies import OptionalUser, provide_catalog_service
 from catalog.presentation.schemas import (
     OfferCreateRequest,
@@ -174,7 +176,14 @@ async def update_offer(
 async def deactivate_offer(
     offer_id: uuid.UUID, body: OfferDeactivateRequest, owner: OwnerUser, service: Service
 ):
-    result = await service.deactivate_offer(owner.id, offer_id, body.reason, body.cancel_reservations)
+    try:
+        result = await service.deactivate_offer(owner.id, offer_id, body.reason, body.cancel_reservations)
+    except ReservationDataInconsistentError as error:
+        # 예약 서비스가 이미 롤백하고 ERROR 로그를 1건 남겼다. 여기서는 공통 형식의 500 응답만 만든다(로그 없음).
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error_code": error.error_code, "message": str(error)},
+        )
     return OfferDeactivateResponse.from_result(result)
 
 

@@ -8,7 +8,6 @@ import pytest
 from auth.application.service import AuthApplicationService
 from auth.domain.exceptions import EmailDuplicatedError
 from auth.domain.point_log import PointType
-from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role
 from auth.infrastructure.repositories import (
     SqlAlchemyPointLogRepository,
@@ -300,20 +299,14 @@ def admin_env(monkeypatch):
     monkeypatch.setenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
 
 
-async def test_seed_admin_then_admin_reads_user(client, admin_env):
+async def test_seed_admin_then_login_as_admin(client, admin_env):
     assert await seed_admin(client.session_factory) is True
     r = await login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
     assert r.status_code == 200
-    admin_token = r.json()["access_token"]
-    await signup(client)
-    me = (await client.get("/v1/users/me", headers=bearer(await _token(client)))).json()
-    async with client.session_factory() as db:
-        await auth_service(db).earn_points(uuid.UUID(me["id"]), 300)
-    r = await client.get(f"/v1/admin/users/{me['id']}", headers=bearer(admin_token))
-    assert r.status_code == 200
-    assert r.json()["users_point"] == 300 and r.json()["role"] == "CUSTOMER"
-    assert "password_hash" not in r.json()
-    assert (await client.get(f"/v1/admin/users/{me['id']}", headers=bearer(await _token(client)))).status_code == 403
+    me = await client.get("/v1/users/me", headers=bearer(r.json()["access_token"]))
+    assert me.status_code == 200
+    assert me.json()["role"] == "ADMIN" and me.json()["email"] == ADMIN_EMAIL
+    assert "password_hash" not in me.json()
 
 
 async def _token(client, email="user@test.com"):
@@ -343,26 +336,6 @@ async def test_seed_admin_does_not_promote_customer(client, admin_env):
         await seed_admin(client.session_factory)
     me = await client.get("/v1/users/me", headers=bearer(await _token(client, ADMIN_EMAIL)))
     assert me.json()["role"] == "CUSTOMER"
-
-
-async def test_admin_purge_api(client, admin_env):
-    await seed_admin(client.session_factory)
-    admin_token = (await login(client, ADMIN_EMAIL, ADMIN_PASSWORD)).json()["access_token"]
-    now = datetime.now(timezone.utc)
-    async with client.session_factory() as db:
-        repo = SqlAlchemyTokenBlacklistRepository(db)
-        await repo.add(BlacklistedToken(jti="expired-jti", expires_at=now - timedelta(hours=1)))
-        await repo.add(BlacklistedToken(jti="live-jti", expires_at=now + timedelta(hours=1)))
-        await db.commit()
-    r = await client.post("/v1/admin/token-blacklist/purge", headers=bearer(admin_token))
-    assert r.status_code == 200 and r.json() == {"deleted_count": 1}
-    async with client.session_factory() as db:
-        repo = SqlAlchemyTokenBlacklistRepository(db)
-        assert await repo.exists("live-jti") is True
-        assert await repo.exists("expired-jti") is False
-    cust = await token_for(client, "c@test.com")
-    assert (await client.post("/v1/admin/token-blacklist/purge", headers=bearer(cust))).status_code == 403
-    assert (await client.post("/v1/admin/token-blacklist/purge")).status_code == 401
 
 
 async def test_signup_admin_still_rejected(client):

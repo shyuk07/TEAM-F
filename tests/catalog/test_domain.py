@@ -176,7 +176,7 @@ def test_picked_up_reservation_exists_error():
     assert issubclass(PickedUpReservationExistsError, ValueError)
     e = PickedUpReservationExistsError()
     assert e.error_code == "PICKED_UP_RESERVATION_EXISTS"
-    assert str(e) == "픽업 완료된 예약이 있어 일괄 취소할 수 없습니다."
+    assert str(e) == "픽업 완료된 예약이 있어 처리할 수 없습니다."
     assert issubclass(OfferClosedError, ValueError) and OfferClosedError.error_code == "OFFER_CLOSED"
 
 
@@ -504,3 +504,133 @@ def test_store_ref_from_info_copies_coordinates():
 
     ref = StoreRef.from_info(Info())
     assert ref.latitude == 37.1 and ref.longitude is None
+
+
+# ── deduct_stock / restore_stock / StockLog 예약 팩토리 (통합 5단계 B2안) ──
+from catalog.domain.exceptions import (  # noqa: E402
+    OfferNotReservableError,
+    OfferOutOfStockError,
+    ReservationDataInconsistentError,
+    StockRestoreExceedsInitialError,
+)
+
+
+def test_deduct_stock_reduces_remaining_only_and_keeps_initial():
+    o = offer(initial_stock=10)
+    o.deduct_stock(3, NOW)
+    assert (o.remaining_stock, o.initial_stock, o.status) == (7, 10, OfferStatus.ON_SALE)
+
+
+def test_deduct_stock_to_zero_becomes_sold_out():
+    o = offer(initial_stock=2)
+    o.deduct_stock(2, NOW)
+    assert o.remaining_stock == 0 and o.status == OfferStatus.SOLD_OUT
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, False, 1.5, "1", None])
+def test_deduct_stock_rejects_invalid_quantity(bad):
+    o = offer()
+    with pytest.raises(ValueError) as e:
+        o.deduct_stock(bad, NOW)
+    assert not isinstance(e.value, (OfferNotReservableError, OfferOutOfStockError))
+    assert o.remaining_stock == 10
+
+
+def test_deduct_stock_rejects_scheduled_ended_and_closed_offers():
+    scheduled = offer(sales_start=NOW + H, sales_end=NOW + 2 * H)
+    with pytest.raises(OfferNotReservableError):
+        scheduled.deduct_stock(1, NOW)
+    o = offer()
+    with pytest.raises(OfferNotReservableError):
+        o.deduct_stock(1, NOW + 2 * H)  # 판매 마감 시각 이후
+    closed = offer()
+    closed.close(NOW)
+    with pytest.raises(OfferNotReservableError):
+        closed.deduct_stock(1, NOW)
+    assert (scheduled.remaining_stock, o.remaining_stock, closed.remaining_stock) == (10, 10, 10)
+
+
+def test_deduct_stock_on_sold_out_is_not_reservable_not_out_of_stock():
+    o = offer(initial_stock=1)
+    o.deduct_stock(1, NOW)
+    with pytest.raises(OfferNotReservableError):  # 상태 검사가 수량 검사보다 먼저
+        o.deduct_stock(1, NOW)
+
+
+def test_deduct_stock_more_than_remaining_is_out_of_stock():
+    o = offer(initial_stock=3)
+    with pytest.raises(OfferOutOfStockError) as e:
+        o.deduct_stock(4, NOW)
+    assert e.value.error_code == "OUT_OF_STOCK" and o.remaining_stock == 3
+
+
+def test_restore_stock_increases_remaining_and_returns_true():
+    o = offer(initial_stock=10)
+    o.deduct_stock(4, NOW)
+    assert o.restore_stock(3, NOW) is True
+    assert (o.remaining_stock, o.initial_stock) == (9, 10)
+
+
+def test_restore_stock_sold_out_becomes_on_sale():
+    o = offer(initial_stock=2)
+    o.deduct_stock(2, NOW)
+    assert o.status == OfferStatus.SOLD_OUT
+    assert o.restore_stock(1, NOW) is True
+    assert o.remaining_stock == 1 and o.status == OfferStatus.ON_SALE
+
+
+def test_restore_stock_on_inactive_offer_changes_nothing_and_returns_false():
+    o = offer(initial_stock=5)
+    o.deduct_stock(2, NOW)
+    o.close(NOW)
+    assert o.restore_stock(2, NOW) is False
+    assert (o.remaining_stock, o.status, o.is_active) == (3, OfferStatus.CLOSED, False)
+
+
+def test_restore_stock_does_not_check_limit_on_inactive_offer():
+    o = offer(initial_stock=5)
+    o.close(NOW)
+    assert o.restore_stock(1, NOW) is False  # 닫힌 할인은 상한도 보지 않고 그대로 둔다
+    assert o.remaining_stock == 5
+
+
+def test_restore_stock_over_initial_stock_is_inconsistent_and_changes_nothing():
+    o = offer(initial_stock=5)
+    o.deduct_stock(1, NOW)
+    with pytest.raises(StockRestoreExceedsInitialError) as e:
+        o.restore_stock(2, NOW)
+    assert o.remaining_stock == 4
+    # 400/403/404/409 어느 전역 핸들러에도 잡히지 않는다
+    assert not isinstance(e.value, (ValueError, PermissionError, LookupError, RuntimeError))
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.0, None])
+def test_restore_stock_rejects_invalid_quantity(bad):
+    o = offer(initial_stock=5)
+    o.deduct_stock(2, NOW)
+    with pytest.raises(ValueError):
+        o.restore_stock(bad, NOW)
+    assert o.remaining_stock == 3
+
+
+def test_adjust_stock_still_grows_initial_stock_unchanged_behavior():
+    o = offer(initial_stock=5)
+    o.adjust_stock(2, NOW)  # 기존 수동 조정은 그대로 initial_stock도 늘린다
+    assert (o.initial_stock, o.remaining_stock) == (7, 7)
+
+
+def test_stock_log_reservation_factories_use_fixed_reasons():
+    offer_id, user_id = uuid.uuid4(), uuid.uuid4()
+    d = StockLog.reservation_deduction(offer_id, user_id, 3)
+    assert (d.offer_id, d.user_id, d.amount, d.reason) == (offer_id, user_id, -3, "예약 생성")
+    r = StockLog.reservation_cancel_restore(offer_id, user_id, 3)
+    assert (r.offer_id, r.user_id, r.amount, r.reason) == (offer_id, user_id, 3, "예약 취소 복구")
+
+
+def test_reservation_data_inconsistent_error_is_standalone_exception():
+    error = ReservationDataInconsistentError()
+    assert type(error).__mro__[1] is Exception  # Exception 직접 상속
+    assert error.error_code == "DATA_INCONSISTENT"
+    assert str(error) == "예약과 결제 상태가 일치하지 않습니다. 관리자에게 문의해 주세요."
+    for family in (ValueError, PermissionError, LookupError, RuntimeError):
+        assert not isinstance(error, family)

@@ -92,9 +92,10 @@ async def test_cancel_order_restores_stock_and_commits_once():
     out = await service.cancel_reservation(uid, r.id)
     assert out.status == S.CANCELLED and out.cancelled_at is not None
     assert stock.stock == 5 and session.commits == 1
-    # 잠금 순서: 잠금 없는 읽기 -> offer 잠금 -> 예약 잠금 -> release -> commit
+    # 잠금 순서(RD-5): 잠금 없는 읽기 -> (offer 잠금 -> 예약 잠금: 환불 여부 판단) -> (같은 잠금 재진입) -> release -> commit
     assert log.events == [
-        "res_read", "offer_read", "res_read", "offer_lock", "res_lock", "release", "save", "commit",
+        "res_read", "offer_read", "res_read", "offer_lock", "res_lock",
+        "res_read", "offer_lock", "res_lock", "release", "save", "commit",
     ]
     assert refunds.calls == []  # 결제 전이라 환불 없음
 

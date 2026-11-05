@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from reservations.application.ports import StockPort
 from reservations.application.views import CancelledReservation, RefundTarget, ReservationView
-from reservations.domain.exceptions import PickedUpReservationExistsError, ReservationNotFoundError
+from reservations.domain.exceptions import (
+    DataInconsistentError,
+    InconsistencyDetail,
+    PickedUpReservationExistsError,
+    ReservationNotFoundError,
+)
 from reservations.domain.offer_ref import OfferRef
 from reservations.domain.pickup_reservation import PickupReservation, ReservationStatus
 from reservations.domain.repository import ReservationRepository
@@ -35,6 +40,27 @@ class ReservationLifecycleService:
         if reservation is None:
             return None
         return ReservationView(reservation, OfferRef.from_info(terms))
+
+    async def _release_stock(
+        self, reservation: PickupReservation, *, user_id: uuid.UUID, reason: str
+    ) -> None:
+        """재고를 되돌린다. 닫힌 할인이면 포트가 False를 주며 정상 경로다(D40). 상한 초과는 DataInconsistentError(500)."""
+        try:
+            await self.stock.release(
+                reservation.offer_id,
+                reservation.quantity,
+                user_id=user_id,
+                reason=reason,
+                now=self.clock.now(),
+            )
+        except DataInconsistentError as error:
+            # 포트는 예약 ID를 모른다. 로그에 남도록 이 예약의 ID를 채워 다시 낸다.
+            raise DataInconsistentError(
+                [
+                    InconsistencyDetail(d.reservation_id or reservation.id, d.kind, d.payment_id)
+                    for d in error.details
+                ]
+            ) from error
 
     async def get_snapshot(
         self, reservation_id: uuid.UUID, *, for_update: bool = False
@@ -70,9 +96,7 @@ class ReservationLifecycleService:
             raise ReservationNotFoundError()
         reservation = view.reservation
         reservation.cancel(self.clock.now())  # 상태 검사가 재고 복구보다 먼저 (이중 복구 방지)
-        await self.stock.release(
-            reservation.offer_id, reservation.quantity, user_id=actor_user_id, reason=reason
-        )
+        await self._release_stock(reservation, user_id=actor_user_id, reason=reason)
         await self.reservations.save(reservation)
         if commit:
             await self.session.commit()
@@ -88,9 +112,7 @@ class ReservationLifecycleService:
         if reservation.is_cancelled:
             return  # 멱등: 재고·환불을 다시 건드리지 않는다
         reservation.cancel(self.clock.now())
-        await self.stock.release(
-            reservation.offer_id, reservation.quantity, user_id=reservation.user_id, reason=reason
-        )
+        await self._release_stock(reservation, user_id=reservation.user_id, reason=reason)
         await self.reservations.save(reservation)
         if commit:
             await self.session.commit()
@@ -107,6 +129,7 @@ class ReservationLifecycleService:
             if not reservation.holds_stock:
                 continue
             target = None
+            check_paid_payment = reservation.is_pending_payment  # 취소하기 전 상태로 판단
             if reservation.is_paid:
                 target = RefundTarget(
                     reservation_id=reservation.id,  # type: ignore[arg-type]
@@ -117,5 +140,5 @@ class ReservationLifecycleService:
                 )
             reservation.cancel(now)
             await self.reservations.save(reservation)
-            cancelled.append(CancelledReservation(reservation, target))
+            cancelled.append(CancelledReservation(reservation, target, check_paid_payment))
         return cancelled

@@ -39,8 +39,6 @@ from catalog.infrastructure.repositories import (
     SqlAlchemyProductRepository,
     SqlAlchemyStockLogRepository,
 )
-from catalog.infrastructure.reservation_cancel import NoReservationCancel
-from catalog.infrastructure.reservation_lookup import NoReservationLookup
 from catalog.presentation.dependencies import (
     provide_catalog_service,
     provide_reservation_cancel,
@@ -48,7 +46,9 @@ from catalog.presentation.dependencies import (
     provide_store_port,
 )
 from database import get_db
-from reservations.application.interim_stock_port import ReadOnlyOfferStockPort
+from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
+from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
+from reservations.application.catalog_stock_adapter import CatalogStockAdapter
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.ports import RefundPort, StockPort
 from reservations.application.service import ReservationApplicationService
@@ -56,13 +56,25 @@ from reservations.domain.repository import ReservationRepository
 from reservations.domain.service import Clock as ReservationsClock
 from reservations.domain.service import PickupCodeGenerator
 from reservations.infrastructure.clock import SystemClock as ReservationsSystemClock
-from reservations.infrastructure.payment_refund_stub import NoPaymentRefund
 from reservations.infrastructure.pickup_code import SecretsPickupCodeGenerator
 from reservations.infrastructure.repositories import SqlAlchemyReservationRepository
 from reservations.presentation.dependencies import (
     provide_reservation_lifecycle_service,
     provide_reservation_service,
 )
+from payments.application.ports import ReservationPort
+from payments.application.service import PaymentApplicationService
+from payments.domain.repository.payment_repository import PaymentRepository
+from payments.domain.repository.refund_repository import RefundRepository
+from payments.domain.service import Clock as PaymentsClock
+from payments.domain.service import PaymentGateway
+from payments.infrastructure.clock import SystemClock as PaymentsSystemClock
+from payments.infrastructure.mock_gateway import MockPaymentGateway
+from payments.infrastructure.repositories import (
+    SqlAlchemyPaymentRepository,
+    SqlAlchemyRefundRepository,
+)
+from payments.presentation.dependencies import provide_payment_service
 from stores.application.ports import OpenOffersPort, PickupPendingPort
 from stores.application.query_service import StoreQueryService
 from stores.application.service import StoresApplicationService
@@ -82,11 +94,10 @@ _token_provider: TokenProvider = JwtTokenProvider()
 _auth_clock: AuthClock = AuthSystemClock()
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
-_reservation_lookup: ReservationLookupPort = NoReservationLookup()  # 임시 (CI-10)
-_reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI-11)
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
-_payment_refund: RefundPort = NoPaymentRefund()  # 임시 (D-15, C-4)
+_payments_gateway: PaymentGateway = MockPaymentGateway()
+_payments_clock: PaymentsClock = PaymentsSystemClock()
 _pickup_pending: PickupPendingPort = NoPickupPendingReservations()  # 임시 미연계 (stores.md D21): reservations 후속 PR이 교체
 # 네이버 지오코딩: NAVER_MAP_* 환경변수가 없으면 개설이 503 (stores.md D28)
 _geocoder: Geocoder = NaverGeocoder(get_naver_geocoding_settings())
@@ -169,11 +180,14 @@ def create_store_port(
 
 
 def create_reservation_lookup() -> ReservationLookupPort:
-    return _reservation_lookup
+    """자리 표시 함수. 예약 구역이 아래에 있어 여기서 직접 만들 수 없다.
+    wire_dependencies가 create_catalog_reservation_lookup(아래 예약 구역)으로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_catalog_reservation_lookup으로 교체됩니다.")
 
 
 def create_reservation_cancel() -> ReservationCancelPort:
-    return _reservation_cancel
+    """자리 표시 함수. wire_dependencies가 create_catalog_reservation_canceller(아래 예약 구역)로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_catalog_reservation_canceller로 교체됩니다.")
 
 
 def create_catalog_service(
@@ -238,13 +252,16 @@ def create_stock_port(
     offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
     products: ProductRepository = Depends(create_product_repository),
     stores: StorePort = Depends(create_store_port),
+    stock_logs: StockLogRepository = Depends(create_stock_log_repository),
 ) -> StockPort:
-    # 임시 읽기 전용 구현 (D-25). catalog의 재고 서비스(C-1)가 생기면 교체한다.
-    return ReadOnlyOfferStockPort(offers=offers, products=products, stores=stores)
+    # catalog 도메인·레포지토리만 쓰는 실제 재고 어댑터 (catalog 서비스는 받지 않는다: R12)
+    return CatalogStockAdapter(offers=offers, products=products, stores=stores, stock_logs=stock_logs)
 
 
 def create_refund_port() -> RefundPort:
-    return _payment_refund
+    """자리 표시 함수. 결제 구역이 아래에 있어 여기서 직접 만들 수 없다.
+    wire_dependencies가 create_reservation_refund_port(아래 결제 구역)로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_reservation_refund_port로 교체됩니다.")
 
 
 def create_reservation_lifecycle_service(
@@ -273,6 +290,58 @@ def create_reservation_service(
         clock=_reservations_clock,
         code_generator=_pickup_code_generator,
     )
+
+
+def create_catalog_reservation_lookup(
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+) -> ReservationLookupPort:
+    """catalog용 예약 조회 포트. 위쪽 catalog 구역의 create_reservation_lookup을 옮기지 않고 override한다."""
+    return OfferReservationLookup(reservations)
+
+
+def create_catalog_reservation_canceller(
+    service: ReservationApplicationService = Depends(create_reservation_service),
+) -> ReservationCancelPort:
+    """catalog용 일괄 취소 포트. 같은 요청 세션의 예약 서비스를 쓴다(R13). 예약 쪽은 catalog 서비스를 받지 않는다(R12)."""
+    return OfferReservationCanceller(service)
+
+
+# ── payments ─────────────────────────
+def create_payment_repository(session: AsyncSession = Depends(get_db)) -> PaymentRepository:
+    return SqlAlchemyPaymentRepository(session)
+
+
+def create_refund_repository(session: AsyncSession = Depends(get_db)) -> RefundRepository:
+    return SqlAlchemyRefundRepository(session)
+
+
+def create_payment_reservation_port(
+    lifecycle: ReservationLifecycleService = Depends(create_reservation_lifecycle_service),
+) -> ReservationPort:
+    return PaymentReservationAdapter(lifecycle)  # 같은 요청 세션의 lifecycle (R13)
+
+
+def create_payment_service(
+    session: AsyncSession = Depends(get_db),
+    reservations: ReservationPort = Depends(create_payment_reservation_port),
+    payments: PaymentRepository = Depends(create_payment_repository),
+    refunds: RefundRepository = Depends(create_refund_repository),
+) -> PaymentApplicationService:
+    return PaymentApplicationService(
+        session=session,
+        reservations=reservations,
+        payments=payments,
+        refunds=refunds,
+        gateway=_payments_gateway,
+        clock=_payments_clock,
+    )
+
+
+def create_reservation_refund_port(
+    payments: PaymentApplicationService = Depends(create_payment_service),
+) -> RefundPort:
+    """예약용 RefundPort. 위쪽 예약 구역의 create_refund_port를 옮기지 않고, wire_dependencies에서 이 함수로 override한다."""
+    return PaymentRefundAdapter(payments)
 
 
 # ── admin ────────────────────────────
@@ -305,10 +374,16 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_stores_service: create_stores_service,
             provide_store_port: create_store_port,
             provide_catalog_service: create_catalog_service,
-            provide_reservation_lookup: create_reservation_lookup,
-            provide_reservation_cancel: create_reservation_cancel,
+            provide_reservation_lookup: create_catalog_reservation_lookup,
+            provide_reservation_cancel: create_catalog_reservation_canceller,
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
             provide_admin_service: create_admin_service,
+            provide_payment_service: create_payment_service,
+            # 중첩 Depends도 override가 적용된다: create_reservation_service가 받는 RefundPort를 결제 어댑터로 교체
+            create_refund_port: create_reservation_refund_port,
+            # catalog 서비스가 받는 포트도 같은 방식으로 교체 (정의 순서 때문에 위쪽 함수를 옮기지 않는다)
+            create_reservation_lookup: create_catalog_reservation_lookup,
+            create_reservation_cancel: create_catalog_reservation_canceller,
         }
     )

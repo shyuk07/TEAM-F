@@ -10,10 +10,13 @@ from catalog.domain.exceptions import (
     OfferEndedError,
     OfferAlreadySuspendedError,
     OfferHasReservationsError,
+    OfferNotReservableError,
+    OfferOutOfStockError,
     OfferSalesEndedError,
     OfferSuspendedError,
     OpenOfferExistsError,
     ProductInactiveError,
+    StockRestoreExceedsInitialError,
 )
 
 MAX_INITIAL_STOCK = 9999
@@ -64,6 +67,11 @@ def _aware(value: datetime, label: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{label}에는 시간대 정보가 필요합니다.")
     return value
+
+
+def _ensure_quantity(quantity: int) -> None:
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+        raise ValueError("수량은 1개 이상이어야 합니다.")
 
 
 # 기본 목록 상태 집합. is_open(D4: is_active 이고 마감 전)인 유효 상태에서 SUSPENDED만 뺀 집합이다
@@ -365,6 +373,30 @@ class DiscountOffer:
             self.initial_stock += amount
             self.remaining_stock += amount
         self._sync_status(now)
+
+    def deduct_stock(self, quantity: int, now: datetime) -> None:
+        """예약 차감. 검사 순서: 수량 형식 -> 판매 상태(품절 포함) -> 재고 부족. initial_stock은 건드리지 않는다."""
+        _ensure_quantity(quantity)
+        if self.effective_status(now) != OfferStatus.ON_SALE:
+            raise OfferNotReservableError()
+        if quantity > self.remaining_stock:
+            raise OfferOutOfStockError()
+        self.remaining_stock -= quantity
+        self._sync_status(now)
+
+    def restore_stock(self, quantity: int, now: datetime) -> bool:
+        """예약 취소·환불 복구. 닫힌(중단) 할인은 아무것도 바꾸지 않고 False (D40).
+
+        복구하면 남은 재고가 최초 수량을 넘는 경우는 데이터 불일치라 예외를 낸다.
+        """
+        _ensure_quantity(quantity)
+        if not self.is_active:
+            return False
+        if self.remaining_stock + quantity > self.initial_stock:
+            raise StockRestoreExceedsInitialError()
+        self.remaining_stock += quantity
+        self._sync_status(now)
+        return True
 
     def _sync_status(self, now: datetime) -> None:
         self.status = self.effective_status(now)
