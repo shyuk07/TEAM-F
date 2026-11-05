@@ -56,7 +56,7 @@
 | HTTP | 상황 |
 | --- | --- |
 | 400 | 결제할 수 없는 예약 (`RESERVATION_NOT_PAYABLE`), 결제 실패 (`PAYMENT_FAILED`) |
-| 400 | 사용 포인트가 음수이거나 결제 총액 초과 (`INVALID_POINT_AMOUNT`), 포인트 단위·잔액 위반 (`VALIDATION_ERROR`) |
+| 400 | 사용 포인트가 결제 총액 초과 (`INVALID_POINT_AMOUNT`), 사용 포인트 음수(요청 검증)·포인트 단위·잔액 위반 (`VALIDATION_ERROR`) |
 | 401 | 로그인 인증 필요 |
 | 404 | 예약 정보 없음 |
 | 409 | 이미 결제된 예약 |
