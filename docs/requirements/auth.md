@@ -1,6 +1,6 @@
 # auth 도메인 요구 조건 — 회원·인증·포인트
 
-상태: 검토 중
+상태: 확정 (확정일: 2026-11-05)
 입력: `src/auth/domain/{user,point_log,token_blacklist,token_claims,exceptions}.py`, `src/auth/application/service.py`, `src/auth/infrastructure/{settings,repositories}.py`, `src/auth/presentation/{schemas,router}.py`, `docs/reference/auth.md`, `docs/reference/README.md`, `docs/reference/payments.md`, `docs/design/auth.md` §1·§3.5·§13, `docs/design/payments.md` §4.1·§4.3·§8, `docs/design/admin.md`(경계 절에서만 인용), `.claude/skills/db-schema/schema.sql`(users, point_log, token_blacklist), 사용자 답변(1·2회차, 2026-11-05)
 표시: [입력] 근거 있음 / [제안] 작성자 제안, 확인 필요 / [기입 필요] 사용자 기입
 
@@ -391,3 +391,6 @@
 - 구 RQ-15(포인트 내역 필드) → 새 RQ-18
 - 구 RQ-16(본인 정보 변경·자진 탈퇴) → 새 RQ-2(정보 변경), 새 RQ-4(자진 탈퇴)
 - 신규: RQ-1(고객 이름·전화번호), RQ-3(비밀번호 재설정), RQ-7(토큰 유효 시간·재로그인), RQ-8(결제 1건 포인트 한도), RQ-9(유효기간), RQ-10(환불 시 포인트), RQ-11(소액 결제 적립)
+
+### 확정 (2026-11-05)
+사용자 승인으로 확정. 남은 질문 0개, 본문의 `[제안]`·`[기입 필요]` 표시 0개.
