@@ -41,13 +41,15 @@ class UserModel(Base):
     suspended_until: Mapped[datetime | None] = mapped_column(TZ)
     deleted_at: Mapped[datetime | None] = mapped_column(TZ)
     deleted_reason: Mapped[str | None] = mapped_column(String(500))
+    token_version: Mapped[int] = mapped_column(server_default="0")
+    token_keep_jti: Mapped[str | None] = mapped_column(Text)
 
 
 class PointLogModel(Base):
     __tablename__ = "point_log"
     __table_args__ = (
         CheckConstraint(
-            "point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT')",
+            "point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT', 'EXPIRE')",
             name="ck_point_log_type",
         ),
     )
@@ -74,3 +76,18 @@ class TokenBlacklistModel(Base):
 
     jti: Mapped[str] = mapped_column(Text, primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(TZ, index=True)
+
+
+class PasswordResetCodeModel(Base):
+    __tablename__ = "password_reset_codes"
+    __table_args__ = (
+        CheckConstraint("failed_attempts >= 0", name="ck_password_reset_attempts_nonneg"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(TZ)
+    failed_attempts: Mapped[int] = mapped_column(server_default="0")
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=text("now()"))

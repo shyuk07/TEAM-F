@@ -28,9 +28,28 @@ class Clock(ABC):
 class TokenProvider(ABC):
     @abstractmethod
     def issue(
-        self, user_id: uuid.UUID, role: str, now: datetime | None = None
+        self,
+        user_id: uuid.UUID,
+        role: str,
+        now: datetime | None = None,
+        *,
+        token_version: int = 0,
     ) -> tuple[str, TokenClaims]: ...
 
     @abstractmethod
     def decode(self, token: str) -> TokenClaims:
         """만료·위조·필수 클레임 누락은 AuthenticationError."""
+
+
+class ResetCodeGenerator(ABC):
+    """비밀번호 재설정 코드(6자리 숫자 문자열)를 만든다."""
+
+    @abstractmethod
+    def generate(self) -> str: ...
+
+
+class PasswordResetNotifier(ABC):
+    """재설정 코드를 회원에게 전달한다(메일 등). 실패해도 요청 응답에는 드러내지 않는다."""
+
+    @abstractmethod
+    async def send_code(self, email: str, code: str, expires_at: datetime) -> None: ...

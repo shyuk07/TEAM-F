@@ -8,20 +8,38 @@ from admin.application.service import AdminApplicationService
 from admin.domain.service import Clock as AdminClock
 from admin.infrastructure.clock import SystemClock as AdminSystemClock
 from admin.presentation.dependencies import provide_admin_service
+from auth.application.password_reset_service import PasswordResetService
 from auth.application.service import AuthApplicationService
+from auth.application.withdrawal_service import AccountWithdrawalService
+from auth.domain.repository.password_reset_code_repository import PasswordResetCodeRepository
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import Clock as AuthClock
-from auth.domain.service import PasswordHasher, TokenProvider
+from auth.domain.service import (
+    PasswordHasher,
+    PasswordResetNotifier,
+    ResetCodeGenerator,
+    TokenProvider,
+)
 from auth.infrastructure.clock import SystemClock as AuthSystemClock
 from auth.infrastructure.repositories import (
+    SqlAlchemyPasswordResetCodeRepository,
     SqlAlchemyPointLogRepository,
     SqlAlchemyTokenBlacklistRepository,
     SqlAlchemyUserRepository,
 )
-from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
-from auth.presentation.dependencies import provide_auth_service
+from auth.infrastructure.reset_notifier import LoggingPasswordResetNotifier
+from auth.infrastructure.security import (
+    BcryptPasswordHasher,
+    JwtTokenProvider,
+    SecretsResetCodeGenerator,
+)
+from auth.presentation.dependencies import (
+    provide_auth_service,
+    provide_password_reset_service,
+    provide_withdrawal_service,
+)
 from catalog.application.ports import (
     ReservationCancelPort,
     ReservationLookupPort,
@@ -93,6 +111,9 @@ from stores.presentation.dependencies import provide_store_repository, provide_s
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
 _auth_clock: AuthClock = AuthSystemClock()
+_reset_code_generator: ResetCodeGenerator = SecretsResetCodeGenerator()
+# 임시(개발·시연 전용): 재설정 코드 원문을 로그에 남긴다. 실제 메일 발송 구현으로 이 한 줄을 교체한 뒤에만 배포한다.
+_reset_notifier: PasswordResetNotifier = LoggingPasswordResetNotifier()
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
@@ -132,6 +153,28 @@ def create_auth_service(
         blacklist=blacklist,
         hasher=_password_hasher,
         tokens=_token_provider,
+        clock=_auth_clock,
+    )
+
+
+def create_password_reset_code_repository(
+    session: AsyncSession = Depends(get_db),
+) -> PasswordResetCodeRepository:
+    return SqlAlchemyPasswordResetCodeRepository(session)
+
+
+def create_password_reset_service(
+    session: AsyncSession = Depends(get_db),
+    users: UserRepository = Depends(create_user_repository),
+    codes: PasswordResetCodeRepository = Depends(create_password_reset_code_repository),
+) -> PasswordResetService:
+    return PasswordResetService(
+        session=session,
+        users=users,
+        codes=codes,
+        hasher=_password_hasher,
+        generator=_reset_code_generator,
+        notifier=_reset_notifier,
         clock=_auth_clock,
     )
 
@@ -369,6 +412,25 @@ def create_reservation_admin(
     return ReservationAdminAdapter(service, query)  # 같은 요청 세션의 예약 서비스 (R13)
 
 
+# ── auth 탈퇴 조정 (모듈 간 연결: stores·catalog·reservations 팩토리 뒤에 정의) ──
+def create_account_withdrawal_service(
+    session: AsyncSession = Depends(get_db),
+    accounts: AuthApplicationService = Depends(create_auth_service),
+    stores: StoresApplicationService = Depends(create_stores_service),
+    offers: CatalogApplicationService = Depends(create_catalog_service),
+    reservations: ReservationAdminPort = Depends(create_reservation_admin),
+) -> AccountWithdrawalService:
+    # 포트는 auth가 정의(auth.application.ports), 기존 서비스·어댑터가 구조적으로 만족한다 (R11)
+    return AccountWithdrawalService(
+        session=session,
+        accounts=accounts,
+        stores=stores,
+        offers=offers,
+        reservations=reservations,
+        clock=_auth_clock,
+    )
+
+
 def create_admin_service(
     session: AsyncSession = Depends(get_db),
     accounts: AuthApplicationService = Depends(create_auth_service),
@@ -390,6 +452,8 @@ def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
             provide_auth_service: create_auth_service,
+            provide_password_reset_service: create_password_reset_service,
+            provide_withdrawal_service: create_account_withdrawal_service,
             provide_store_repository: create_store_repository,
             provide_stores_service: create_stores_service,
             provide_store_port: create_store_port,

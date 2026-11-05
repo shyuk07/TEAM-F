@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -5,7 +6,7 @@ import jwt
 from passlib.context import CryptContext
 
 from auth.domain.exceptions import AuthenticationError
-from auth.domain.service import PasswordHasher, TokenProvider
+from auth.domain.service import PasswordHasher, ResetCodeGenerator, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.infrastructure.settings import AuthSettings, get_auth_settings
 
@@ -43,7 +44,12 @@ class JwtTokenProvider(TokenProvider):
         return self._settings
 
     def issue(
-        self, user_id: uuid.UUID, role: str, now: datetime | None = None
+        self,
+        user_id: uuid.UUID,
+        role: str,
+        now: datetime | None = None,
+        *,
+        token_version: int = 0,
     ) -> tuple[str, TokenClaims]:
         now = now or datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=self.settings.access_token_expire_minutes)
@@ -52,6 +58,7 @@ class JwtTokenProvider(TokenProvider):
             "sub": str(user_id),
             "role": str(role),
             "jti": jti,
+            "ver": token_version,
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
         }
@@ -61,6 +68,7 @@ class JwtTokenProvider(TokenProvider):
             role=str(role),
             jti=jti,
             expires_at=datetime.fromtimestamp(int(expires_at.timestamp()), tz=timezone.utc),
+            token_version=token_version,
         )
         return token, claims
 
@@ -72,13 +80,22 @@ class JwtTokenProvider(TokenProvider):
                 algorithms=[self.settings.algorithm],
                 options={"require": ["exp", "sub", "jti", "role"]},
             )
+            version = payload.get("ver", 0)  # 클레임 없는 기존 토큰은 세대 0
+            if isinstance(version, bool) or not isinstance(version, int):
+                raise AuthenticationError("유효하지 않은 토큰입니다.")
             return TokenClaims(
                 user_id=uuid.UUID(payload["sub"]),
                 role=str(payload["role"]),
                 jti=str(payload["jti"]),
                 expires_at=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
+                token_version=version,
             )
         except jwt.ExpiredSignatureError as err:
             raise AuthenticationError("토큰이 만료되었습니다.") from err
         except (jwt.InvalidTokenError, ValueError, TypeError, AttributeError) as err:
             raise AuthenticationError("유효하지 않은 토큰입니다.") from err
+
+
+class SecretsResetCodeGenerator(ResetCodeGenerator):
+    def generate(self) -> str:
+        return f"{secrets.randbelow(10**6):06d}"

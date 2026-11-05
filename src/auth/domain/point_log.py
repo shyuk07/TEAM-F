@@ -9,10 +9,11 @@ class PointType(StrEnum):
     RESTORE = "RESTORE"
     REVOKE = "REVOKE"
     GRANT = "GRANT"  # 관리자 지급 (D23)
+    EXPIRE = "EXPIRE"  # 탈퇴 소멸. 시간 경과 소멸이 아니다 (D-포인트유형소멸)
 
 
 _POSITIVE_TYPES = (PointType.EARN, PointType.RESTORE, PointType.GRANT)
-_NEGATIVE_TYPES = (PointType.USE, PointType.REVOKE)
+_NEGATIVE_TYPES = (PointType.USE, PointType.REVOKE, PointType.EXPIRE)
 
 
 class PointLog:
@@ -30,15 +31,22 @@ class PointLog:
         created_by: uuid.UUID | None = None,
     ):
         if not isinstance(point_type, PointType):
-            raise ValueError("point_type은 EARN, USE, RESTORE, REVOKE, GRANT 중 하나여야 합니다.")
+            raise ValueError("point_type은 EARN, USE, RESTORE, REVOKE, GRANT, EXPIRE 중 하나여야 합니다.")
         if amount == 0:
             raise ValueError("포인트 변동량은 0일 수 없습니다.")
         if point_type in _POSITIVE_TYPES and amount < 0:
             raise ValueError("적립·복구·지급 내역의 금액은 양수여야 합니다.")
         if point_type in _NEGATIVE_TYPES and amount > 0:
-            raise ValueError("사용·회수 내역의 금액은 음수여야 합니다.")
+            raise ValueError("사용·회수·소멸 내역의 금액은 음수여야 합니다.")
         if balance_after is not None and balance_after < 0:
             raise ValueError("변경 후 잔액은 0 이상이어야 합니다.")
+        if point_type is PointType.EXPIRE and balance_after != 0:
+            raise ValueError("소멸 내역의 변경 후 잔액은 0이어야 합니다.")
+        if point_type is PointType.GRANT:
+            if not reason or created_by is None:
+                raise ValueError("지급 내역에는 사유와 처리자가 필요합니다.")
+        elif reason is not None or created_by is not None:
+            raise ValueError("지급 외 내역에는 사유·처리자를 둘 수 없습니다.")
         if created_at is not None and created_at.tzinfo is None:
             raise ValueError("created_at은 timezone 정보가 있어야 합니다.")
         object.__setattr__(self, "id", id)
