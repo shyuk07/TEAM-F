@@ -88,10 +88,10 @@
 | D-상점주승인 | 상점주 승인 대기 상태 미구현(`users`에 컬럼 없음) | **임시/미해결** | `db-schema` §5 항목 7, 건드리지 않음 |
 | D-형식오류400 | 형식 오류는 400 `VALIDATION_ERROR`로 통일 | **임시** | 명세는 400, 건드리지 않음 |
 | D-로그인제한 | 로그인 시도 횟수 제한 없음 | **임시/미해결** | 건드리지 않음 |
-| D-블랙리스트정리 | **(2026-11-04 갱신 제안)** 관리자 API `POST /v1/admin/token-blacklist/purge`(200, `{"deleted_count": n}`, `AdminUser`)로 `purge_expired_tokens()`를 호출한다. 서버 시작 시 자동 실행은 하지 않는다. 이전 값 "자동 정리 없음, 수동 호출용만"은 호출처가 없다는 점이 바뀐 것 | **확정** (사용자, 2026-11-04, 질문 18 = (A) 관리자 API, 서버 시작 시 자동 정리 없음) | §7.5.3 비교. 정리는 정확성이 아니라 저장 공간 문제(만료 토큰은 `decode`에서 이미 거부) |
-| D-관리자생성 | ADMIN 계정은 서버 시작(lifespan) 시 `.env`의 `ADMIN_EMAIL`·`ADMIN_PASSWORD`로 **없으면 생성(멱등)**한다. 두 값이 모두 없으면 건너뜀, 하나만 있으면 시작 실패, 비밀번호가 예시값(`change-me` 접두사)이면 시작 실패. 도메인은 `User.register_admin`, 서비스는 `ensure_admin`. 회원가입으로 ADMIN 생성 불가(`Role.for_signup`)는 **그대로 확정 유지** | **확정** (사용자, 2026-11-04, 질문 14~16 = (A)) | §7.5.1 비교. 후보 (B) 관리 스크립트는 `check_layers.py` 루트 파일 제약(B-22) 때문에 `.claude/**` 수정이 필요해 탈락 |
-| D-관리자조회 | `GET /v1/admin/users/{user_id}` (`AdminUser`). 응답은 기존 `UserResponse` 재사용(id, email, name, phone, role, users_point, created_at). `password_hash`·`business_number` 제외. 없는 회원 404 `NOT_FOUND`, 비로그인 401, 관리자 아님 403, 잘못된 UUID 400 `VALIDATION_ERROR`. 서비스는 기존 `get_user` 재사용 | **확정** (사용자, 2026-11-04, 질문 17. 명세 반영은 C-16) | §7.5.2. R15: 명세 반영은 C-16 |
-| D-포인트비공개 | `use/earn/restore/revoke_points`는 **공개 엔드포인트로 만들지 않는다.** 이유: 이 메서드들은 호출자를 신뢰하고 권한·멱등성 검사가 없다. 공개하면 로그인한 사용자가 자기 `earn_points`를 호출해 포인트를 늘릴 수 있다. 내부 호출(payments)만 허용. 관리자 수동 조정 API도 만들지 않는다 | **확정** (사용자, 2026-11-04, "포인트 연동 가이드만" 선택). 관리자 포인트 수동 조정 API(질문 19)는 이번 범위 아님 | 명세 포인트 정책: USE·EARN·RESTORE·REVOKE는 결제·환불 시점에 payments가 내부 처리(`docs/design/payments.md` 1.2). 공개 EP는 `GET /v1/users/me/points`(조회)뿐 |
+| D-블랙리스트정리 | **(2026-11-05 갱신)** 정리 기능 `purge_expired_tokens()`는 auth 서비스에 **남는다**. 이를 호출하는 관리자 API는 **admin 모듈(박태환 님) 소관으로 이관**한다(auth에서 제거, C-20). 서버 시작 시 자동 정리 없음은 유지. 아래는 2026-11-04 이력: 관리자 API `POST /v1/admin/token-blacklist/purge`(200, `{"deleted_count": n}`, `AdminUser`)로 `purge_expired_tokens()`를 호출한다. 서버 시작 시 자동 실행은 하지 않는다. 이전 값 "자동 정리 없음, 수동 호출용만"은 호출처가 없다는 점이 바뀐 것 | **확정** (사용자, 2026-11-04, 질문 18 = (A) 관리자 API, 서버 시작 시 자동 정리 없음) | §7.5.3 비교. 정리는 정확성이 아니라 저장 공간 문제(만료 토큰은 `decode`에서 이미 거부) |
+| D-관리자생성 | **(2026-11-05 유지)** auth에 남는다. `docs/design/admin.md` B-7·D29의 "관리자 만들 방법 없음"은 이 결정으로 해소된다. ADMIN 계정은 서버 시작(lifespan) 시 `.env`의 `ADMIN_EMAIL`·`ADMIN_PASSWORD`로 **없으면 생성(멱등)**한다. 두 값이 모두 없으면 건너뜀, 하나만 있으면 시작 실패, 비밀번호가 예시값(`change-me` 접두사)이면 시작 실패. 도메인은 `User.register_admin`, 서비스는 `ensure_admin`. 회원가입으로 ADMIN 생성 불가(`Role.for_signup`)는 **그대로 확정 유지** | **확정** (사용자, 2026-11-04, 질문 14~16 = (A)) | §7.5.1 비교. 후보 (B) 관리 스크립트는 `check_layers.py` 루트 파일 제약(B-22) 때문에 `.claude/**` 수정이 필요해 탈락 |
+| D-관리자조회 | **철회** (사용자, 2026-11-05): auth에서 제거, admin 모듈(박태환 님) 소관(C-20). 서비스 `get_user`는 auth에 남아 admin이 쓸 수 있다. 아래는 철회 전 이력: `GET /v1/admin/users/{user_id}` (`AdminUser`). 응답은 기존 `UserResponse` 재사용(id, email, name, phone, role, users_point, created_at). `password_hash`·`business_number` 제외. 없는 회원 404 `NOT_FOUND`, 비로그인 401, 관리자 아님 403, 잘못된 UUID 400 `VALIDATION_ERROR`. 서비스는 기존 `get_user` 재사용 | **확정** (사용자, 2026-11-04, 질문 17. 명세 반영은 C-16) | §7.5.2. R15: 명세 반영은 C-16 |
+| D-포인트비공개 | **(2026-11-05 갱신 제안, 상태: 사용자 확정 요구조건 반영 — `docs/requirements/auth.md` B-4, REQ-52)** 공개 API 없음은 유지한다. 단 관리자 지급(REQ-52)은 **admin 모듈이 auth 서비스 메서드(`earn_points`류, 사유·관리자 기록은 REQ-53·55)로 수행하도록 허용**하고, 관리자 차감은 없다. 아래는 이전 결정 원문: `use/earn/restore/revoke_points`는 **공개 엔드포인트로 만들지 않는다.** 이유: 이 메서드들은 호출자를 신뢰하고 권한·멱등성 검사가 없다. 공개하면 로그인한 사용자가 자기 `earn_points`를 호출해 포인트를 늘릴 수 있다. 내부 호출(payments)만 허용. 관리자 수동 조정 API도 만들지 않는다 | **확정** (사용자, 2026-11-04, "포인트 연동 가이드만" 선택). 관리자 포인트 수동 조정 API(질문 19)는 이번 범위 아님 | 명세 포인트 정책: USE·EARN·RESTORE·REVOKE는 결제·환불 시점에 payments가 내부 처리(`docs/design/payments.md` 1.2). 공개 EP는 `GET /v1/users/me/points`(조회)뿐 |
 | D-포인트연동 | payments는 `AuthApplicationService`를 **생성자 필수 인자**로 주입받고(D-타모듈주입, R8·R12) 포인트 메서드를 모두 `commit=False`로 호출, payments가 마지막에 한 번 `commit()`한다(D-포인트트랜잭션, R13). 상세 §6.1 **확정** (사용자, 2026-11-04). 기존 확정(D-타모듈주입, D-포인트트랜잭션)을 payments에 적용 | payments 파일 변경은 C-17 |
 
 ---
@@ -379,6 +379,8 @@ def create_reservation_service(
 - auth가 노출하는 메서드(다른 모듈용): `use_points`, `earn_points`, `restore_points`, `revoke_points`(실제 차감액 반환), `get_user`.
 - **로그인 선택 EP(제안, D-선택인증):** router는 `from auth.presentation.dependencies import OptionalUser`를 파라미터 타입으로 쓴다. 토큰 없음 -> `None`, 정상 토큰 -> `User`, 잘못된 토큰·비 Bearer 헤더 -> 401(D-선택인증-무효토큰·스킴). 서비스에는 `viewer.id if viewer else None`처럼 `user_id`만 넘긴다(catalog D23). 상세는 §7.3.
 
+**관리자 기능과의 관계 (2026-11-05):** 확정 요구조건(`docs/requirements/auth.md`)의 REQ-20(폐기 토큰 정리는 관리자가 요청할 때만)과 REQ-52(관리자 포인트 지급, 차감 없음)는 auth 도메인 규칙으로 유지된다. 이 규칙을 부르는 관리자 API는 admin 모듈이 만들고, auth의 `AdminUser`·`get_user`·`purge_expired_tokens`·포인트 메서드를 같은 세션·`commit=False` 규약(R13)으로 호출한다. 요구조건 문서는 수정하지 않았다.
+
 ### 6.1 포인트 연동 가이드 — payments (2026-11-04, D-포인트비공개, D-포인트연동)
 
 **엔드포인트는 만들지 않는다.** 포인트 4개 메서드(`service.py` `use_points`·`earn_points`·`restore_points`·`revoke_points`)는 호출자가 누구인지·같은 요청이 두 번 왔는지 검사하지 않는다. 공개하면 `earn_points`로 자기 포인트를 늘릴 수 있다. 사용자에게 열리는 것은 조회 `GET /v1/users/me/points`뿐이다. 호출은 결제·환불 서비스(payments)가 서버 로직 안에서만 한다.
@@ -606,7 +608,9 @@ async def seed_admin(session_factory=AsyncSessionLocal) -> bool:
 
 **남은 선택 (질문 16):** 이미 있는 관리자의 비밀번호는 `.env`를 바꿔도 갱신하지 않는다(멱등, 임시 기본값). 비밀번호 재설정이 필요하면 별도 설계.
 
-#### 7.5.2 관리자 회원 조회 `GET /v1/admin/users/{user_id}` (D-관리자조회)
+#### 7.5.2 관리자 회원 조회 `GET /v1/admin/users/{user_id}` (D-관리자조회) — **철회됨(2026-11-05)**
+
+> 철회: auth에서 제거, admin 모듈 소관(C-20). 아래는 이력이며 구현 대상이 아니다. `get_user` 서비스 메서드만 auth에 남는다.
 
 | 항목 | 내용 |
 | --- | --- |
@@ -619,7 +623,9 @@ async def seed_admin(session_factory=AsyncSessionLocal) -> bool:
 
 `UserResponse`를 재사용하는 이유: 새 스키마 없이 민감 정보 제외가 이미 보장돼 있고(`schemas.py:20-29`), `GET /v1/users/me`와 필드가 같아 클라이언트가 같은 모델을 쓴다. 관리자용 추가 필드가 생기면 그때 분리한다.
 
-#### 7.5.3 블랙리스트 만료 토큰 정리
+#### 7.5.3 블랙리스트 만료 토큰 정리 — **API 철회됨(2026-11-05)**
+
+> 철회: 관리자 API는 admin 모듈 소관(C-20). `purge_expired_tokens()` 서비스 메서드는 auth에 남고, 서버 시작 시 자동 정리 없음도 유지. 아래 라우터·스키마(`PurgeTokensResponse`)는 이력이며 auth에 구현하지 않는다(admin이 응답 형식을 정한다).
 
 **비교**
 
@@ -658,14 +664,16 @@ async def admin_purge_tokens(admin: AdminUser, service: Service):
 ```
 - `AdminUser`를 `from auth.presentation.dependencies import ...`에 추가. `uuid` import 추가.
 
-#### 7.5.4 엔드포인트 표 (추가분)
+#### 7.5.4 엔드포인트 표 (추가분) — **철회됨(2026-11-05)**
+
+> 아래 2개 엔드포인트는 auth에서 제거됐다(admin 모듈로 이관, C-20). 이력으로만 남긴다.
 
 | Method | URI | 요청 | 응답 | 성공 | 에러 |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/v1/admin/users/{user_id}` | Bearer(ADMIN), 경로 UUID | `UserResponse` | 200 | 400(UUID 형식), 401, 403, 404 |
 | POST | `/v1/admin/token-blacklist/purge` | Bearer(ADMIN), 본문 없음 | `PurgeTokensResponse` | 200 | 401, 403 |
 
-관리자 생성은 EP가 없다(서버 시작 시 처리). 포인트 4종은 EP가 없다(D-포인트비공개, §6.1).
+auth에는 관리자 EP가 없다(2026-11-05 철회). 관리자 생성은 EP 없이 서버 시작 시 처리한다. 포인트 4종은 EP가 없다(D-포인트비공개, §6.1).
 
 #### 7.5.5 변경 파일 목록 (구현자용, **확정본** 2026-11-04, 사용자 결정 반영. C-19 허용)
 
@@ -982,6 +990,12 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | C-17 | payments (`src/payments/**`, `docs/design/payments.md`, payments 담당) | (1) 헤더 인증 `presentation/dependencies.py:14-19`(V-9)를 auth `CurrentUser`로 교체 (2) `service.py:44` `TODO(D-10)` 포인트 미구현(V-17) (3) `payments.md:347`의 `auth: AuthApplicationService \| None = None  # 같은 세션`은 D-타모듈주입·R8·R12와 어긋남 -> 필수 인자로 주입, container `create_payment_service`가 `create_auth_service`를 `Depends`로 연결 (4) `service.py:19-20` application -> infrastructure 위반 2건(기준선, B-20) | 이번 범위 아님. §6.1을 payments 설계 갱신 때 참조. 이 설계는 payments 파일을 수정하지 않았다 |
 | C-18 | `.env.example`, `README.md`(오케스트레이터 소유) | `ADMIN_EMAIL`·`ADMIN_PASSWORD` 키 추가. **주석 처리한 예시값만**(`# ADMIN_EMAIL=admin@example.com`, `# ADMIN_PASSWORD=change-me-to-a-strong-password`), 실제 비밀번호 금지(R16). README 로컬 실행에 "관리자가 필요하면 `.env`에 두 값을 채우고 서버를 시작" 한 줄 | 사용자 확정 후 |
 | C-19 | `src/main.py`·`src/container.py`(오케스트레이터가 범위 확정), `.claude/skills/layer-check/check_layers.py` | (A) 채택 시 `main.py`에 `seed_admin()`·lifespan 호출·import 추가, `container.py`에 `build_auth_service` 추가가 필요하다. `layer-implementer`의 기본 범위(`main.py` 자기 모듈 두 줄)를 넘으므로 **발주서에 명시**해야 한다. (B) 채택 시에는 `ROOT_EXEMPT_FILES`(`check_layers.py:35`)에 스크립트 파일 추가가 필요(B-22) | **결정됨: 허용** (사용자, 2026-11-04, 질문 14 = (A)). 구현자는 `src/main.py`(`seed_admin`, lifespan 호출, import)와 `src/container.py` **auth 구역**(`build_auth_service` 추가)만 수정할 수 있다. 다른 모듈 구역·`check_layers.py`는 금지 |
+
+### 12.6 관리자 API 이관 (2026-11-05)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-20 | admin 모듈 담당자(박태환 님), `docs/design/admin.md` | **전달:** auth가 제공하는 것은 관리자 계정 생성(서버 시작 시 `ADMIN_EMAIL`·`ADMIN_PASSWORD`, `ensure_admin`), `AdminUser` 의존성, `get_user`, `purge_expired_tokens`, 포인트 메서드다. 이관된 API 2개는 `GET /v1/admin/users/{user_id}`(회원 조회, `UserResponse` 재사용 후보)와 `POST /v1/admin/token-blacklist/purge`(응답 `{"deleted_count": n}` 후보)다. 경로 접두사(`/admin` vs `/v1/admin`)는 admin 모듈에서 정한다. 또 C-16의 명세 반영 대상에서 이 EP 2개는 빠진다(관리자 생성 문구만 남음) | **결정됨(사용자, 2026-11-05):** auth에서 제거, admin 소관. admin 담당자에게 전달 필요 |
 
 ---
 

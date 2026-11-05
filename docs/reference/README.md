@@ -9,7 +9,7 @@
 ## 문서 구성
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
-| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 7 |
+| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 5 |
 | [stores.md](stores.md) | `src/stores` 상점 | 2 |
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
@@ -51,8 +51,6 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 27 | payments | [결제 정보 조회](payments.md#2-결제-정보-조회) | GET | `/v1/payments/{payment_id}` | 회원(본인) | 200 |
 | 28 | payments | [환불 요청](payments.md#3-환불-요청) | POST | `/v1/payments/{payment_id}/refunds` | 회원(본인) | 201 |
 | 29 | payments | [환불 정보 조회](payments.md#4-환불-정보-조회) | GET | `/v1/refunds/{refund_id}` | 회원(본인) | 200 |
-| 30 | auth | [관리자 회원 조회](auth.md#6-관리자-회원-조회) | GET | `/v1/admin/users/{user_id}` | 관리자 | 200 |
-| 31 | auth | [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리) | POST | `/v1/admin/token-blacklist/purge` | 관리자 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -61,7 +59,6 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 - 할인 수정(`PATCH /v1/offers/{offer_id}`)은 필드 수정과 함께 `is_active`로 판매 중단·재개를 받는 예외입니다.
 - 상태만 바꾸는 동작(폐점, 노출 중단, 판매 중단, 재등록, 취소, 픽업)은 `POST /{id}/동사` 형태로 둡니다. 요청 본문이 있거나 부수 효과(환불, 재고 이력)가 있어서 `PATCH`로 표현하기 어렵기 때문입니다.
 - 로그인한 사용자 기준 조회는 노션의 `/v1/users/me/...` 형태에 맞춥니다.
-- 관리자 전용 API는 `/v1/admin/...` 아래에 둡니다.
 - **FastAPI 주의:** `/v1/products/search`는 `/v1/products/{product_id}`보다 **먼저** 등록해야 합니다.
 
 ## 공통 규칙
