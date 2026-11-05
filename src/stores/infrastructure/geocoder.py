@@ -41,7 +41,7 @@ class NaverGeocoder(Geocoder):
                 response = await client.get(
                     settings.url, params={"query": address}, headers=headers
                 )
-        except httpx.HTTPError as err:
+        except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as err:
             logger.warning("geocoding unavailable: reason=%s", type(err).__name__)
             raise GeocodingUnavailableError() from err
         if response.status_code != 200:

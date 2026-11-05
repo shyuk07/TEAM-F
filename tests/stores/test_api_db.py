@@ -373,3 +373,117 @@ async def test_close_store_concurrent_double_close(client):
     bad = next(r for r in rs if r.status_code == 400)
     assert bad.json()["error_code"] == "STORE_ALREADY_CLOSED"
     assert await _closed_at_in_db(client, sid) is not None
+
+
+# ── POST /v1/stores: 지오코딩 실패·중복 (stores.md §14) ──
+from stores.domain.exceptions import (  # noqa: E402
+    AddressNotFoundError,
+    GeocodingUnavailableError,
+    StoreDuplicatedError,
+)
+
+_ADDR = "서울특별시 강남구 테헤란로 123"
+
+
+async def _open(c, token, address=_ADDR):
+    return await c.post("/v1/stores", json={"pickup_address": address}, headers=bearer(token))
+
+
+async def _store_count(c):
+    async with c.session_factory() as s:
+        return (await s.execute(text("SELECT count(*) FROM stores"))).scalar_one()
+
+
+async def test_open_store_geocoding_unavailable_503(client):
+    token = await owner_token(client)
+    client.geocoder.results[_ADDR] = GeocodingUnavailableError()
+    r = await _open(client, token)
+    _fail(
+        r, 503, "GEOCODING_UNAVAILABLE",
+        "주소 변환 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    )
+    assert await _store_count(client) == 0
+
+
+async def test_open_store_address_not_found_400(client):
+    token = await owner_token(client)
+    client.geocoder.results[_ADDR] = AddressNotFoundError()
+    r = await _open(client, token)
+    _fail(r, 400, "ADDRESS_NOT_FOUND", "주소를 찾을 수 없습니다.")
+    assert await _store_count(client) == 0
+
+
+_DUP_MSG = "동일한 상점명과 주소의 상점이 이미 존재합니다."
+
+
+async def test_open_store_duplicated_name_and_address(client):
+    t1 = await token_for(client, "o1@test.com", "OWNER")
+    t2 = await token_for(client, "o2@test.com", "OWNER")  # 같은 가입 이름
+    assert (await _open(client, t1)).status_code == 201
+    r = await _open(client, t2)
+    _fail(r, 400, "STORE_DUPLICATED", _DUP_MSG)
+    assert await _store_count(client) == 1
+
+
+async def test_open_store_duplicated_after_address_normalization(client):
+    t1 = await token_for(client, "o1@test.com", "OWNER")
+    t2 = await token_for(client, "o2@test.com", "OWNER")
+    assert (await _open(client, t1)).status_code == 201
+    r = await _open(client, t2, "  서울특별시   강남구\t테헤란로  123 ")
+    _fail(r, 400, "STORE_DUPLICATED", _DUP_MSG)
+    assert await _store_count(client) == 1
+
+
+async def test_open_store_duplicated_against_closed_store(client):
+    t1 = await token_for(client, "o1@test.com", "OWNER")
+    t2 = await token_for(client, "o2@test.com", "OWNER")
+    sid = (await _open(client, t1)).json()["id"]
+    assert (await _close(client, t1, sid)).status_code == 200
+    r = await _open(client, t2)
+    _fail(r, 400, "STORE_DUPLICATED", _DUP_MSG)
+    assert await _store_count(client) == 1
+
+
+async def test_repository_unique_name_address_converted_and_session_usable(client):
+    o1 = await _owner_id(client, "d1@test.com")
+    o2 = await _owner_id(client, "d2@test.com")
+    async with client.session_factory() as s:
+        repo = SqlAlchemyStoreRepository(s)
+        await repo.save(Store(owner_id=o1, name="같은이름", pickup_address="같은주소"))
+        await s.commit()
+    async with client.session_factory() as s:
+        repo = SqlAlchemyStoreRepository(s)
+        with pytest.raises(StoreDuplicatedError):
+            await repo.save(Store(owner_id=o2, name="같은이름", pickup_address="같은주소"))
+        await s.rollback()
+        saved = await repo.save(Store(owner_id=o2, name="다른이름", pickup_address="같은주소"))
+        await s.commit()
+        assert saved.id is not None
+    assert await _store_count(client) == 2
+
+
+async def test_open_store_concurrent_same_owner(client):
+    token = await owner_token(client)
+    client.geocoder.delay = 0.3
+    rs = await asyncio.gather(_open(client, token, "주소A"), _open(client, token, "주소B"))
+    assert sorted(r.status_code for r in rs) == [201, 400], [r.text for r in rs]
+    bad = next(r for r in rs if r.status_code == 400)
+    assert bad.json() == {
+        "success": False,
+        "error_code": "STORE_ALREADY_EXISTS",
+        "message": "이미 개설된 상점이 있습니다.",
+    }
+    assert len(client.geocoder.calls) == 2  # 둘 다 사전 점검을 통과해 지오코딩까지 갔다
+    assert await _store_count(client) == 1
+
+
+async def test_open_store_concurrent_same_name_and_address(client):
+    t1 = await token_for(client, "o1@test.com", "OWNER")
+    t2 = await token_for(client, "o2@test.com", "OWNER")
+    client.geocoder.delay = 0.3
+    rs = await asyncio.gather(_open(client, t1), _open(client, t2))
+    assert sorted(r.status_code for r in rs) == [201, 400], [r.text for r in rs]
+    bad = next(r for r in rs if r.status_code == 400)
+    assert bad.json() == {"success": False, "error_code": "STORE_DUPLICATED", "message": _DUP_MSG}
+    assert len(client.geocoder.calls) == 2
+    assert await _store_count(client) == 1
