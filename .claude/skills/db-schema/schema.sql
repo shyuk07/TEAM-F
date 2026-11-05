@@ -14,15 +14,30 @@ CREATE TABLE users (
     phone            VARCHAR(100),
     users_point      INTEGER      NOT NULL DEFAULT 0 CHECK (users_point >= 0),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    business_number  TEXT                                  -- 매장 운영자만 사용
+    business_number  TEXT,                                 -- 매장 운영자만 사용
+    -- 계정 상태 (docs/design/admin.md §2.1 S1~S5, D3·D4). 기존 행은 DEFAULT로 APPROVED
+    status           VARCHAR(20)  NOT NULL DEFAULT 'APPROVED',
+    approved_at      TIMESTAMPTZ,                          -- 상점주 승인 시각 (stores.approval_at과 별개, D6)
+    rejected_reason  VARCHAR(500),
+    rejected_at      TIMESTAMPTZ,
+    suspended_reason VARCHAR(500),
+    suspended_at     TIMESTAMPTZ,
+    suspended_until  TIMESTAMPTZ,                          -- NULL이면 무기한 정지
+    deleted_at       TIMESTAMPTZ,                          -- 강제 탈퇴(soft delete)
+    deleted_reason   VARCHAR(500),
+    CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN'))
 );
 
 CREATE TABLE point_log (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID        NOT NULL REFERENCES users (id),
     amount      INTEGER     NOT NULL,                      -- 적립 +, 사용 -
-    point_type  TEXT        NOT NULL CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE')),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    point_type  TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reason         VARCHAR(500),                           -- 관리자 지급 사유. 시스템 이벤트는 NULL (admin.md S7)
+    balance_after  INTEGER,                                -- 기록 직후 잔액. 이 컬럼 도입 전 행은 NULL (S8)
+    created_by     UUID        REFERENCES users (id),      -- 지급한 관리자. 시스템 이벤트는 NULL (S9)
+    CONSTRAINT ck_point_log_type CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT'))  -- GRANT: 관리자 지급 (S6)
 );
 CREATE INDEX ix_point_log_user_id ON point_log (user_id);
 
@@ -43,7 +58,13 @@ CREATE TABLE stores (
     created_at       TIMESTAMPTZ      NOT NULL DEFAULT now(),
     approval_at      TIMESTAMPTZ,                          -- 개설 시각 (API 명세). 원본 ERD는 VARCHAR(20)
     closed_at        TIMESTAMPTZ,
-    CONSTRAINT uq_stores_owner_id UNIQUE (owner_id)
+    -- 관리자 정지·폐점 (admin.md S10). 상태 컬럼 없이 closed_at > suspended_at > 영업 중으로 파생 (D16)
+    suspended_reason VARCHAR(500),
+    suspended_at     TIMESTAMPTZ,
+    closed_reason    VARCHAR(500),
+    CONSTRAINT uq_stores_owner_id UNIQUE (owner_id),
+    -- 동일한 상점명과 주소의 상점 금지 (docs/design/stores.md D33). 폐점·정지 상점 포함
+    CONSTRAINT uq_stores_name_address UNIQUE (name, pickup_address)
 );
 
 -- ── catalog ───────────────────────────────────────────
@@ -68,10 +89,13 @@ CREATE TABLE discount_offers (
     sales_end        TIMESTAMPTZ NOT NULL,
     pickup_start     TIMESTAMPTZ NOT NULL,
     pickup_end       TIMESTAMPTZ NOT NULL,
-    status           VARCHAR(20) NOT NULL CHECK (status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED')),
+    status           VARCHAR(20) NOT NULL,
     sales_start      TIMESTAMPTZ NOT NULL,
     is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
     price            INTEGER,                              -- 확인 필요: sale_price와 중복
+    suspended_reason VARCHAR(500),                         -- 관리자 정지 (admin.md S11, D19)
+    suspended_at     TIMESTAMPTZ,
+    CONSTRAINT ck_offer_status CHECK (status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED', 'SUSPENDED')),
     CONSTRAINT ck_offer_remaining_stock CHECK (remaining_stock BETWEEN 0 AND initial_stock),
     CONSTRAINT ck_offer_pickup_window   CHECK (pickup_end > pickup_start)
 );

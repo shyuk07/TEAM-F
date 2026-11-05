@@ -1,16 +1,24 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from stores.domain.exceptions import StoreAlreadyExistsError, StoreNotFoundError
+from stores.domain.exceptions import (
+    StoreAlreadyExistsError,
+    StoreDuplicatedError,
+    StoreNotFoundError,
+)
 from stores.domain.repository import StoreRepository
 from stores.domain.store import Store
 from stores.infrastructure.models import StoreModel
 
-_OWNER_UNIQUE = "uq_stores_owner_id"
+# 제약 이름 -> 도메인 예외
+_UNIQUE_VIOLATIONS = {
+    "uq_stores_owner_id": StoreAlreadyExistsError,
+    "uq_stores_name_address": StoreDuplicatedError,
+}
 
 
 class SqlAlchemyStoreRepository(StoreRepository):
@@ -20,7 +28,7 @@ class SqlAlchemyStoreRepository(StoreRepository):
     async def find_by_id(self, store_id: uuid.UUID, for_update: bool = False) -> Store | None:
         stmt = select(StoreModel).where(StoreModel.id == store_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -32,10 +40,22 @@ class SqlAlchemyStoreRepository(StoreRepository):
         models = (await self.session.execute(stmt)).scalars().all()
         return [self._to_domain(m) for m in models]
 
-    async def find_by_owner_id(self, owner_id: uuid.UUID) -> Store | None:
+    async def find_by_owner_id(
+        self, owner_id: uuid.UUID, for_update: bool = False
+    ) -> Store | None:
         stmt = select(StoreModel).where(StoreModel.owner_id == owner_id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
+
+    async def exists_by_name_and_address(self, name: str, pickup_address: str) -> bool:
+        stmt = select(
+            exists().where(
+                StoreModel.name == name, StoreModel.pickup_address == pickup_address
+            )
+        )
+        return bool(await self.session.scalar(stmt))
 
     async def save(self, store: Store) -> Store:
         if store.id is None:
@@ -47,13 +67,17 @@ class SqlAlchemyStoreRepository(StoreRepository):
                 longitude=store.longitude,
                 approval_at=store.approval_at,
                 closed_at=store.closed_at,
+                suspended_reason=store.suspended_reason,
+                suspended_at=store.suspended_at,
+                closed_reason=store.closed_reason,
             )
             self.session.add(model)
             try:
                 await self.session.flush()
             except IntegrityError as err:
-                if _OWNER_UNIQUE in str(err.orig):
-                    raise StoreAlreadyExistsError() from err
+                for constraint, error in _UNIQUE_VIOLATIONS.items():
+                    if constraint in str(err.orig):
+                        raise error() from err
                 raise
             store.id = model.id
             store.created_at = model.created_at
@@ -63,6 +87,9 @@ class SqlAlchemyStoreRepository(StoreRepository):
                 raise StoreNotFoundError("저장할 상점을 찾을 수 없습니다.")
             model.approval_at = store.approval_at
             model.closed_at = store.closed_at
+            model.suspended_reason = store.suspended_reason
+            model.suspended_at = store.suspended_at
+            model.closed_reason = store.closed_reason
             await self.session.flush()
         return store
 
@@ -78,4 +105,7 @@ class SqlAlchemyStoreRepository(StoreRepository):
             created_at=model.created_at,
             approval_at=model.approval_at,
             closed_at=model.closed_at,
+            suspended_reason=model.suspended_reason,
+            suspended_at=model.suspended_at,
+            closed_reason=model.closed_reason,
         )

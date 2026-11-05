@@ -2,7 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from catalog.domain.exceptions import NotStoreOwnerError, StoreClosedError, StoreNotApprovedError
+from catalog.domain.exceptions import (
+    NotStoreOwnerError,
+    StoreClosedError,
+    StoreNotApprovedError,
+    StoreNotFoundError,
+    StoreSuspendedError,
+)
 
 
 class StoreRef:
@@ -18,6 +24,7 @@ class StoreRef:
         closed: bool,
         latitude: float | None = None,
         longitude: float | None = None,
+        suspended: bool = False,
     ):
         self.id = id
         self.owner_id = owner_id
@@ -27,11 +34,14 @@ class StoreRef:
         self.longitude = longitude
         self.approved = approved
         self.closed = closed
+        # 상태 우선순위 CLOSED > SUSPENDED > ACTIVE (admin.md D16): 폐점된 상점은 정지로 보지 않는다.
+        self.suspended = suspended and not closed
 
     @classmethod
     def from_info(cls, info: Any) -> "StoreRef":
         approval_at: datetime | None = info.approval_at
         closed_at: datetime | None = info.closed_at
+        suspended_at: datetime | None = info.suspended_at
         return cls(
             id=info.id,
             owner_id=info.owner_id,
@@ -41,6 +51,7 @@ class StoreRef:
             longitude=info.longitude,
             approved=approval_at is not None,
             closed=closed_at is not None,
+            suspended=suspended_at is not None and closed_at is None,
         )
 
     def is_owned_by(self, user_id: uuid.UUID | None) -> bool:
@@ -50,10 +61,20 @@ class StoreRef:
         if not self.is_owned_by(user_id):
             raise NotStoreOwnerError(message)
 
+    def is_visible_to(self, viewer_id: uuid.UUID | None) -> bool:
+        """정지된 상점은 소유자에게만 보인다 (admin.md D17)."""
+        return not self.suspended or self.is_owned_by(viewer_id)
+
+    def ensure_visible_to(self, viewer_id: uuid.UUID | None) -> None:
+        if not self.is_visible_to(viewer_id):
+            raise StoreNotFoundError()
+
     def ensure_can_register(self, what: str) -> None:
-        """what: '상품' 또는 '할인'. 검사 순서는 폐점 -> 미승인 (D9)."""
+        """what: '상품' 또는 '할인'. 검사 순서는 폐점 -> 정지 -> 미승인 (D9, admin.md D17)."""
         if self.closed:
             raise StoreClosedError(f"폐점된 상점에서는 {what}을 등록할 수 없습니다.")
+        if self.suspended:
+            raise StoreSuspendedError("관리자에 의해 정지된 상점입니다.")
         if not self.approved:
             raise StoreNotApprovedError(f"승인되지 않은 상점에는 {what}을 등록할 수 없습니다.")
 

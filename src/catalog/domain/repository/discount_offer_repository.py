@@ -23,6 +23,12 @@ class DiscountOfferRepository(ABC):
     async def exists_open_by_store(self, store_id: uuid.UUID, now: datetime) -> bool: ...
 
     @abstractmethod
+    async def find_open_by_store_for_update(
+        self, store_id: uuid.UUID, now: datetime
+    ) -> list[DiscountOffer]:
+        """상점의 진행 중(is_active 이고 마감 전, 정지 포함) 할인을 id 오름차순으로 FOR UPDATE 조회."""
+
+    @abstractmethod
     async def find_by_store(
         self,
         store_id: uuid.UUID,

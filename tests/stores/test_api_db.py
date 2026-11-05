@@ -11,7 +11,7 @@ from stores.domain.exceptions import StoreAlreadyExistsError
 from stores.domain.store import Store
 from stores.infrastructure import models as stores_models  # noqa: F401
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
-from tests.helpers import bearer, login, signup, token_for
+from tests.helpers import approve_owner, bearer, login, signup, token_for
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
 
@@ -80,6 +80,7 @@ async def test_open_store_owner_without_name(client):
         "/v1/auth/signup",
         json={"email": "n@test.com", "password": "password123", "role": "OWNER"},
     )
+    await approve_owner(client, "n@test.com")
     token = (await login(client, "n@test.com")).json()["access_token"]
     r = await client.post("/v1/stores", json={"pickup_address": "주소"}, headers=bearer(token))
     assert r.status_code == 400
@@ -148,3 +149,218 @@ async def test_repository_find_by_ids(client):
         got = await repo.find_by_ids([a.id, b.id, a.id, uuid.uuid4()])
         assert sorted(x.id for x in got) == sorted([a.id, b.id])
         assert [x.id for x in got] == sorted(x.id for x in got)
+
+
+# ── POST /v1/stores/{store_id}/close ──
+import asyncio  # noqa: E402
+from datetime import timedelta, timezone  # noqa: E402
+
+from sqlalchemy import text  # noqa: E402
+
+from catalog.infrastructure import models as catalog_models  # noqa: E402,F401
+from container import create_pickup_pending_port  # noqa: E402
+from tests.catalog.test_api_db import make_offer, make_product, offer_body, owner_with_store  # noqa: E402
+from tests.catalog.test_admin_api_db import suspend_offer_row, suspend_store_row  # noqa: E402
+
+_H = timedelta(hours=1)
+
+
+def _fail(r, status, code, message):
+    assert r.status_code == status, r.text
+    assert r.json() == {"success": False, "error_code": code, "message": message}
+
+
+async def _close(c, token, store_id):
+    return await c.post(f"/v1/stores/{store_id}/close", headers=bearer(token) if token else {})
+
+
+async def _closed_at_in_db(c, store_id):
+    async with c.session_factory() as s:
+        return (
+            await s.execute(
+                text("SELECT closed_at FROM stores WHERE id=:i"), {"i": uuid.UUID(store_id)}
+            )
+        ).scalar_one()
+
+
+async def test_close_store_ok(client):
+    token, sid = await owner_with_store(client)
+    r = await _close(client, token, sid)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"id", "name", "closed_at"}
+    assert body["id"] == sid and body["name"] == "홍길동"
+    assert datetime.fromisoformat(body["closed_at"]).tzinfo is not None
+    assert await _closed_at_in_db(client, sid) is not None
+
+
+async def test_close_store_unauthorized(client):
+    r = await _close(client, None, str(uuid.uuid4()))
+    assert r.status_code == 401 and r.json()["success"] is False
+    assert r.headers["www-authenticate"] == "Bearer"
+
+
+async def test_close_store_customer_forbidden(client):
+    token = await token_for(client, "c@test.com", "CUSTOMER")
+    r = await _close(client, token, uuid.uuid4())
+    assert r.status_code == 403 and r.json()["error_code"] == "FORBIDDEN"
+
+
+async def test_close_store_pending_owner_forbidden(client):
+    await signup(client, "p@test.com", "OWNER")
+    token = (await login(client, "p@test.com")).json()["access_token"]
+    r = await _close(client, token, uuid.uuid4())
+    _fail(r, 403, "FORBIDDEN", "승인 대기 중인 상점주 계정입니다.")
+
+
+async def test_close_store_suspended_owner_account_forbidden(client):
+    token, sid = await owner_with_store(client)
+    async with client.session_factory() as s:
+        await s.execute(
+            text(
+                "UPDATE users SET status='SUSPENDED', suspended_reason='x', "
+                "suspended_at=now() WHERE email='owner@test.com'"
+            )
+        )
+        await s.commit()
+    r = await _close(client, token, sid)
+    _fail(r, 403, "FORBIDDEN", "정지된 계정입니다.")
+    assert await _closed_at_in_db(client, sid) is None
+
+
+async def test_close_store_not_owner(client):
+    _, sid = await owner_with_store(client)
+    other = await token_for(client, "other@test.com", "OWNER")
+    r = await _close(client, other, sid)
+    _fail(r, 403, "FORBIDDEN", "본인 상점만 폐점할 수 있습니다.")
+    assert await _closed_at_in_db(client, sid) is None
+
+
+async def test_close_store_not_found(client):
+    token = await owner_token(client)
+    r = await _close(client, token, uuid.uuid4())
+    _fail(r, 404, "NOT_FOUND", "상점을 찾을 수 없습니다.")
+
+
+async def test_close_store_bad_uuid(client):
+    token = await owner_token(client)
+    r = await client.post("/v1/stores/not-a-uuid/close", headers=bearer(token))
+    assert r.status_code == 400 and r.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_close_store_already_closed(client):
+    token, sid = await owner_with_store(client)
+    assert (await _close(client, token, sid)).status_code == 200
+    r = await _close(client, token, sid)
+    _fail(r, 400, "STORE_ALREADY_CLOSED", "이미 폐점된 상점입니다.")
+
+
+async def test_close_store_suspended_store(client):
+    token, sid = await owner_with_store(client)
+    await suspend_store_row(client, sid)
+    r = await _close(client, token, sid)
+    _fail(r, 400, "STORE_SUSPENDED", "관리자에 의해 정지된 상점입니다.")
+    assert await _closed_at_in_db(client, sid) is None
+
+
+_OPEN_MSG = "진행 중이거나 예정된 할인 판매가 있어 폐점할 수 없습니다."
+
+
+async def test_close_store_blocked_by_open_offer(client):
+    token, sid = await owner_with_store(client)
+    p = await make_product(client, token, sid)
+    await make_offer(client, token, p["id"])
+    r = await _close(client, token, sid)
+    _fail(r, 400, "STORE_HAS_OPEN_OFFERS", _OPEN_MSG)
+    assert await _closed_at_in_db(client, sid) is None
+
+
+async def test_close_store_blocked_by_scheduled_offer(client):
+    token, sid = await owner_with_store(client)
+    p = await make_product(client, token, sid)
+    now = datetime.now(timezone.utc)
+    await make_offer(
+        client, token, p["id"],
+        sales_start=(now + _H).isoformat(), sales_end=(now + 2 * _H).isoformat(),
+        pickup_start=(now + 2 * _H).isoformat(), pickup_end=(now + 3 * _H).isoformat(),
+    )
+    r = await _close(client, token, sid)
+    _fail(r, 400, "STORE_HAS_OPEN_OFFERS", _OPEN_MSG)
+
+
+async def test_close_store_suspended_offer_still_blocks(client):
+    token, sid = await owner_with_store(client)
+    p = await make_product(client, token, sid)
+    o = await make_offer(client, token, p["id"])
+    await suspend_offer_row(client, o["id"])
+    r = await _close(client, token, sid)
+    _fail(r, 400, "STORE_HAS_OPEN_OFFERS", _OPEN_MSG)
+    assert await _closed_at_in_db(client, sid) is None
+
+
+async def test_close_store_inactive_and_expired_offers_pass(client):
+    token, sid = await owner_with_store(client)
+    p = await make_product(client, token, sid)
+    p2 = await make_product(client, token, sid, name="두번째")
+    inactive = await make_offer(client, token, p["id"])
+    expired = await make_offer(client, token, p2["id"])
+    async with client.session_factory() as s:
+        await s.execute(
+            text("UPDATE discount_offers SET is_active=false WHERE id=:i"),
+            {"i": uuid.UUID(inactive["id"])},
+        )
+        past = datetime.now(timezone.utc) - _H
+        await s.execute(
+            text("UPDATE discount_offers SET sales_start=:a, sales_end=:b WHERE id=:i"),
+            {"a": past - _H, "b": past, "i": uuid.UUID(expired["id"])},
+        )
+        await s.commit()
+    r = await _close(client, token, sid)
+    assert r.status_code == 200, r.text
+
+
+async def test_close_store_then_cannot_register_products_or_offers(client):
+    token, sid = await owner_with_store(client)
+    p = await make_product(client, token, sid)
+    o = await make_offer(client, token, p["id"])
+    async with client.session_factory() as s:
+        await s.execute(
+            text("UPDATE discount_offers SET is_active=false WHERE id=:i"), {"i": uuid.UUID(o["id"])}
+        )
+        await s.commit()
+    assert (await _close(client, token, sid)).status_code == 200
+    r = await client.post(
+        f"/v1/stores/{sid}/products",
+        json={"name": "x", "original_price": 1000, "category": "c"},
+        headers=bearer(token),
+    )
+    assert r.status_code == 400, r.text
+    r = await client.post(
+        f"/v1/products/{p['id']}/offers", json=offer_body(), headers=bearer(token)
+    )
+    assert r.status_code == 400, r.text
+
+
+async def test_close_store_pickup_pending_override(client):
+    class AlwaysPending:
+        async def has_pickup_pending_for_store(self, store_id):
+            return True
+
+    token, sid = await owner_with_store(client)
+    app.dependency_overrides[create_pickup_pending_port] = lambda: AlwaysPending()
+    try:
+        r = await _close(client, token, sid)
+    finally:
+        app.dependency_overrides.pop(create_pickup_pending_port, None)
+    _fail(r, 400, "STORE_HAS_RESERVED_RESERVATIONS", "픽업 대기 중인 예약이 있어 폐점할 수 없습니다.")
+    assert await _closed_at_in_db(client, sid) is None
+
+
+async def test_close_store_concurrent_double_close(client):
+    # 잔여 경합(C12: 폐점 확인 직후 신규 할인 등록)은 catalog 후속 작업이라 테스트하지 않는다.
+    token, sid = await owner_with_store(client)
+    rs = await asyncio.gather(_close(client, token, sid), _close(client, token, sid))
+    assert sorted(r.status_code for r in rs) == [200, 400], [r.text for r in rs]
+    bad = next(r for r in rs if r.status_code == 400)
+    assert bad.json()["error_code"] == "STORE_ALREADY_CLOSED"
+    assert await _closed_at_in_db(client, sid) is not None

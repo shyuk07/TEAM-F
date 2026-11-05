@@ -54,6 +54,7 @@ def info(**kw):
         longitude = None
         approval_at = NOW
         closed_at = None
+        suspended_at = None
 
     for k, v in kw.items():
         setattr(I, k, v)
@@ -336,6 +337,7 @@ def test_stock_log():
 
 # ── 목록 기본 상태 / 할인 수정 ──
 def test_open_statuses_match_is_open():
+    """is_open이 참인 유효 상태 = OPEN_OFFER_STATUSES + SUSPENDED (admin.md C6, D20, D22)."""
     base = offer()
     cases = [
         base,
@@ -349,6 +351,14 @@ def test_open_statuses_match_is_open():
     for o in cases + [base]:
         for now in (NOW, NOW + 5 * H):
             assert (o.effective_status(now) in OPEN_OFFER_STATUSES) == o.is_open(now)
+    # 정지된 할인: 마감 전에는 진행 중(D22)이지만 기본 목록 집합에는 없다 (C6, D20).
+    suspended = offer()
+    suspended.suspend("사유", NOW)
+    assert suspended.effective_status(NOW) == OfferStatus.SUSPENDED and suspended.is_open(NOW)
+    assert OfferStatus.SUSPENDED not in OPEN_OFFER_STATUSES
+    # 설계 불일치(보고): 마감 경과 후에도 effective_status는 SUSPENDED(우선순위 2)인데 is_open은 거짓이다.
+    assert suspended.effective_status(NOW + 5 * H) == OfferStatus.SUSPENDED
+    assert not suspended.is_open(NOW + 5 * H)
 
 
 def edit(o, changes, **kw):
@@ -490,6 +500,7 @@ def test_store_ref_from_info_copies_coordinates():
         longitude = None
         approval_at = None
         closed_at = None
+        suspended_at = None
 
     ref = StoreRef.from_info(Info())
     assert ref.latitude == 37.1 and ref.longitude is None

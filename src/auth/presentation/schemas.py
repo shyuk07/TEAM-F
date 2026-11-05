@@ -27,11 +27,17 @@ class UserResponse(BaseModel):
     role: str = Field(..., description="역할")
     users_point: int = Field(..., description="포인트 잔액")
     created_at: datetime = Field(..., description="가입 시각")
+    status: str = Field(
+        ..., description="계정 상태 (PENDING / APPROVED / REJECTED / SUSPENDED / WITHDRAWN)"
+    )
 
 
 class TokenResponse(BaseModel):
     access_token: str = Field(..., description="JWT 액세스 토큰")
     token_type: str = Field("bearer", description="토큰 유형")
+    status: str = Field(
+        ..., description="로그인 시점의 계정 상태 (APPROVED / PENDING / REJECTED / SUSPENDED)"
+    )
 
 
 class PointLogResponse(BaseModel):
@@ -39,7 +45,7 @@ class PointLogResponse(BaseModel):
 
     id: uuid.UUID = Field(..., description="내역 ID")
     amount: int = Field(..., description="변동량 (적립 +, 사용 -)")
-    point_type: str = Field(..., description="EARN / USE / RESTORE / REVOKE")
+    point_type: str = Field(..., description="EARN / USE / RESTORE / REVOKE / GRANT")
     created_at: datetime = Field(..., description="발생 시각")
 
 

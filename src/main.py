@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 # 모든 models.py는 lifespan(create_all)보다 먼저 import해야 테이블이 만들어진다.
+from admin.presentation.router import router as admin_router
 from auth.infrastructure import models as auth_models  # noqa: F401
 from auth.infrastructure.settings import get_admin_seed_settings, get_auth_settings
 from auth.presentation.router import router as auth_router
@@ -57,6 +58,7 @@ app.include_router(auth_router)
 app.include_router(stores_router)
 app.include_router(catalog_router)
 app.include_router(reservations_router)
+app.include_router(admin_router)
 
 app.include_router(payments_router)
 

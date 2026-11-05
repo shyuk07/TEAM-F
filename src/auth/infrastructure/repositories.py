@@ -12,7 +12,7 @@ from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.token_blacklist import BlacklistedToken
-from auth.domain.user import Role, User
+from auth.domain.user import Role, User, UserStatus
 from auth.infrastructure.models import PointLogModel, TokenBlacklistModel, UserModel
 
 
@@ -23,7 +23,8 @@ class SqlAlchemyUserRepository(UserRepository):
     async def find_by_id(self, user_id: uuid.UUID, for_update: bool = False) -> User | None:
         stmt = select(UserModel).where(UserModel.id == user_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            # 잠금 대기 뒤 최신 행을 반영한다(identity map의 오래된 상태 방지)
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -47,6 +48,7 @@ class SqlAlchemyUserRepository(UserRepository):
                 users_point=user.users_point,
                 business_number=user.business_number,
             )
+            self._write_status(model, user)
             if user.created_at is not None:
                 model.created_at = user.created_at
             self.session.add(model)
@@ -64,8 +66,21 @@ class SqlAlchemyUserRepository(UserRepository):
             model.name = user.name
             model.phone = user.phone
             model.password_hash = user.password_hash
+            self._write_status(model, user)
             await self.session.flush()
         return user
+
+    @staticmethod
+    def _write_status(model: UserModel, user: User) -> None:
+        model.status = str(user.status)
+        model.approved_at = user.approved_at
+        model.rejected_reason = user.rejected_reason
+        model.rejected_at = user.rejected_at
+        model.suspended_reason = user.suspended_reason
+        model.suspended_at = user.suspended_at
+        model.suspended_until = user.suspended_until
+        model.deleted_at = user.deleted_at
+        model.deleted_reason = user.deleted_reason
 
     @staticmethod
     def _to_domain(model: UserModel) -> User:
@@ -79,6 +94,15 @@ class SqlAlchemyUserRepository(UserRepository):
             users_point=model.users_point,
             created_at=model.created_at,
             business_number=model.business_number,
+            status=UserStatus(model.status),
+            approved_at=model.approved_at,
+            rejected_reason=model.rejected_reason,
+            rejected_at=model.rejected_at,
+            suspended_reason=model.suspended_reason,
+            suspended_at=model.suspended_at,
+            suspended_until=model.suspended_until,
+            deleted_at=model.deleted_at,
+            deleted_reason=model.deleted_reason,
         )
 
 
@@ -91,6 +115,9 @@ class SqlAlchemyPointLogRepository(PointLogRepository):
             user_id=log.user_id,
             amount=log.amount,
             point_type=str(log.point_type),
+            reason=log.reason,
+            balance_after=log.balance_after,
+            created_by=log.created_by,
         )
         if log.created_at is not None:
             model.created_at = log.created_at
@@ -138,6 +165,9 @@ class SqlAlchemyPointLogRepository(PointLogRepository):
             amount=model.amount,
             point_type=PointType(model.point_type),
             created_at=model.created_at,
+            reason=model.reason,
+            balance_after=model.balance_after,
+            created_by=model.created_by,
         )
 
 

@@ -44,8 +44,8 @@ async def signup(body: SignupRequest, service: Service):
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["인증"], summary="로그인")
 async def login(body: LoginRequest, service: Service):
-    token = await service.login(body.email, body.password)
-    return TokenResponse(access_token=token, token_type="bearer")
+    result = await service.login(body.email, body.password)
+    return TokenResponse(access_token=result.token, token_type="bearer", status=result.status)
 
 
 @router.post(
@@ -73,7 +73,7 @@ async def read_me(user: CurrentUser):
 async def read_my_points(
     user: CurrentUser,
     service: Service,
-    type: Annotated[PointType | None, Query(description="EARN / USE / RESTORE / REVOKE")] = None,
+    type: Annotated[PointType | None, Query(description="EARN / USE / RESTORE / REVOKE / GRANT")] = None,
     page: Annotated[int, Query(ge=0, description="페이지 (0부터)")] = 0,
     size: Annotated[int, Query(ge=1, le=100, description="페이지 크기 (최대 100)")] = 20,
 ):

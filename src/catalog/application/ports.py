@@ -15,6 +15,7 @@ class StoreInfo(Protocol):
     longitude: float | None
     approval_at: datetime | None
     closed_at: datetime | None
+    suspended_at: datetime | None
 
 
 class StorePort(Protocol):

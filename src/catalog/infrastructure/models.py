@@ -38,7 +38,8 @@ class DiscountOfferModel(Base):
         CheckConstraint("remaining_stock BETWEEN 0 AND initial_stock", name="ck_offer_remaining_stock"),
         CheckConstraint("pickup_end > pickup_start", name="ck_offer_pickup_window"),
         CheckConstraint(
-            "status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED')", name="ck_offer_status"
+            "status IN ('SCHEDULED', 'ON_SALE', 'SOLD_OUT', 'CLOSED', 'SUSPENDED')",
+            name="ck_offer_status",
         ),
     )
 
@@ -58,6 +59,8 @@ class DiscountOfferModel(Base):
     pickup_end: Mapped[datetime] = mapped_column(TZ)
     status: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    suspended_reason: Mapped[str | None] = mapped_column(String(500))  # S11
+    suspended_at: Mapped[datetime | None] = mapped_column(TZ)  # S11
 
 
 class StockLogModel(Base):

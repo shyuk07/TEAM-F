@@ -133,3 +133,72 @@ def test_store_info_attributes():
     s = make()
     for attr in ("id", "owner_id", "name", "pickup_address", "approval_at", "closed_at"):
         assert hasattr(s, attr)
+
+
+# ── close 플래그 ──
+from stores.domain.exceptions import (  # noqa: E402
+    StoreHasOpenOffersError,
+    StoreHasReservedReservationsError,
+    StoreSuspendedError,
+)
+
+
+def _open():
+    return Store.open(OWNER, "상호", "주소", NOW)
+
+
+def test_close_default_flags_ok():
+    s = _open()
+    later = NOW + timedelta(days=1)
+    s.close(later)
+    assert s.closed_at == later and s.closed_reason is None and s.status == "CLOSED"
+
+
+def test_close_open_offers():
+    s = _open()
+    with pytest.raises(StoreHasOpenOffersError) as e:
+        s.close(NOW, has_open_offers=True)
+    assert e.value.error_code == "STORE_HAS_OPEN_OFFERS"
+    assert str(e.value) == "진행 중이거나 예정된 할인 판매가 있어 폐점할 수 없습니다."
+    assert s.closed_at is None
+
+
+def test_close_pickup_pending():
+    s = _open()
+    with pytest.raises(StoreHasReservedReservationsError) as e:
+        s.close(NOW, has_pickup_pending=True)
+    assert e.value.error_code == "STORE_HAS_RESERVED_RESERVATIONS"
+    assert str(e.value) == "픽업 대기 중인 예약이 있어 폐점할 수 없습니다."
+    assert s.closed_at is None
+
+
+def test_close_both_flags_offers_first():
+    s = _open()
+    with pytest.raises(StoreHasOpenOffersError):
+        s.close(NOW, has_open_offers=True, has_pickup_pending=True)
+
+
+def test_close_suspended_ignores_flags():
+    s = _open()
+    s.suspend("사유", NOW)
+    with pytest.raises(StoreSuspendedError):
+        s.close(NOW, has_open_offers=True, has_pickup_pending=True)
+    assert s.closed_at is None
+
+
+def test_close_already_closed_ignores_flags_and_suspension():
+    s = _open()
+    s.close(NOW)
+    with pytest.raises(StoreAlreadyClosedError):
+        s.close(NOW, has_open_offers=True, has_pickup_pending=True)
+    s2 = Store(
+        owner_id=OWNER, name="a", pickup_address="b", approval_at=NOW,
+        closed_at=NOW, suspended_reason="x", suspended_at=NOW,
+    )
+    with pytest.raises(StoreAlreadyClosedError):
+        s2.close(NOW)
+
+
+def test_close_unapproved_with_flags_false_still_value_error():
+    with pytest.raises(ValueError, match="승인되지 않은 상점은 폐점할 수 없습니다."):
+        make().close(NOW)

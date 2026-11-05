@@ -65,7 +65,7 @@ def hdr(env, user, role):
 async def test_admin_get_user(client, env):
     r = await client.get(f"/v1/admin/users/{env.user.id}", headers=hdr(env, env.admin, "ADMIN"))
     assert r.status_code == 200
-    assert set(r.json()) == {"id", "email", "name", "phone", "role", "users_point", "created_at"}
+    assert set(r.json()) == {"id", "email", "name", "phone", "role", "users_point", "created_at", "status"}
     assert r.json()["id"] == str(env.user.id)
 
 

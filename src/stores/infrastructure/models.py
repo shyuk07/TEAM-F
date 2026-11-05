@@ -12,7 +12,10 @@ TZ = DateTime(timezone=True)
 
 class StoreModel(Base):
     __tablename__ = "stores"
-    __table_args__ = (UniqueConstraint("owner_id", name="uq_stores_owner_id"),)
+    __table_args__ = (
+        UniqueConstraint("owner_id", name="uq_stores_owner_id"),
+        UniqueConstraint("name", "pickup_address", name="uq_stores_name_address"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
@@ -28,3 +31,6 @@ class StoreModel(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=text("now()"))
     approval_at: Mapped[datetime | None] = mapped_column(TZ)
     closed_at: Mapped[datetime | None] = mapped_column(TZ)
+    suspended_reason: Mapped[str | None] = mapped_column(String(500))
+    suspended_at: Mapped[datetime | None] = mapped_column(TZ)
+    closed_reason: Mapped[str | None] = mapped_column(String(500))

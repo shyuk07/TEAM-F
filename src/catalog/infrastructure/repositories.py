@@ -30,6 +30,17 @@ class SqlAlchemyProductRepository(ProductRepository):
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
+    async def find_all_by_store_for_update(self, store_id: uuid.UUID) -> list[Product]:
+        stmt = (
+            select(ProductModel)
+            .where(ProductModel.store_id == store_id)
+            .order_by(ProductModel.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        models = (await self.session.execute(stmt)).scalars().all()
+        return [self._to_domain(m) for m in models]
+
     async def find_by_store(
         self,
         store_id: uuid.UUID,
@@ -97,12 +108,17 @@ class SqlAlchemyProductRepository(ProductRepository):
 
 
 def _status_clause(status: OfferStatus, now: datetime) -> ColumnElement[bool]:
-    """DiscountOffer.effective_status와 같은 우선순위의 SQL 조건. now는 항상 인자로 받는다 (CI-5)."""
+    """DiscountOffer.effective_status와 같은 우선순위의 SQL 조건. now는 항상 인자로 받는다 (CI-5).
+
+    우선순위: CLOSED(비활성) > SUSPENDED > CLOSED(마감 경과) > SCHEDULED > SOLD_OUT > ON_SALE (admin.md C6).
+    """
     M = DiscountOfferModel
-    closed = or_(not_(M.is_active), M.sales_end <= now)
+    if status == OfferStatus.SUSPENDED:
+        return and_(M.is_active, M.suspended_at.is_not(None))
+    not_suspended = M.suspended_at.is_(None)
     if status == OfferStatus.CLOSED:
-        return closed
-    live = and_(M.is_active, M.sales_end > now)
+        return or_(not_(M.is_active), and_(not_suspended, M.sales_end <= now))
+    live = and_(M.is_active, not_suspended, M.sales_end > now)
     if status == OfferStatus.SCHEDULED:
         return and_(live, M.sales_start > now)
     started = and_(live, M.sales_start <= now)
@@ -148,6 +164,24 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
         )
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
+
+    async def find_open_by_store_for_update(
+        self, store_id: uuid.UUID, now: datetime
+    ) -> list[DiscountOffer]:
+        stmt = (
+            select(DiscountOfferModel)
+            .join(ProductModel, ProductModel.id == DiscountOfferModel.product_id)
+            .where(
+                ProductModel.store_id == store_id,
+                DiscountOfferModel.is_active,
+                DiscountOfferModel.sales_end > now,
+            )
+            .order_by(DiscountOfferModel.id.asc())
+            .with_for_update(of=DiscountOfferModel)
+            .execution_options(populate_existing=True)
+        )
+        models = (await self.session.execute(stmt)).scalars().all()
+        return [self._to_domain(m) for m in models]
 
     async def exists_open_by_store(self, store_id: uuid.UUID, now: datetime) -> bool:
         stmt = (
@@ -210,6 +244,8 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
                 pickup_end=offer.pickup_end,
                 status=str(offer.status),
                 is_active=offer.is_active,
+                suspended_reason=offer.suspended_reason,
+                suspended_at=offer.suspended_at,
             )
             self.session.add(model)
             await self.session.flush()
@@ -227,6 +263,8 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
             model.remaining_stock = offer.remaining_stock
             model.status = str(offer.status)
             model.is_active = offer.is_active
+            model.suspended_reason = offer.suspended_reason
+            model.suspended_at = offer.suspended_at
             await self.session.flush()
         return offer
 
@@ -244,6 +282,8 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
             pickup_end=model.pickup_end,
             status=OfferStatus(model.status),
             is_active=model.is_active,
+            suspended_reason=model.suspended_reason,
+            suspended_at=model.suspended_at,
         )
 
 

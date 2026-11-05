@@ -8,12 +8,16 @@ from catalog.domain.exceptions import (
     OfferAlreadyActiveError,
     OfferClosedError,
     OfferEndedError,
+    OfferAlreadySuspendedError,
     OfferHasReservationsError,
+    OfferSalesEndedError,
+    OfferSuspendedError,
     OpenOfferExistsError,
     ProductInactiveError,
 )
 
 MAX_INITIAL_STOCK = 9999
+REASON_MAX_LENGTH = 500
 
 # 취소 가능 시각 = pickup_start - CANCEL_LEAD_TIME (D55). payments 위약금 기준도 이 값을 따른다 (C14).
 CANCEL_LEAD_TIME = timedelta(hours=1)
@@ -41,6 +45,7 @@ class OfferStatus(StrEnum):
     ON_SALE = "ON_SALE"
     SOLD_OUT = "SOLD_OUT"
     CLOSED = "CLOSED"
+    SUSPENDED = "SUSPENDED"
 
 
 _EDIT_LABELS = {
@@ -61,7 +66,8 @@ def _aware(value: datetime, label: str) -> datetime:
     return value
 
 
-# 기본 목록 상태 집합. is_open(D4: is_active 이고 마감 전)과 같은 집합이다.
+# 기본 목록 상태 집합. is_open(D4: is_active 이고 마감 전)인 유효 상태에서 SUSPENDED만 뺀 집합이다
+# (admin.md C6, D20: 정지된 할인은 진행 중으로 세지만 기본 목록에는 나오지 않는다).
 OPEN_OFFER_STATUSES: tuple[OfferStatus, ...] = (
     OfferStatus.SCHEDULED,
     OfferStatus.ON_SALE,
@@ -83,6 +89,8 @@ class DiscountOffer:
         status: OfferStatus = OfferStatus.ON_SALE,
         is_active: bool = True,
         id: uuid.UUID | None = None,
+        suspended_reason: str | None = None,
+        suspended_at: datetime | None = None,
     ):
         if isinstance(sale_price, bool) or not isinstance(sale_price, int) or sale_price <= 0:
             raise ValueError("할인 가격은 0보다 커야 합니다.")
@@ -99,6 +107,12 @@ class DiscountOffer:
             raise ValueError("판매 마감 시간은 판매 시작 시간 이후여야 합니다.")
         if pickup_end <= pickup_start:
             raise ValueError("픽업 마감 시간은 픽업 시작 시간 이후여야 합니다.")
+        if (suspended_reason is None) != (suspended_at is None):
+            raise ValueError("정지 사유와 정지 시각은 함께 있어야 합니다.")
+        if suspended_at is not None:
+            _aware(suspended_at, "정지 시각")
+        if OfferStatus(status) == OfferStatus.SUSPENDED and suspended_at is None:
+            raise ValueError("정지 상태에는 정지 사유와 정지 시각이 필요합니다.")
         self.id = id
         self.product_id = product_id
         self.sale_price = sale_price
@@ -110,6 +124,8 @@ class DiscountOffer:
         self.pickup_end = pickup_end
         self.status = OfferStatus(status)
         self.is_active = is_active
+        self.suspended_reason = suspended_reason
+        self.suspended_at = suspended_at
 
     @classmethod
     def register(
@@ -159,9 +175,14 @@ class DiscountOffer:
         )
 
     def effective_status(self, now: datetime) -> OfferStatus:
-        """시간 경과를 반영한 상태 (D3). 레포지토리 _status_clause와 같은 우선순위."""
+        """시간 경과를 반영한 상태 (D3). 레포지토리 _status_clause와 같은 우선순위.
+
+        CLOSED(비활성) > SUSPENDED > CLOSED(마감 경과) > SCHEDULED > SOLD_OUT > ON_SALE (admin.md 3.3).
+        """
         if not self.is_active:
             return OfferStatus.CLOSED
+        if self.is_suspended:
+            return OfferStatus.SUSPENDED
         if now >= self.sales_end:
             return OfferStatus.CLOSED
         if now < self.sales_start:
@@ -171,8 +192,47 @@ class DiscountOffer:
         return OfferStatus.ON_SALE
 
     def is_open(self, now: datetime) -> bool:
-        """진행 중 (D4)."""
+        """진행 중 (D4). 정지된 할인도 진행 중으로 센다 (admin.md D22)."""
         return self.is_active and now < self.sales_end
+
+    @property
+    def is_suspended(self) -> bool:
+        return self.suspended_at is not None
+
+    def is_visible(self, now: datetime, *, viewer_is_owner: bool) -> bool:
+        """정지된 할인은 소유자에게만 보인다 (admin.md D20)."""
+        return viewer_is_owner or self.effective_status(now) != OfferStatus.SUSPENDED
+
+    def _ensure_not_suspended(self) -> None:
+        if self.is_suspended:
+            raise OfferSuspendedError()
+
+    def suspend(self, reason: str, now: datetime) -> None:
+        """관리자 정지 (D19, D21). is_active는 바꾸지 않는다."""
+        text = (reason or "").strip()
+        if not text:
+            raise ValueError("정지 사유를 입력해 주세요.")
+        if len(text) > REASON_MAX_LENGTH:
+            raise ValueError(f"사유는 {REASON_MAX_LENGTH}자 이하여야 합니다.")
+        _aware(now, "정지 시각")
+        if self.is_suspended:
+            raise OfferAlreadySuspendedError()
+        if not self.is_active or now >= self.sales_end:
+            raise OfferSalesEndedError()
+        self.suspended_reason = text
+        self.suspended_at = now
+        self.status = OfferStatus.SUSPENDED
+
+    def end_sale(self, now: datetime) -> bool:
+        """관리자 상점 폐점용 판매 종료 (D18). 이미 비활성이면 아무 것도 안 하고 False.
+
+        정지된 할인도 종료하고 정지 정보는 이력으로 남긴다. 재고는 건드리지 않는다.
+        """
+        if not self.is_active:
+            return False
+        self.is_active = False
+        self.status = OfferStatus.CLOSED
+        return True
 
     @property
     def is_sold_out(self) -> bool:
@@ -189,16 +249,19 @@ class DiscountOffer:
         return (original_price - self.sale_price) * 100 // original_price
 
     def ensure_relistable(self) -> None:
+        self._ensure_not_suspended()
         if not self.is_active:
             raise OfferClosedError("이미 중단된 할인은 재등록할 수 없습니다.")
 
     def close(self, now: datetime) -> None:
+        self._ensure_not_suspended()
         if not self.is_active:
             raise OfferClosedError("이미 중단된 할인입니다.")
         self.is_active = False
         self.status = OfferStatus.CLOSED
 
     def pause(self, now: datetime) -> None:
+        self._ensure_not_suspended()
         if not self.is_active:
             raise OfferClosedError("이미 중단된 할인입니다.")
         if now >= self.sales_end:
@@ -207,6 +270,7 @@ class DiscountOffer:
         self.status = OfferStatus.CLOSED
 
     def resume(self, now: datetime, *, product_active: bool, has_other_open_offer: bool) -> None:
+        self._ensure_not_suspended()
         if self.is_active:
             raise OfferAlreadyActiveError("이미 활성화된 할인입니다.")
         if now >= self.sales_end:
@@ -227,6 +291,7 @@ class DiscountOffer:
         now: datetime,
     ) -> int:
         """필드 수정. 모두 검증한 뒤 한꺼번에 반영하고 initial_stock 증감량을 돌려준다 (D26~D29)."""
+        self._ensure_not_suspended()
         if not changes:
             raise ValueError("수정할 항목이 없습니다.")
         for key, value in changes.items():
@@ -285,6 +350,7 @@ class DiscountOffer:
         return delta
 
     def adjust_stock(self, amount: int, now: datetime) -> None:
+        self._ensure_not_suspended()
         if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0:
             raise ValueError("조정 수량은 0이 될 수 없습니다.")
         if not self.is_active:

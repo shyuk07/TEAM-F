@@ -18,6 +18,13 @@ class PasswordHasher(ABC):
         """사용자가 없을 때도 verify와 같은 비용을 쓰게 하는 타이밍 방어. 결과는 버린다."""
 
 
+class Clock(ABC):
+    """현재 시각(tz-aware UTC). 정지 만료 판정에 쓴다 (D33)."""
+
+    @abstractmethod
+    def now(self) -> datetime: ...
+
+
 class TokenProvider(ABC):
     @abstractmethod
     def issue(

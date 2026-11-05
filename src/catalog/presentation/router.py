@@ -21,6 +21,7 @@ from catalog.presentation.schemas import (
     ProductListResponse,
     ProductResponse,
     ProductUpdateRequest,
+    PublicOfferStatus,
     StockAdjustmentRequest,
     StockAdjustmentResponse,
 )
@@ -72,9 +73,10 @@ async def list_products(
 )
 async def list_store_offers(
     store_id: uuid.UUID,
+    viewer: OptionalUser,
     service: Service,
     status: Annotated[
-        list[OfferStatus] | None,
+        list[PublicOfferStatus] | None,
         Query(
             description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED (반복 가능). "
             "생략하면 SCHEDULED, ON_SALE, SOLD_OUT"
@@ -83,7 +85,10 @@ async def list_store_offers(
     page: PageParam = 1,
     size: SizeParam = 20,
 ):
-    result = await service.list_offers_by_store(store_id, status, page, size)
+    statuses = [OfferStatus(s) for s in status] if status else None
+    result = await service.list_offers_by_store(
+        viewer.id if viewer else None, store_id, statuses, page, size
+    )
     return OfferListResponse(
         items=[OfferResponse.from_view(v) for v in result.items],
         page=result.page,
@@ -144,8 +149,9 @@ async def register_offer(
     response_model=OfferDetailResponse,
     summary="할인 상세",
 )
-async def get_offer_detail(offer_id: uuid.UUID, service: Service):
-    return OfferDetailResponse.from_view(await service.get_offer_detail(offer_id))
+async def get_offer_detail(offer_id: uuid.UUID, viewer: OptionalUser, service: Service):
+    view = await service.get_offer_detail(viewer.id if viewer else None, offer_id)
+    return OfferDetailResponse.from_view(view)
 
 
 @router.patch(
