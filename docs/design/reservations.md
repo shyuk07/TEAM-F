@@ -764,3 +764,221 @@ admin.md는 reservations가 비어 있다는 전제(B-6 `NoReservationAdmin`, C1
 | --- | --- | --- | --- |
 | C-통합-1 | **취소 흐름의 순서**: main `cancel_reservation`은 `lifecycle.cancel(commit=False)` 안에서 `stock.release`가 `refund_for_cancelled_reservation`보다 **먼저** 호출됨 | `application/lifecycle_service.py:60-78`(`cancel`, `release` 73행), `application/service.py:59-84`(환불 81행, commit 84행) | 같은 트랜잭션이라 환불 단계에서 예외가 나면 롤백되므로 지금은 안전함(RD-26의 503도 `commit` 전). 실제 재고 연동 시 `release`가 외부 효과를 내면 순서를 재검토하고, 환불을 먼저 하는 순서(원래 RD-2: 환불 먼저·재고 복구 나중)와 맞출지 결정 필요 |
 
+---
+
+## 15. 회원 탈퇴 연동: 회원별 일괄 취소, 매장별 픽업 대기 확인, 정지 상점주 픽업 (2026-11-05 추가)
+
+이 절은 **새로 추가한 절**이다. 1~14절은 고치지 않았다. 설계만 있고 코드는 바꾸지 않았다. 번호는 D-31부터, C-15부터, Q-A1부터 쓴다.
+
+- 근거(확정): `docs/requirements/auth.md` REQ-34 ①②③, REQ-34-1, REQ-36, B-2, B-3. 사용자 결정(2026-11-05): 요구조건이 admin.md D12(RESERVED만)보다 우선. 팀원 동의(태환 님·유민 님) 받음. admin.md D13·D35·D39는 유지.
+- 13절 A-1(RESERVED만)·A-2(S-4 필요)·A-4는 이 절이 **대체**한다(A-1은 D-31, A-2는 D-34, A-4는 D-38).
+- 실행 확인: `Read`로 `src/reservations/**`, `src/payments/application/service.py`, `src/container.py`, `src/admin/application/{ports,service}.py`, `src/stores/application/{ports,service}.py`, `src/auth/presentation/dependencies.py`, `src/auth/application/service.py`. `grep restore_points|revoke_points|use_points src/payments src/reservations` 결과 **0건**(payments 코드는 포인트를 아직 쓰지 않음, `service.py:56` TODO). 이 절은 DB·서버를 실행하지 않았다.
+
+### 15.1 현재 코드에서 확인한 사실
+
+| # | 사실 | 위치 | 영향 |
+| --- | --- | --- | --- |
+| F-1 | 위약금 면제 경로가 **이미 있다**: `RefundPort.refund_for_cancelled_reservation(target, reason=, waive_penalty=True)` → `PaymentApplicationService.refund_for_cancelled_reservation(..., waive_penalty)`가 `penalty = 0 if waive_penalty`. commit 없음 | `reservations/application/ports.py`, `adapters.py:PaymentRefundAdapter`, `payments/application/service.py` | payments 위약금 코드 변경 없음 |
+| F-2 | 포인트 복구·회수는 **payments 코드에 없다**. `pay()`에 `use_point`가 없고 `refund_for_cancelled_reservation`에 `restore_points`/`revoke_points` 호출이 없다. 지금은 사용·적립된 포인트 자체가 없어서 복구할 것도 없다 | `payments/application/service.py:56`(TODO D-10), grep 0건 | C-16 |
+| F-3 | `cancel_all_for_offer`는 재고를 복구하지 않고(D40) PICKED_UP이 있으면 전체 중단한다. 회원 일괄 취소는 **재고를 복구**하고 PICKED_UP·CANCELLED는 **건너뛴다**. 같은 코드를 재사용할 수 없고 새 메서드가 필요하다 | `lifecycle_service.py:cancel_all_for_offer` | D-31 |
+| F-4 | `ReservationAdminPort.cancel_reserved_for_user`는 이름이 "RESERVED만"이고 `has_reserved_for_store`는 RESERVED 전용 | `admin/application/ports.py:153` | D-32 |
+| F-5 | `pickup_reservations`에 `store_id`가 없다(S-4 미승인). `offer_id`에 인덱스가 있다. catalog 추상 레포지토리에는 "상점의 할인 ID 목록"이 없다(`find_by_store`는 `(offer, product)`를 페이지로, `exists_open_by_store`는 진행 중만) | `reservations/infrastructure/models.py:25`, `catalog/domain/repository/discount_offer_repository.py` | D-34, C-15 |
+| F-6 | container: `_pickup_pending = NoPickupPendingReservations()`(항상 False), `_reservation_admin = NoReservationAdmin()` | `src/container.py:101,105` | D-36 |
+| F-7 | 픽업 EP는 `OwnerUser`. `SuspendedAllowedOwnerUser`는 정의만 되어 있고 어디에도 연결되지 않음 | `reservations/presentation/router.py:72`, `auth/presentation/dependencies.py:98` | D-38 |
+| F-8 | 환불 후 포인트 복구는 payments가 회원 행을 잠그므로 **잠금 순서의 마지막(user)**이다. `withdraw_user`도 회원 행을 잠그지만 같은 트랜잭션이라 문제없음 | auth `_locked_user` | 15.5 |
+
+### 15.2 도메인 (`domain/`)
+
+- 엔티티·상태 전이표 **변경 없음**. 일괄 취소는 기존 `PickupReservation.cancel(now)`만 쓴다(PENDING_PAYMENT, RESERVED → CANCELLED). PICKED_UP·CANCELLED는 `holds_stock`이 False라서 서비스가 건너뛴다(예외를 내지 않음).
+- `rules.py`에 상수 1개 추가(바뀔 수 있는 값은 한곳): `WITHDRAWAL_CANCEL_REASON = "회원 탈퇴"`(Q-A6). 호출자가 사유를 넘기면(admin 강제 탈퇴 사유) 그 값을 쓴다.
+- `repository.py`(추상)에 메서드 2개 추가:
+  - `find_by_user_and_statuses(user_id, statuses: Sequence[ReservationStatus], *, for_update=False) -> list[PickupReservation]` — `ORDER BY offer_id, id`(교착 방지, D34).
+  - `exists_by_offers_and_status(offer_ids: Sequence[uuid.UUID], status: ReservationStatus) -> bool` — 빈 목록이면 쿼리 없이 False.
+- 새 예외 없음. 불일치는 기존 `DataInconsistentError`(500).
+
+### 15.3 인프라 (`infrastructure/`)
+
+- 스키마 변경 **없음**(S-4 기각 유지, D-34).
+- `SqlAlchemyReservationRepository`:
+  - `find_by_user_and_statuses`: `WHERE user_id = :u AND status IN (...) ORDER BY offer_id, id`, `for_update`면 `.with_for_update().execution_options(populate_existing=True)`(기존 `find_by_offer`와 같은 방식). `user_id` 인덱스 있음.
+  - `exists_by_offers_and_status`: `SELECT id ... WHERE offer_id = ANY(:ids) AND status = :s LIMIT 1`. `offer_id` 인덱스 사용. 행 잠금은 하지 않는다(D-35 이유).
+- catalog 쪽 변경(C-15): `DiscountOfferRepository.find_ids_by_store(store_id, *, for_update=False) -> list[uuid.UUID]` 추상 + SQLAlchemy 구현. `SELECT d.id FROM discount_offers d JOIN products p ON p.id = d.product_id WHERE p.store_id = :s ORDER BY d.id`, `for_update`면 `FOR UPDATE OF d`. `products.store_id`·`discount_offers.product_id` 인덱스를 쓴다. 도메인 객체를 반환하지 않고 ID만 돌려주는 조회라 R4와 충돌하지 않는다(ID는 값).
+- 동시성: 새 쿼리가 쓰는 잠금은 전부 `offer 행(id 오름차순) → reservation 행(offer_id, id 오름차순)`이다. 기존 취소·`pay`·예약 생성이 모두 offer를 먼저 잠그므로 같은 순서다(D-6).
+
+### 15.4 응용 (`application/`)
+
+#### 15.4.1 포트 (reservations가 정의, R11)
+
+`application/ports.py`에 추가:
+
+```python
+class StoreOffersPort(Protocol):
+    """매장의 할인 ID 목록. catalog 추상 레포지토리를 쓰는 어댑터가 만족한다. commit 없음 (R13)."""
+    async def list_offer_ids_of_store(self, store_id: uuid.UUID, *, for_update: bool = False) -> list[uuid.UUID]: ...
+```
+
+#### 15.4.2 `ReservationLifecycleService.cancel_all_for_user(user_id, *, reason) -> list[CancelledReservation]` (commit 없음)
+
+1. `peek = reservations.find_by_user_and_statuses(user_id, [PENDING_PAYMENT, RESERVED])`(무잠금). 비면 `[]`.
+2. 서로 다른 `offer_id`를 **오름차순**으로 `stock.get_terms(offer_id, for_update=True)`(offer 잠금 먼저, D-6). 같은 offer는 한 번만. `terms`는 환불용 `pickup_start`를 얻는 데 쓴다(`dict[offer_id, terms]`).
+3. offer를 다 잠근 뒤 `reservations.find_by_user_and_statuses(user_id, [...], for_update=True)`로 **다시 읽는다**(정본 목록. 그 사이 고객이 직접 취소·결제한 것을 반영, 멱등).
+4. 각 예약마다(`offer_id, id` 순):
+   - `holds_stock`이 False면 건너뛴다(방어).
+   - `check_paid_payment = reservation.is_pending_payment`, `RefundTarget`은 `is_paid`일 때만 **취소 직전 상태**(`status="RESERVED"`)로 만든다(`cancel_all_for_offer`와 같은 방식).
+   - `reservation.cancel(now)` → `_release_stock(reservation, user_id=reservation.user_id, reason=reason)`(**재고 복구**, 닫힌 할인이면 포트가 False를 주는 정상 경로 D40) → `reservations.save`.
+5. `CancelledReservation` 목록 반환. PICKED_UP·CANCELLED는 조회 조건에서 빠지므로 **기록은 그대로 남는다**(REQ-34 ③). `PickedUpReservationExistsError`는 내지 않는다.
+
+`_release_stock`이 `DataInconsistentError`(상한 초과)를 내면 그대로 올린다. 호출한 응용 서비스가 처리한다(아래).
+
+#### 15.4.3 `ReservationApplicationService.cancel_all_for_user(user_id, *, reason) -> int` (**commit 하지 않음**, R13)
+
+`cancel_all_for_offer`와 같은 모양이다.
+
+1. `cancelled = lifecycle.cancel_all_for_user(...)`. `DataInconsistentError`(재고 복구 불일치)가 나면 `session.rollback()`, `_log_inconsistency("cancel_all_for_user", error.details)`(요청당 ERROR 로그 1건), 다시 raise.
+2. 각 항목: `refund_target`이 있으면 `refunds.refund_for_cancelled_reservation(target, reason=reason, waive_penalty=True)`(**전액 환불, F-1**). `refund_target`이 없고 `check_paid_payment`면 `refunds.ensure_no_paid_payment(id)`(RD-39).
+3. 환불·확인에서 나온 `DataInconsistentError`는 끝까지 모아 1건이라도 있으면 `rollback()` + 로그 1건 + `DataInconsistentError(모은 목록)` raise(RD-38). 정상이면 `len(cancelled)` 반환(PENDING_PAYMENT와 RESERVED 취소 수의 합).
+4. 환불에 따른 **포인트 복구·회수**는 `refund_for_cancelled_reservation` 안에서 payments가 한다(C-16). reservations는 포인트를 모른다.
+
+#### 15.4.4 `StoreReservationQuery` (신규, `application/store_query.py`)
+
+생성자: `reservations: ReservationRepository`, `store_offers: StoreOffersPort`. 서비스가 아니라 읽기 전용 질의 객체다(commit 없음).
+
+```python
+async def has_reserved_for_store(self, store_id, *, excluding_user_id: uuid.UUID | None = None) -> bool:
+    ids = await self.store_offers.list_offer_ids_of_store(store_id, for_update=True)  # offer 잠금(id 오름차순)
+    return await self.reservations.exists_by_offers_and_status(ids, ReservationStatus.RESERVED, excluding_user_id=excluding_user_id)
+
+async def has_pickup_pending_for_store(self, store_id) -> bool:  # stores PickupPendingPort
+    return await self.has_reserved_for_store(store_id)
+```
+
+(`exists_by_offers_and_status`에 `excluding_user_id: uuid.UUID | None = None` 선택 인자를 둔다. 위 15.2절 시그니처에 포함해서 구현한다. 값이 있으면 `AND user_id != :u`.)
+
+- 이 객체 하나가 stores `PickupPendingPort`와 admin 포트의 매장 확인을 **구조적으로 만족**한다(R11, 서로의 모듈을 import하지 않음).
+- **offer 행을 잠그는 이유**: `pay`·고객 취소·예약 생성은 모두 offer를 먼저 잠그므로, 확인 뒤 폐점이 끝나기 전까지 RESERVED가 새로 생기거나 사라지지 못한다. 예약 행은 잠그지 않는다(픽업은 RESERVED를 줄이기만 해서 안전). admin.md의 "RESERVED 행을 FOR UPDATE"와 다르다(D-35).
+- 비용: 쿼리 2회(할인 ID 조회 + 예약 존재 조회). 할인이 아주 많은 매장이면 `ANY(ids)` 목록이 커진다. 지금 규모에서는 문제가 없고, 느려지면 S-4(`store_id` 스냅샷 컬럼)로 한 번의 인덱스 조회로 바꾼다(포트 시그니처 불변이라 어댑터만 교체).
+
+#### 15.4.5 어댑터 (reservations 소유, 구조적 포트 만족)
+
+- `application/store_adapters.py`: `CatalogStoreOffersAdapter(offers: DiscountOfferRepository)`가 `StoreOffersPort`를 만족. catalog **추상 레포지토리**만 쓴다(R11 §3.4 1행). catalog 서비스는 받지 않는다(R12).
+- `application/admin_adapters.py`: `ReservationAdminAdapter(service: ReservationApplicationService, query: StoreReservationQuery)`가 admin 새 포트(D-32)를 만족.
+  - `cancel_active_for_user(user_id, *, reason) -> int` → `service.cancel_all_for_user(user_id, reason=reason)`
+  - `has_reserved_for_store(store_id, *, excluding_user_id=None) -> bool` → `query.has_reserved_for_store(...)`
+  - `DataInconsistentError`는 admin이 정의한 `ReservationDataInconsistentError`로 **번역만** 한다(로그 없음. 서비스가 이미 1건 기록, `catalog_adapters.OfferReservationCanceller`와 같은 방식, C-17).
+
+#### 15.4.6 탈퇴 흐름과 트랜잭션 경계 (R5, R13)
+
+한 요청 세션(`Depends(get_db)`), **마지막에 `commit()` 한 번**은 흐름을 시작한 서비스(admin 또는 자진 탈퇴 서비스)가 한다. 호출되는 쪽은 전부 commit하지 않는다.
+
+| 순서 | 호출 | 잠그는 것 (D34 / D-6) |
+| --- | --- | --- |
+| ① | `accounts.get_account`, `check_withdrawable` | 없음(읽기, 400 검증을 먼저) |
+| ② | OWNER면 `stores.lock_store_of_owner` | stores |
+| ③ | 상점이 있고 폐점 전이면 `offers.end_all_sales_of_store(commit=False)` | discount_offers(진행 중, id 오름차순) |
+| ④ | 상점이 있으면 `reserved = reservations.has_reserved_for_store(store.id, excluding_user_id=user_id)` | discount_offers(상점 전체, id 오름차순) |
+| ⑤ | `cancelled = reservations.cancel_active_for_user(user_id, reason)` | discount_offers(이 회원 예약의 offer, 오름차순) → pickup_reservations → payments → refunds → users(포인트 복구) |
+| ⑥ | 상점이 있고 폐점 전이면 `stores.close_store_by_admin(..., has_reserved_reservations=reserved, commit=False)`(타 고객 RESERVED가 있으면 400 `STORE_HAS_RESERVED_RESERVATIONS`, 전체 롤백, D13) | stores |
+| ⑦ | `accounts.withdraw_user(commit=False)`(auth가 남은 포인트 소멸, REQ-34 ④) | users |
+| ⑧ | `commit()` | |
+
+- **④를 ⑤보다 먼저 두는 이유**: admin.md 4번 흐름은 ⑤(취소) 뒤에 매장 확인을 했다. 그러면 payments·users를 잠근 **뒤에** 다른 offer를 잠그게 되어 D34(offers → … → users) 역방향이다. 매장 확인을 먼저 하고 자기 자신 예약(`excluding_user_id`)은 제외하면 같은 결과(자기 예약은 어차피 ⑤에서 취소)이면서 순서가 지켜진다. ⑥은 admin이 ④의 결과를 인자로 넘긴다(기존 시그니처 `has_reserved_reservations` 그대로).
+- ⑤ 안의 offer들은 이미 ③④에서 잠근 것과 겹칠 수 있다(같은 트랜잭션이라 재잠금은 즉시 통과). 배치 내부는 오름차순이지만 ③④배치와 ⑤배치 사이의 전역 오름차순은 보장되지 않는다. **동시에 서로 다른 두 회원을 탈퇴시키는 드문 경우에만** 교착 가능성이 남는다(DB가 한쪽을 중단시키며 500이 날 수 있음, Q-A8).
+- 예외가 나면 커밋되지 않고 세션이 닫힐 때 롤백된다(reservations는 불일치 때 명시적 `rollback()` 후 로그 1건).
+- **자진 탈퇴(REQ-33)**: 같은 ①~⑧을 쓴다(REQ-34-1). 자진 탈퇴 EP·서비스는 auth 쪽 작업이다(F: `src/auth/presentation/router.py`에 탈퇴 EP가 없음). **생성 순환 주의(R12)**: `AuthApplicationService`가 예약 포트를 직접 받으면 `auth → reservations → payments → auth(포인트)`로 순환한다. 그래서 흐름은 `AuthApplicationService` **밖**의 조율 서비스(예: auth가 포트를 정의하는 `AccountWithdrawalService`, 또는 admin의 `withdraw_user`를 재사용)가 맡는다. 이 선택은 C-18로 올린다. reservations 쪽 계약(15.4.5의 두 메서드)은 어느 쪽이든 같다.
+
+### 15.5 표현 (`presentation/`)
+
+- **새 엔드포인트 없음**(내부 포트 호출만). 명세 `docs/reference/` 변경 없음(R15).
+- 픽업 EP `POST /v1/reservations/{reservation_id}/pickup`(1건)만 `OwnerUser` → `SuspendedAllowedOwnerUser`로 교체(D-38). 나머지 EP(생성·목록·취소)는 `CurrentUser` 그대로 → 정지된 고객은 계속 403.
+
+| EP | 의존성 | 정지된 상점주 | 탈퇴한 회원 |
+| --- | --- | --- | --- |
+| 픽업 | `SuspendedAllowedOwnerUser` | 통과(자기 매장 예약만, 소유 확인은 기존 `PermissionError`) | 401(`allow_suspended`와 무관, admin D9) |
+| 생성·목록·취소 | `CurrentUser` | 정지 고객은 403 | 401 |
+
+- 픽업 조건에 상점·할인 정지 상태를 쓰지 않는다(admin D35). 현재 `complete_pickup`은 이미 그렇다(`ensure_owned_by`, `ensure_pickup_time`만).
+- 탈퇴한 회원의 **기록은 남는다**(REQ-34 ③). "탈퇴 후 본인도 볼 수 없다"는 `WITHDRAWN` 토큰이 401이라 자동으로 지켜진다(목록 EP 변경 없음).
+
+### 15.6 조립 (`src/container.py`)
+
+| 대상 | 변경 | 위치 |
+| --- | --- | --- |
+| `_pickup_pending`, `NoPickupPendingReservations` import | 삭제 | stores 구역 |
+| `create_pickup_pending_port()` | 자리 표시 함수(`raise NotImplementedError`)로 바꾸고 `wire_dependencies`가 `create_store_reservation_query`로 override | stores 구역은 reservations 구역보다 **위**라 `Depends`로 직접 못 부름(기존 `create_reservation_lookup`과 같은 방식) |
+| `create_store_offers_port(offers = Depends(create_discount_offer_repository))` | 신규 → `CatalogStoreOffersAdapter` | reservations 구역 |
+| `create_store_reservation_query(reservations = Depends(create_reservation_repository), store_offers = Depends(create_store_offers_port))` | 신규 → `StoreReservationQuery` | reservations 구역 |
+| `_reservation_admin`, `NoReservationAdmin` import | 삭제 | admin 구역 |
+| `create_reservation_admin(service = Depends(create_reservation_service), query = Depends(create_store_reservation_query))` | `ReservationAdminAdapter`를 반환 | admin 구역(reservations 구역보다 아래라 직접 `Depends` 가능) |
+| `wire_dependencies` | `create_pickup_pending_port: create_store_reservation_query` 한 줄 추가 | |
+
+- 삭제 파일: `src/stores/infrastructure/pickup_pending.py`, `src/admin/infrastructure/reservation_admin.py`(사용처 없어진 뒤, 담당자 확인 후).
+- **생성 순환 검사(R12)**: stores 서비스 → `StoreReservationQuery` → (reservations 레포지토리, catalog 레포지토리). 서비스를 받지 않으므로 순환 없음. admin → `ReservationAdminAdapter` → (예약 서비스 → lifecycle, 환불 포트 → payments 서비스 → lifecycle) + `StoreReservationQuery`. 이 중 admin을 받는 것은 없다. 예약 서비스·payments 서비스는 auth를 받지 않는다(포인트 연동이 붙으면 payments → auth 서비스가 생기는데 auth가 reservations·payments를 받지 않는 한 순환 아님. 자진 탈퇴 조율은 `AuthApplicationService` 밖, C-18). 확인 방법: `(cd src && uv run python -c "import main")`, `tests/reservations/test_wiring.py`에 `create_pickup_pending_port`·`create_reservation_admin`이 새 어댑터로 풀리는지 단언.
+
+### 15.7 테스트 계획 (`layer-implementation/testing.md` 기준)
+
+- 도메인: 변경 없음. 기존 `cancel` 전이 테스트 유지.
+- 서비스(fake, DB 없음, `tests/reservations/test_service.py`·`fakes.py`에 fake 레포지토리 새 메서드 추가):
+  - lifecycle `cancel_all_for_user`: PENDING 2건·RESERVED 1건·PICKED_UP 1건·CANCELLED 1건 → 앞의 3건만 CANCELLED, PICKED_UP·CANCELLED는 그대로, `release` 3회(재고 `quantity`), 반환 3건, 환불 대상은 RESERVED 1건만. PICKED_UP이 있어도 `PickedUpReservationExistsError`가 나지 않음.
+  - offer 잠금 호출 순서가 `offer_id` 오름차순, 중복 offer는 1회, 잠금 후 재조회에서 그 사이 취소된 예약은 건너뜀(멱등). 빈 목록은 0.
+  - 응용 `cancel_all_for_user`: `refund_for_cancelled_reservation`이 **`waive_penalty=True`**로 RESERVED에만 호출, PENDING은 `ensure_no_paid_payment`, `session.commits == 0`(commit 안 함), 반환 수. 환불 불일치 → `rollback` 1회·ERROR 로그 1건·`DataInconsistentError`(모은 목록). 재고 복구 불일치도 같음.
+  - 닫힌 할인이면 `release`가 False여도 취소는 진행(D40).
+  - `StoreReservationQuery`: RESERVED만 True, PENDING_PAYMENT·PICKED_UP·CANCELLED만 있으면 False, 상점에 할인이 없으면 False(예약 조회 안 함), `excluding_user_id` 제외, `for_update=True`로 offer ID를 조회하는지, `has_pickup_pending_for_store`가 같은 결과.
+- 어댑터: `ReservationAdminAdapter`가 `DataInconsistentError`를 admin 예외로 번역(로그 없음). `CatalogStoreOffersAdapter` 위임.
+- wiring: `NoPickupPendingReservations`·`NoReservationAdmin` 단언을 새 어댑터 단언으로 교체. 픽업 EP가 `SuspendedAllowedOwnerUser`를 쓰는지 단언.
+- DB 통합(`tests/reservations/test_api_db.py` 또는 새 `test_withdrawal_db.py`, **실행은 사용자 승인 후**, R16: skip은 통과가 아님): 정지된 상점주 토큰으로 픽업 200, 정지된 상점주가 예약 생성·취소하면 403(정지된 CUSTOMER도 403), 탈퇴한 상점주 토큰 픽업 401. 실제 레포지토리: `find_by_user_and_statuses`의 정렬·상태 필터, `exists_by_offers_and_status`, catalog `find_ids_by_store`(타 상점 제외). 흐름: 탈퇴 → PENDING 취소+재고 복구(`stock_log` 양수), RESERVED 취소+환불 1건(`penalty_amount == 0`, `refund_amount == payment.amount`)+재고 복구, PICKED_UP 기록 유지, 결과가 **한 번 커밋**(중간 예외 시 전부 롤백).
+- 포인트: payments 포인트 연동(C-16)이 구현된 뒤에 "환불 후 `users_point`가 `RESTORE`/`REVOKE`만큼 변하고 이어서 탈퇴가 잔액을 0으로 소멸" 테스트를 추가. 지금은 사용·적립이 없으므로 "환불 금액만 확인"으로 둔다.
+
+### 15.8 구현자 쓰기 범위 (`layer-implementer` 발주용)
+
+| 범위 | 파일 | 비고 |
+| --- | --- | --- |
+| reservations | `src/reservations/domain/{repository,rules}.py`, `application/{ports,lifecycle_service,service,store_query,store_adapters,admin_adapters}.py`, `infrastructure/repositories.py`, `presentation/router.py`(픽업 의존성 1줄), `tests/reservations/**` | 기존 EP·응답·전이표 불변 |
+| container | `src/container.py`의 stores 구역(`create_pickup_pending_port`, `_pickup_pending`), reservations 구역(신규 팩토리 2개), admin 구역(`create_reservation_admin`, `_reservation_admin`), `wire_dependencies` 1줄 | 다른 구역 불변 |
+| payments | **이 설계의 범위에서는 변경 없음**(F-1). 포인트 연동(C-16)은 payments 설계(`docs/design/payments.md`) 작업에서 함 | `src/payments/**`는 건드리지 않음 |
+| **확정 범위 확장** (사용자 승인 2026-11-05, 팀원 허락: C-15, C-17, C-19) | catalog: `domain/repository/discount_offer_repository.py`(`find_ids_by_store` 추상), `infrastructure/repositories.py`, `tests/catalog/**`의 fake 레포지토리 / admin: `application/ports.py`(D-32), `application/service.py`(호출 순서·인자), `domain/exceptions.py`(신규, `ReservationDataInconsistentError`)와 500 변환(admin 라우터), `infrastructure/reservation_admin.py` 삭제, `tests/admin/**` / stores: `infrastructure/pickup_pending.py` 삭제, `application/ports.py` docstring, `tests/stores/**`의 관련 단언 | 구현자가 쓴다 |
+| 하지 않음 (확정) | `src/payments/**`·`tests/payments/**`(포인트 연동은 payments 작업, C-16), `src/auth/**`(자진 탈퇴 EP·포인트 소멸·조율 서비스는 C-18), `docs/reference/`, `schema.sql` | |
+
+완료 게이트는 `backend-invariants` §7과 같다. R1~R16 준수, 특히 R5(어댑터·서비스 `cancel_all_for_user`는 commit 금지), R11(catalog는 추상 레포지토리만), R12(생성 순환 없음), R13(같은 세션).
+
+### 15.9 결정 표 (D-번호)
+
+| # | 결정 | 근거 | 상태 |
+| --- | --- | --- | --- |
+| D-31 | 회원별 일괄 취소는 **PENDING_PAYMENT와 RESERVED를 모두** 취소한다. 재고 복구(`stock.release`, 닫힌 할인은 D40대로 건너뜀), RESERVED는 전액 환불(`waive_penalty=True`), PICKED_UP·CANCELLED는 건드리지 않고 기록 유지. 새 메서드 `lifecycle.cancel_all_for_user`·`service.cancel_all_for_user`(commit 안 함) | REQ-34 ①②③, REQ-34-1, B-3(요구조건이 admin D12보다 우선, 사용자 결정 2026-11-05) | 확정(요구조건) |
+| D-32 | admin 포트 변경: `cancel_reserved_for_user` → **`cancel_active_for_user(user_id, *, reason) -> int`**(이름과 뜻을 요구조건에 맞춤, 결제 대기 포함 취소 수), `has_reserved_for_store(store_id, *, excluding_user_id=None)`(선택 인자 추가). admin `withdraw_user`는 ④(매장 확인)를 ⑤(취소)보다 먼저 호출(15.4.6). `NoReservationAdmin`은 삭제 | 이름이 뜻과 다르면 오해(F-4). 잠금 순서 D34 | **확정** (사용자, 2026-11-05, Q-A4) |
+| D-33 | 환불은 payments 기존 연결(`PaymentRefundAdapter` → `refund_for_cancelled_reservation(waive_penalty=True)`)을 **그대로** 재사용. payments 코드 변경 없음. 포인트 복구·회수는 payments가 같은 메서드 안에서 하며 아직 코드에 없음(C-16) | F-1, F-2, payments.md 4.3.4 `_apply_refund` | 확정(위약금), 포인트는 C-16 |
+| D-34 | 매장별 확인은 **S-4(스키마) 없이** `offer_ids = catalog 추상 레포지토리 find_ids_by_store` → `reservations.exists_by_offers_and_status(ids, RESERVED)` 두 단계. `StoreReservationQuery` 하나가 stores `PickupPendingPort`와 admin `has_reserved_for_store`를 둘 다 만족. 둘 다 **RESERVED만** 센다 | admin D41(b안)과 같음, R11(조인 금지), R14(스키마 변경 없음), F-5 | **확정** (사용자, 2026-11-05, Q-A1·Q-A2·Q-A9, S-4 안 함) |
+| D-35 | 매장 확인은 **offer 행을 `FOR UPDATE`(id 오름차순)로 잠그고** 예약 행은 잠그지 않는다 | 모든 RESERVED 생성·소멸 경로가 offer를 먼저 잠금(D-6), admin.md "예약 행 FOR UPDATE"를 대체해 D34 순서 유지 | **확정** (사용자, 2026-11-05) |
+| D-36 | 조립: `create_pickup_pending_port`는 자리 표시 + override, `create_reservation_admin`은 직접 `Depends` | R9, R12, 기존 `create_reservation_lookup` 방식 | 확정(방식) |
+| D-37 | 불일치(RD-38·RD-39)는 일괄 취소에서도 **전부 롤백 + ERROR 로그 1건 + 500**. 불일치 예약이 1건이라도 있으면 탈퇴 전체가 실패한다. admin 쪽 번역 예외는 admin이 정의 | RD-38, `cancel_all_for_offer` 선례, R7 | **확정** (사용자, 2026-11-05, Q-A3) |
+| D-38 | 픽업 EP 1건만 `SuspendedAllowedOwnerUser`로 교체. 소유 확인·상태·시간 검사는 불변 | admin D35·D39 확정, auth B-2 | 확정 |
+
+### 15.10 정합 이슈 (C-번호)
+
+| # | 대상 | 내용 |
+| --- | --- | --- |
+| C-15 | **catalog** | 추상 `DiscountOfferRepository`에 `find_ids_by_store(store_id, *, for_update=False)` 추가 필요(F-5). catalog 담당(태환 님) 확인. `tests/catalog` fake 레포지토리도 같이 고쳐야 한다(추상 메서드 추가라 깨짐). `docs/design/catalog.md` 갱신 제안 |
+| C-16 | **payments** (읽기만 확인, 수정 안 함) | `refund_for_cancelled_reservation`에 사용 포인트 복구(`restore_points`)·적립 회수(`revoke_points`)가 아직 없다(F-2). payments.md 4.3.3·4.3.4의 `_apply_refund`가 정본이고, `pay()`의 `use_point`·적립(D-10)과 **같이** 구현해야 한다. 순서는 환불 INSERT → 결제 저장 → 포인트(users는 잠금 순서의 마지막). 구현 전에는 탈퇴 환불이 금액만 처리한다(포인트가 쓰인 적이 없어서 결과는 정확함). 배유민 님 작업(#22). **확정(사용자, 2026-11-05, Q-A5)**: 포인트 복구·회수는 payments 포인트 연결 작업(payments.md 10절, `_apply_refund`)에서 함께 구현된다. 이 설계의 구현 범위에는 payments가 없다 |
+| C-17 | **admin** | D-32 포트 변경과 `ReservationDataInconsistentError`(500 `DATA_INCONSISTENT`) 정의·변환 필요(admin 라우터는 현재 불일치 변환이 없음). admin.md D12(RESERVED만)·D43(자리표시자)·D44(stock_log user_id)를 이 절로 갱신(D44: `user_id`는 예약자, `reason`은 사유) |
+| C-18 | **auth** | 자진 탈퇴 EP(REQ-33)·비밀번호 재확인(REQ-36)·남은 포인트 소멸(REQ-34 ④, `withdraw_user` 확장)은 auth 작업. 조율을 `AuthApplicationService` 밖에 두지 않으면 R12 순환(15.4.6). 포인트 소멸은 환불 복구(⑤) **뒤**여야 한다(⑦) |
+| C-19 | **stores** | `PickupPendingPort`의 docstring("미연계")과 `NoPickupPendingReservations` 삭제. stores.md D21 갱신 |
+| C-20 | **docs/design/admin.md** | 13절 A-1·A-2·A-4와 admin D12·D41·D43·D44는 이 절이 대체한다(admin.md는 수정하지 않았음, 담당자에게 전달) |
+
+### 15.11 질문 목록과 기본값 (**확정, 사용자 2026-11-05**: Q-A1~Q-A9 모두 아래 "임시 기본값" 열의 값 그대로 확정. Q-A4·Q-A9는 admin·catalog·stores 변경 허락을 받아 범위 확장 승인)
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
+| --- | --- | --- | --- | --- |
+| Q-A1 | 폐점·상점주 탈퇴 때 **PENDING_PAYMENT** 예약도 막아야 하는가(폐점 뒤 결제되면 RESERVED가 폐점 매장에 생김) | stores `has_pickup_pending_for_store`, admin D13 | 막지 않음(RESERVED만). 단 폐점 전에 `end_all_sales`가 새 예약을 막고, 결제는 offer를 잠그므로 확인과 폐점 사이에 끼어들 수 없음. 폐점 뒤 결제는 별도 위험으로 남김 | admin D13 "RESERVED", 명세 "처리되지 않은 RESERVED" |
+| Q-A2 | 픽업 시간이 지난(노쇼) RESERVED도 계속 폐점을 막는가(자동 만료 없음) | D-34 | 계속 막는다 | 명세 "처리되지 않은 RESERVED", 만료 규칙 없음 |
+| Q-A3 | 불일치 예약이 있으면 탈퇴가 500으로 막혀도 되는가 | D-37, RD-38 | 전체 롤백(막힘). 운영자가 데이터를 고친 뒤 재시도 | RD-38, R16(검사를 약하게 하지 않음) |
+| Q-A4 | admin 포트 이름·시그니처 변경 범위(D-32), admin 코드 수정 허용 | admin.md D30(포트 admin 소유) | 이름 변경 + `excluding_user_id` 추가, admin 담당(서상혁 님) 본인 변경 | 요구조건 우선, 사용자 동의 |
+| Q-A5 | 환불에 따른 포인트 복구·회수 시점(payments 포인트 연동 전) | C-16, payments D-10 | payments 연동 때 같은 메서드가 처리. 그 전에는 금액만 환불 | payments.md 4.3.4 |
+| Q-A6 | 일괄 취소의 사유 문구 | REQ-34, admin 강제 탈퇴 사유 | 자진 탈퇴 `rules.WITHDRAWAL_CANCEL_REASON = "회원 탈퇴"`, 강제 탈퇴는 admin이 넘긴 사유 | 한곳(rules)에 모음 |
+| Q-A7 | 탈퇴 처리 중 같은 회원이 보낸 **새 예약 생성**(이미 인증을 통과한 요청)이 커밋 직전에 끼어들 가능성 | 15.4.2 3단계 | 막지 않음(잠그는 offer 범위 밖의 offer는 못 막음). 탈퇴 커밋 뒤 만들어진 예약은 `WITHDRAWN` 회원의 `PENDING_PAYMENT`로 남을 수 있어 재고를 점유함. 완화는 예약 생성이 회원 상태를 다시 확인하는 것(auth 의존성 변경, C-18) | 잠금 순서 D-6(회원이 마지막) |
+| Q-A8 | 서로 다른 회원 둘을 동시에 탈퇴시킬 때의 교착 가능성(15.4.6) | D34 | 허용(DB가 한쪽을 중단, 재시도) | 드문 경우, 모든 offer를 한꺼번에 먼저 잠그는 방식은 과함 |
+| Q-A9 | catalog `find_ids_by_store`를 추상 레포지토리에 추가하는 것을 catalog 담당이 받아들이는가(C-15). 거부하면 S-4(`store_id` 컬럼)로 | D-34 | 추가한다 | admin D41 (b)안 |
+
+### 15.12 불변 규칙 점검
+
+R1(도메인 변경은 추상 메서드 선언뿐), R2·R11(catalog는 추상 레포지토리, 포트는 reservations 정의, admin·stores는 reservations를 import하지 않음), R3(상태 전이는 `PickupReservation.cancel`, 서비스는 조율만), R4(ID 목록·도메인 객체만 반환), R5·R13(`cancel_all_for_user`·어댑터·질의는 commit 안 함, 시작한 서비스가 1회), R6·R7(새 예외는 `DataInconsistentError`/admin 번역 예외, 500 형식 유지), R8~R10(추상만 받음, 선언된 메서드만 호출), R12(15.6 검사), R14(스키마 불변), R15(명세 불변), R16(검사를 약하게 하지 않음, DB 테스트는 승인 후 실행). 충돌하는 요구 없음.
+
