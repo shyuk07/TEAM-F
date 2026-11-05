@@ -6,6 +6,7 @@ import pytest
 
 from stores.domain.exceptions import StoreHasReservedReservationsError, StoreNotFoundError
 from stores.domain.store import Store
+from tests.fakes import DEFAULT_COORDINATES as COORDS
 from tests.stores.test_service import FIXED, FakeStoreRepository, build
 
 pytestmark = pytest.mark.anyio
@@ -17,7 +18,7 @@ def anyio_backend():
 
 
 def _seed(repo: FakeStoreRepository) -> Store:
-    s = Store.open(uuid.uuid4(), "상호", "주소", FIXED)
+    s = Store.open(uuid.uuid4(), "상호", "주소", FIXED, COORDS)
     s.id = uuid.uuid4()
     repo.items[s.id] = s
     return s

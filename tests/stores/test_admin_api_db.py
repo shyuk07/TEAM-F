@@ -8,6 +8,7 @@ from auth.infrastructure.models import UserModel
 from stores.domain.store import Store
 from stores.infrastructure import models as stores_models  # noqa: F401
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
+from tests.fakes import DEFAULT_COORDINATES as COORDS
 from tests.helpers import bearer, login, signup
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
@@ -33,7 +34,7 @@ async def test_repository_suspend_and_close_roundtrip(client):
         ).scalar_one()
     async with client.session_factory() as session:
         repo = SqlAlchemyStoreRepository(session)
-        saved = await repo.save(Store.open(owner, "상호", "주소", NOW))
+        saved = await repo.save(Store.open(owner, "상호", "주소", NOW, COORDS))
         saved.suspend("위반", NOW)
         await repo.save(saved)
         await session.commit()
@@ -61,7 +62,7 @@ async def test_for_update_refreshes_stale_identity_map(client, lookup):
     async with client.session_factory() as s:
         owner = (await s.execute(select(UserModel.id).where(UserModel.email == email))).scalar_one()
     async with client.session_factory() as s:
-        store = await SqlAlchemyStoreRepository(s).save(Store.open(owner, "상호", "주소", NOW))
+        store = await SqlAlchemyStoreRepository(s).save(Store.open(owner, "상호", "주소", NOW, COORDS))
         await s.commit()
     async with client.session_factory() as a:
         repo_a = SqlAlchemyStoreRepository(a)

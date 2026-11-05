@@ -40,7 +40,11 @@ def offer_body(**kw):
 
 async def owner_with_store(c, email="owner@test.com"):
     token = await token_for(c, email, "OWNER")
-    r = await c.post("/v1/stores", json={"pickup_address": "서울 강남구"}, headers=bearer(token))
+    r = await c.post(
+        "/v1/stores",
+        json={"pickup_address": f"서울 강남구 {email}"},  # STORE_DUPLICATED 방지: 주소를 이메일로 구분
+        headers=bearer(token),
+    )
     assert r.status_code == 201, r.text
     return token, r.json()["id"]
 
@@ -176,7 +180,7 @@ async def test_get_product(client):
     p = await make_product(client, token, store_id)
     r = await client.get(f"/v1/products/{p['id']}")
     assert r.status_code == 200
-    assert r.json()["store_name"] == "홍길동" and r.json()["pickup_address"] == "서울 강남구"
+    assert r.json()["store_name"] == "홍길동" and r.json()["pickup_address"] == "서울 강남구 owner@test.com"
     assert r.json()["id"] == p["id"]
     await set_product_inactive(client, p["id"])
     r = await client.get(f"/v1/products/{p['id']}")
@@ -1007,8 +1011,9 @@ async def test_offer_detail_public_ok(client):
     }
     assert body["offer"]["id"] == o["id"] and body["offer"] == o
     assert body["description"] == "햄치즈" and body["product_image"] == ["https://e.com/a.jpg"]
-    assert body["pickup_address"] == "서울 강남구"
-    assert body["latitude"] is None and body["longitude"] is None
+    assert body["pickup_address"] == "서울 강남구 owner@test.com"
+    # 상점 개설 시 지오코딩된 좌표가 그대로 노출된다 (tests/fakes.py DEFAULT_COORDINATES)
+    assert body["latitude"] == 37.4979 and body["longitude"] == 127.0276
     assert body["notice"] == OFFER_NOTICE
     cp = body["cancel_policy"]
     assert cp["description"] == CANCEL_POLICY_DESCRIPTION

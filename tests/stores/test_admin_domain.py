@@ -13,13 +13,14 @@ from stores.domain.exceptions import (
     StoreSuspendedError,
 )
 from stores.domain.store import Store, StoreStatus
+from tests.fakes import DEFAULT_COORDINATES as COORDS
 
 NOW = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
 OWNER = uuid.uuid4()
 
 
 def opened():
-    return Store.open(OWNER, "상호", "주소", NOW)
+    return Store.open(OWNER, "상호", "주소", NOW, COORDS)
 
 
 def test_status_derivation():

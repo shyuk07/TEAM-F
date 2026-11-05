@@ -11,6 +11,7 @@ from stores.domain.exceptions import StoreAlreadyExistsError
 from stores.domain.store import Store
 from stores.infrastructure import models as stores_models  # noqa: F401
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
+from tests.fakes import DEFAULT_COORDINATES as COORDS
 from tests.helpers import approve_owner, bearer, login, signup, token_for
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
@@ -27,9 +28,15 @@ async def test_open_store_ok(client):
     )
     assert r.status_code == 201, r.text
     body = r.json()
+    assert set(body) == {
+        "id", "owner_id", "name", "pickup_address", "latitude", "longitude",
+        "created_at", "approval_at", "closed_at",
+    }
     assert body["name"] == "홍길동"
     assert body["pickup_address"] == "서울특별시 강남구 테헤란로 123"
-    assert body["latitude"] is None and body["longitude"] is None
+    assert isinstance(body["latitude"], float) and isinstance(body["longitude"], float)
+    assert (body["latitude"], body["longitude"]) == (37.4979, 127.0276)  # FakeGeocoder 기본값
+    assert client.geocoder.calls == ["서울특별시 강남구 테헤란로 123"]
     assert body["closed_at"] is None
     uuid.UUID(body["id"]), uuid.UUID(body["owner_id"])
     assert datetime.fromisoformat(body["created_at"]).tzinfo is not None
@@ -59,6 +66,7 @@ async def test_open_store_second_is_400(client):
         "error_code": "STORE_ALREADY_EXISTS",
         "message": "이미 개설된 상점이 있습니다.",
     }
+    assert client.geocoder.calls == ["주소1"]  # 두 번째 호출은 지오코더에 닿지 않는다
 
 
 async def test_open_store_blank_address(client):
@@ -103,13 +111,14 @@ async def test_repository_roundtrip(client):
     async with client.session_factory() as s:
         repo = SqlAlchemyStoreRepository(s)
         now = datetime.now(timezone.utc)
-        saved = await repo.save(Store.open(owner, "상호", "주소", now))
+        saved = await repo.save(Store.open(owner, "상호", "주소", now, COORDS))
         await s.commit()
         assert saved.id is not None and saved.created_at.tzinfo is not None
     async with client.session_factory() as s:
         repo = SqlAlchemyStoreRepository(s)
         found = await repo.find_by_id(saved.id)
-        assert found.name == "상호" and found.latitude is None
+        assert found.name == "상호"
+        assert (found.latitude, found.longitude) == (COORDS.latitude, COORDS.longitude)
         assert found.approval_at == now and found.approval_at.tzinfo is not None
         assert (await repo.find_by_owner_id(owner)).id == saved.id
         assert await repo.find_by_id(uuid.uuid4()) is None

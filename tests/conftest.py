@@ -13,8 +13,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from auth.infrastructure import models as _auth_models  # noqa: E402,F401
+from container import create_geocoder  # noqa: E402
 from database import Base, get_db  # noqa: E402
 from main import app  # noqa: E402
+from tests.fakes import FakeGeocoder  # noqa: E402
 
 
 @pytest.fixture
@@ -64,9 +66,13 @@ async def client(session_factory):
         async with session_factory() as session:
             yield session
 
+    geocoder = FakeGeocoder()  # 네트워크 금지: 실제 NaverGeocoder를 쓰지 않는다 (stores.md 14.8)
     app.dependency_overrides[get_db] = override
+    app.dependency_overrides[create_geocoder] = lambda: geocoder
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         c.session_factory = session_factory
+        c.geocoder = geocoder
         yield c
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(create_geocoder, None)

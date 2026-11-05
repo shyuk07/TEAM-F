@@ -22,7 +22,11 @@ def err(error_code, message):
 async def seed_offer(c, stock=10, email="owner@test.com"):
     now = datetime.now(timezone.utc)
     owner = await token_for(c, email, "OWNER")
-    r = await c.post("/v1/stores", json={"pickup_address": "서울 강남구"}, headers=bearer(owner))
+    r = await c.post(
+        "/v1/stores",
+        json={"pickup_address": f"서울 강남구 {email}"},  # STORE_DUPLICATED 방지
+        headers=bearer(owner),
+    )
     assert r.status_code == 201, r.text
     store_id = r.json()["id"]
     r = await c.post(
