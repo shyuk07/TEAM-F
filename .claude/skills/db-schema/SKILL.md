@@ -142,6 +142,7 @@ erDiagram
         uuid id PK
         uuid reservation_id FK
         int amount
+        int point_used
         varchar status
         varchar provider_payment_id
         timestamptz created_at
