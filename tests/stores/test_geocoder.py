@@ -166,6 +166,22 @@ async def test_malformed_responses_are_unavailable_not_validation_error(response
     assert not isinstance(e.value, ValueError)  # 400 VALIDATION_ERROR로 새면 안 된다
 
 
+@pytest.mark.parametrize("bad_url", ["http://[bad", "http://exa mple.test:99999999/x"])
+async def test_invalid_url_is_unavailable_without_leaking_secret(bad_url):
+    settings = NaverGeocodingSettings(client_id="the-key-id", client_secret=SECRET, url=bad_url)
+    g = NaverGeocoder(settings)
+    with pytest.raises(GeocodingUnavailableError) as e:
+        await g.geocode("a")
+    assert SECRET not in str(e.value) and bad_url not in str(e.value)
+
+
+@pytest.mark.parametrize("error", [httpx.InvalidURL("bad"), httpx.StreamConsumed()])
+async def test_non_http_error_httpx_exceptions_are_unavailable(error):
+    g, _ = geocoder_for(lambda request: error)
+    with pytest.raises(GeocodingUnavailableError):
+        await g.geocode("a")
+
+
 async def test_no_settings_makes_no_http_call():
     g, rec = geocoder_for(json_response(OK_BODY), settings=None)
     with pytest.raises(GeocodingUnavailableError):
