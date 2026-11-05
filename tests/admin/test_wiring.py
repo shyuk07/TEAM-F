@@ -100,8 +100,7 @@ def test_admin_routes_registered_without_colliding_with_auth_admin_routes():
         ("PATCH", "/v1/admin/offers/{offer_id}/suspend"),
         ("GET", "/v1/admin/users/{user_id}/points"),
         ("POST", "/v1/admin/users/{user_id}/points"),
-        # 기존 auth 관리자 EP (D42)
-        ("GET", "/v1/admin/users/{user_id}"),
-        ("POST", "/v1/admin/token-blacklist/purge"),
+        # auth 관리자 EP(GET /v1/admin/users/{user_id}, POST /v1/admin/token-blacklist/purge)는
+        # main 7594d43에서 auth에서 제거됨. admin 모듈로 옮기는 작업은 후속 PR.
     ]:
         assert (m, p) in paths, (m, p)
