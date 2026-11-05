@@ -18,6 +18,7 @@ from payments.domain.exceptions import (
 )
 from payments.domain.payment import PaymentStatus
 from payments.domain.refund import RefundStatus
+from payments.infrastructure.mock_gateway import MockPaymentGateway
 from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
 from tests.payments.fakes import (
     FailingGateway,
@@ -25,6 +26,7 @@ from tests.payments.fakes import (
     FakePaymentRepository,
     FakeRefundRepository,
     FakeReservationPort,
+    FixedClock,
     FakeSession,
 )
 
@@ -46,13 +48,16 @@ class Env:
         self.refunds = FakeRefundRepository()
         self.reservations = FakeReservationPort()
         self.gateway = gateway or FakeGateway()
+        self.clock = FixedClock()
+        extra = {} if policy is None else {"policy": policy}
         self.service = PaymentApplicationService(
             self.db,
             reservations=self.reservations,
             payments=self.payments,
             refunds=self.refunds,
             gateway=self.gateway,
-            policy=policy,
+            clock=self.clock,
+            **extra,
         )
 
 
@@ -78,10 +83,15 @@ async def test_pay_success(env):
 
 
 async def test_pay_with_default_mock_gateway_and_zero_penalty_policy():
-    # 게이트웨이·정책을 주입하지 않으면 모의 게이트웨이(항상 성공)와 0원 정책이 쓰인다.
+    # 모의 게이트웨이(항상 성공)를 주입하고 정책을 생략하면 기본 0원 정책이 쓰인다.
     db, payments, reservations = FakeSession(), FakePaymentRepository(), FakeReservationPort()
     service = PaymentApplicationService(
-        db, reservations=reservations, payments=payments, refunds=FakeRefundRepository()
+        db,
+        reservations=reservations,
+        payments=payments,
+        refunds=FakeRefundRepository(),
+        gateway=MockPaymentGateway(),
+        clock=FixedClock(),
     )
     rid = reservations.add(USER)
     payment = await service.pay(USER, rid)
@@ -365,3 +375,16 @@ async def test_get_refund_owner_only(env):
         await env.service.get_refund(OTHER, refund.id)
     with pytest.raises(RefundNotFoundError):
         await env.service.get_refund(USER, uuid.uuid4())
+
+
+async def test_pay_and_refund_use_injected_clock(env):
+    rid = env.reservations.add(USER)
+    payment = await env.service.pay(USER, rid)
+    assert payment.paid_at == env.clock.current
+    refund = await env.service.refund(USER, payment.id, "단순 변심")
+    assert refund.completed_at == env.clock.current
+
+
+def test_service_constructor_requires_all_args():
+    with pytest.raises(TypeError):
+        PaymentApplicationService(FakeSession(), reservations=FakeReservationPort())  # type: ignore[call-arg]

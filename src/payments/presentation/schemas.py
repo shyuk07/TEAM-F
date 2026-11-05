@@ -29,7 +29,18 @@ class RefundCreate(BaseModel):
     reason: str = Field(min_length=1, max_length=200)
 
 
-# 환불 응답
+# 환불 요청 응답 (completed_at·reason 없음, D-13)
+class RefundCreatedResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    payment_id: UUID
+    refund_amount: int = Field(ge=0)
+    penalty_amount: int = Field(ge=0)
+    status: RefundStatus
+
+
+# 환불 조회 응답 (reason 없음)
 class RefundResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -37,6 +48,5 @@ class RefundResponse(BaseModel):
     payment_id: UUID
     refund_amount: int = Field(ge=0)
     penalty_amount: int = Field(ge=0)
-    reason: str
     status: RefundStatus
     completed_at: datetime | None = None

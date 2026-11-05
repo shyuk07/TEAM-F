@@ -55,6 +55,20 @@ from reservations.presentation.dependencies import (
     provide_reservation_lifecycle_service,
     provide_reservation_service,
 )
+from payments.application.ports import ReservationPort
+from payments.application.service import PaymentApplicationService
+from payments.domain.repository.payment_repository import PaymentRepository
+from payments.domain.repository.refund_repository import RefundRepository
+from payments.domain.service import Clock as PaymentsClock
+from payments.domain.service import PaymentGateway
+from payments.infrastructure.clock import SystemClock as PaymentsSystemClock
+from payments.infrastructure.mock_gateway import MockPaymentGateway
+from payments.infrastructure.repositories import (
+    SqlAlchemyPaymentRepository,
+    SqlAlchemyRefundRepository,
+)
+from payments.infrastructure.reservation_stub import InMemoryReservationPort
+from payments.presentation.dependencies import provide_payment_service
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
 from stores.domain.service import Clock as StoresClock
@@ -72,6 +86,9 @@ _reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
 _payment_refund: RefundPort = NoPaymentRefund()  # 임시 (D-15, C-4)
+_payments_gateway: PaymentGateway = MockPaymentGateway()
+_payments_clock: PaymentsClock = PaymentsSystemClock()
+_payments_reservations: ReservationPort = InMemoryReservationPort()  # 임시: reservations 구현 시 어댑터로 교체
 
 
 # ── auth ─────────────────────────────
@@ -223,6 +240,35 @@ def create_reservation_service(
     )
 
 
+# ── payments ─────────────────────────
+def create_payment_repository(session: AsyncSession = Depends(get_db)) -> PaymentRepository:
+    return SqlAlchemyPaymentRepository(session)
+
+
+def create_refund_repository(session: AsyncSession = Depends(get_db)) -> RefundRepository:
+    return SqlAlchemyRefundRepository(session)
+
+
+def create_payment_reservation_port() -> ReservationPort:
+    return _payments_reservations
+
+
+def create_payment_service(
+    session: AsyncSession = Depends(get_db),
+    reservations: ReservationPort = Depends(create_payment_reservation_port),
+    payments: PaymentRepository = Depends(create_payment_repository),
+    refunds: RefundRepository = Depends(create_refund_repository),
+) -> PaymentApplicationService:
+    return PaymentApplicationService(
+        session=session,
+        reservations=reservations,
+        payments=payments,
+        refunds=refunds,
+        gateway=_payments_gateway,
+        clock=_payments_clock,
+    )
+
+
 def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
@@ -235,5 +281,6 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_reservation_cancel: create_reservation_cancel,
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
+            provide_payment_service: create_payment_service,
         }
     )
