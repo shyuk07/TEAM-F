@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from auth.presentation.dependencies import CurrentUser, OwnerUser
 from reservations.application.service import ReservationApplicationService
 from reservations.domain import rules
-from reservations.domain.exceptions import DataInconsistentError, IntegrationNotReadyError
+from reservations.domain.exceptions import DataInconsistentError
 from reservations.domain.pickup_reservation import ReservationStatus
 from reservations.presentation.dependencies import provide_reservation_service
 from reservations.presentation.schemas import (
@@ -20,15 +20,6 @@ from reservations.presentation.schemas import (
 )
 
 router = APIRouter(prefix="/v1", tags=["예약"])
-
-
-
-# TODO: 연동 전 임시 처리. 503 전역 핸들러가 생기면 제거한다 (R6/R7 예외: 공통 에러 형식은 유지).
-def _not_ready_response(error: IntegrationNotReadyError) -> JSONResponse:
-    return JSONResponse(
-        status_code=503,
-        content={"success": False, "error_code": error.error_code, "message": str(error)},
-    )
 
 
 # 데이터 불일치는 500으로 변환한다(RD-38). 로그·롤백은 서비스가 이미 했으므로 여기서는 응답만 만든다.
@@ -54,10 +45,7 @@ SizeParam = Annotated[
     summary="예약 생성",
 )
 async def create_reservation(body: ReservationCreateRequest, user: CurrentUser, service: Service):
-    try:
-        return await service.create_reservation(user.id, body.offer_id, body.quantity)
-    except IntegrationNotReadyError as error:  # TODO: 임시 503 변환
-        return _not_ready_response(error)
+    return await service.create_reservation(user.id, body.offer_id, body.quantity)
 
 
 @router.get(
@@ -88,8 +76,6 @@ async def cancel_reservation(reservation_id: uuid.UUID, user: CurrentUser, servi
         return await service.cancel_reservation(user.id, reservation_id)
     except DataInconsistentError as error:
         return _data_inconsistent_response(error)
-    except IntegrationNotReadyError as error:  # TODO: 임시 503 변환
-        return _not_ready_response(error)
 
 
 @router.post(

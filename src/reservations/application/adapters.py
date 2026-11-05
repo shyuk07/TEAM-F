@@ -11,10 +11,10 @@ import uuid
 
 from payments.application.service import PaymentApplicationService
 from payments.domain.exceptions import (
+    InconsistencyKind,
     PaymentConflictError,
     PaymentStateInconsistentError,
 )
-from payments.domain.exceptions import StockNotConnectedError as PaymentsStockNotConnectedError
 from payments.domain.reservation_snapshot import ReservationSnapshot
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.views import RefundTarget
@@ -22,7 +22,6 @@ from reservations.domain.exceptions import (
     DataInconsistentError,
     InconsistencyDetail,
     RefundConflictError,
-    StockNotConnectedError,
 )
 
 
@@ -55,8 +54,13 @@ class PaymentReservationAdapter:
     ) -> None:
         try:
             await self.lifecycle.cancel_for_refund(reservation_id, reason, commit=commit)
-        except StockNotConnectedError as error:  # RD-34: 결제 쪽 라우터가 503으로 바꿀 수 있게 번역
-            raise PaymentsStockNotConnectedError(str(error)) from error
+        except DataInconsistentError as error:  # RD-34: 재고 복구 상한 초과 -> 결제 쪽 라우터가 500으로 바꾸는 예외
+            detail = error.details[0] if error.details else None
+            raise PaymentStateInconsistentError(
+                InconsistencyKind.STOCK_RESTORE_OVER_LIMIT,
+                (detail.reservation_id if detail else None) or reservation_id,
+                detail.payment_id if detail else None,
+            ) from error
 
 
 class PaymentRefundAdapter:

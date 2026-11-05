@@ -296,7 +296,7 @@ async def test_deactivate_offer_cancel_true_and_default(client):
     r = await client.post(
         deact_url(o["id"]), json={"reason": "사고", "cancel_reservations": True}, headers=h
     )
-    assert r.status_code == 200 and r.json()["cancelled_reservation_count"] == 0  # 임시 포트
+    assert r.status_code == 200 and r.json()["cancelled_reservation_count"] == 0  # 취소할 예약이 없으면 0건
     assert r.json()["offer"]["status"] == "CLOSED"
     # 생략하면 기본 false
     p2 = await make_product(client, token, p["store_id"], name="b")
@@ -418,6 +418,7 @@ async def test_deactivate_offer_picked_up_reservation_400_keeps_offer(client):
     token, _, p, o = await _setup_offer(client)
     from main import app
 
+    previous = app.dependency_overrides.get(create_reservation_cancel)  # wire_dependencies가 넣은 실제 어댑터 매핑
     app.dependency_overrides[create_reservation_cancel] = lambda: FakeCancel()
     try:
         r = await client.post(
@@ -426,7 +427,7 @@ async def test_deactivate_offer_picked_up_reservation_400_keeps_offer(client):
             headers=bearer(token),
         )
     finally:
-        app.dependency_overrides.pop(create_reservation_cancel, None)
+        app.dependency_overrides[create_reservation_cancel] = previous  # 다른 테스트를 위해 되돌린다
     assert r.status_code == 400
     assert r.json()["error_code"] == "PICKED_UP_RESERVATION_EXISTS"
     assert r.json()["success"] is False

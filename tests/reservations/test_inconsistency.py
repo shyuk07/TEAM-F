@@ -15,11 +15,9 @@ from reservations.domain.exceptions import (
     PickedUpReservationExistsError,
     ReservationAlreadyCancelledError,
     ReservationConflictError,
-    StockRestoreNotConnectedError,
 )
 from reservations.domain.pickup_reservation import ReservationStatus as S
 from tests.reservations.fakes import build, set_status
-from tests.reservations.test_stock_guard import NoRestoreStock
 
 pytestmark = pytest.mark.anyio
 
@@ -100,22 +98,6 @@ async def test_cancel_pending_without_paid_payment_is_200_and_restores_stock(cap
     assert refunds.calls == [] and refunds.checks == [r.id]  # 환불 호출 0, 확인 1
     assert len(stock.released) == 1 and session.commits == 1 and session.rollbacks == 0
     assert error_records(caplog) == []
-
-
-async def test_stock_not_connected_keeps_503_for_paid_only():
-    # 재고 미연동: 미결제 취소는 통과(기존), 결제된 예약은 503 유지
-    env = build()
-    service, lifecycle, session, repo, stock, refunds, log, owner = env
-    lifecycle.stock = NoRestoreStock(log, owner)
-    lifecycle.stock.offer_id = stock.offer_id
-    pending, uid = await created(env)
-    out = await service.cancel_reservation(uid, pending.id)
-    assert out.status == S.CANCELLED
-    paid, uid2 = await created(env, status=S.RESERVED)
-    session.commits = 0
-    with pytest.raises(StockRestoreNotConnectedError):
-        await service.cancel_reservation(uid2, paid.id)
-    assert session.commits == 0
 
 
 # ══ 고객 취소 ①②③ RESERVED + 불일치 ══

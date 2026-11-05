@@ -1,8 +1,9 @@
 """예약 API + 실제 PostgreSQL 테스트 (작성만, 실행은 DB 안전 확인 뒤 사용자 승인 하에서만).
 
 점주·매장·상품·할인은 공개 API로 만들고, 인증은 실제 JWT를 쓴다(tests/helpers).
-임시 재고 포트는 재고 연동 전이라 예약 생성을 503 STOCK_NOT_CONNECTED로 거부한다.
-그래서 예약이 필요한 테스트는 저장소로 직접 만든다(seed). 재고 동시성은 여기서 검증하지 않는다.
+예약 생성은 실제 재고 어댑터(catalog 할인 잠금 -> 차감 -> stock_log)로 동작한다.
+다른 테스트가 상태별 예약을 쉽게 만들도록 seed()는 저장소로 예약을 직접 만들되, 생성 API와 같게 재고 차감과 stock_log(-수량)도 반영한다.
+재고 동시성·복구·불일치는 tests/reservations/test_stock_db.py에서 검증한다.
 """
 
 import asyncio
@@ -64,7 +65,10 @@ async def reserve(c, token, offer_id, quantity=2):
 
 
 async def seed(c, token, offer_id, quantity=2, paid=False):
-    """생성 API가 503이라 저장소로 예약을 직접 만든다. (예약 id str, 예약번호) 반환."""
+    """저장소로 예약을 직접 만든다(상태를 고르기 쉽게). 생성 API와 같게 재고 차감과 stock_log(-수량)도 반영한다.
+
+    (예약 id str, 예약번호) 반환. 차감이 없으면 취소 때 재고 복구가 상한을 넘어 500이 된다(데이터 이상 재현용이 아님).
+    """
     user_id = uuid.UUID(jwt.decode(token, options={"verify_signature": False})["sub"])
     now = datetime.now(timezone.utc)
     ref = OfferRef.from_info(
@@ -79,6 +83,15 @@ async def seed(c, token, offer_id, quantity=2, paid=False):
         reservation.mark_paid()
     async with c.session_factory() as session:
         saved = await SqlAlchemyReservationRepository(session).save(reservation)
+        await session.execute(
+            text("UPDATE discount_offers SET remaining_stock = remaining_stock - :q WHERE id = :o"),
+            {"q": quantity, "o": uuid.UUID(offer_id)},
+        )
+        session.add(
+            catalog_models.StockLogModel(
+                offer_id=uuid.UUID(offer_id), user_id=user_id, amount=-quantity, reason="예약 생성"
+            )
+        )
         await session.commit()
         return str(saved.id), reservation.pickup_code
 
@@ -88,19 +101,20 @@ async def count_rows(c):
         return (await s.execute(text("SELECT count(*) FROM pickup_reservations"))).scalar_one()
 
 
-# ── 생성: 재고 미연동 503 ──
-async def test_create_is_503_and_saves_nothing(client):
+# ── 생성: 실제 재고 차감 ──
+async def test_create_is_201_deducts_stock_and_writes_stock_log(client):
     _, offer_id, _ = await seed_offer(client)
     cust = await token_for(client, "c@test.com")
     r = await reserve(client, cust, offer_id, 2)
-    assert r.status_code == 503, r.text
-    assert r.json() == err(
-        "STOCK_NOT_CONNECTED", "재고 연동이 아직 준비되지 않아 예약을 생성할 수 없습니다."
-    )
-    assert await count_rows(client) == 0
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "PENDING_PAYMENT" and r.json()["quantity"] == 2
+    assert await count_rows(client) == 1
     async with client.session_factory() as s:
         offer = await s.get(catalog_models.DiscountOfferModel, uuid.UUID(offer_id))
-        assert offer.remaining_stock == 10
+        assert offer.remaining_stock == 8 and offer.initial_stock == 10
+        amounts = (await s.execute(text("SELECT amount FROM stock_log ORDER BY created_at"))).scalars().all()
+        assert amounts == [10, -2]  # 최초 입고 +10, 예약 -2
+        assert sum(amounts) == offer.remaining_stock
 
 
 async def test_create_errors(client):
@@ -191,11 +205,11 @@ async def test_concurrent_cancel_only_one_succeeds(client):
     assert sorted(r.status_code for r in results) == [200, 409]
 
 
-async def test_cancel_paid_is_503_and_row_unchanged(client):
+async def test_cancel_paid_refunds_restores_stock_and_logs(client):
     _, offer_id, _ = await seed_offer(client)
     me = await token_for(client, "me@test.com")
     rid, _ = await seed(client, me, offer_id, paid=True)
-    # 4단계부터 RESERVED인데 결제 기록이 없으면 불일치 500(RD-38 ①)이므로 PAID 결제도 함께 저장한다.
+    # RESERVED인데 결제 기록이 없으면 불일치 500(RD-38 ①)이므로 PAID 결제도 함께 저장한다.
     # (tests/payments/test_inconsistency_db.py가 이 파일을 import하므로 순환을 피해 여기서 지연 import)
     from payments.domain.payment import Payment
     from payments.infrastructure.repositories import SqlAlchemyPaymentRepository
@@ -210,16 +224,14 @@ async def test_cancel_paid_is_503_and_row_unchanged(client):
 
     r = await client.post(f"/v1/reservations/{rid}/cancel", headers=bearer(me))
 
-    assert r.status_code == 503
-    assert r.json() == err(
-        "STOCK_NOT_CONNECTED",
-        "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
-    )
+    assert r.status_code == 200, r.text
     async with client.session_factory() as s:
         row = (await s.execute(select(PickupReservationModel))).scalar_one()
-        assert row.status == "RESERVED" and row.cancelled_at is None
-        assert (await s.execute(text("SELECT status FROM payments"))).scalars().all() == ["PAID"]
-        assert (await s.execute(text("SELECT count(*) FROM refunds"))).scalar_one() == 0
+        assert row.status == "CANCELLED" and row.cancelled_at is not None
+        assert (await s.execute(text("SELECT status FROM payments"))).scalars().all() == ["REFUNDED"]
+        assert (await s.execute(text("SELECT count(*) FROM refunds"))).scalar_one() == 1
+        offer = await s.get(catalog_models.DiscountOfferModel, uuid.UUID(offer_id))
+        assert offer.remaining_stock == 10  # 차감 -2 후 복구 +2
 
 
 # ── 픽업 ──

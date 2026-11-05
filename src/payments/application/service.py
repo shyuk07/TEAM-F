@@ -142,7 +142,12 @@ class PaymentApplicationService:
             await self.refunds.save(refund)  # 동시 환불이면 UNIQUE 위반 -> 409
             await self.payments.save(payment)
             # RD-2: 환불 API도 예약 취소 + 재고 복구까지. 재고 복구가 안 되면 503으로 중단되고 위 저장은 롤백된다.
-            await self.reservations.cancel_for_refund(payment.reservation_id, reason, commit=False)
+            try:
+                await self.reservations.cancel_for_refund(payment.reservation_id, reason, commit=False)
+            except PaymentStateInconsistentError as error:
+                # 재고 복구 상한 초과 등 데이터 이상. 이 요청의 유일한 ERROR 로그 지점이다(어댑터는 번역만 한다).
+                self._log_inconsistency("refund", error)
+                raise
         except Exception:
             await self.session.rollback()
             raise
@@ -191,11 +196,15 @@ class PaymentApplicationService:
             payment.ensure_consistent_with_reservation(reservation_status)
         except PaymentStateInconsistentError as error:
             await self.session.rollback()
-            logger.error(
-                "DATA_INCONSISTENT flow=%s kind=%s reservation_id=%s payment_id=%s",
-                flow,
-                error.kind,
-                error.reservation_id,
-                error.payment_id,
-            )
+            self._log_inconsistency(flow, error)
             raise
+
+    @staticmethod
+    def _log_inconsistency(flow: str, error: PaymentStateInconsistentError) -> None:
+        logger.error(
+            "DATA_INCONSISTENT flow=%s kind=%s reservation_id=%s payment_id=%s",
+            flow,
+            error.kind,
+            error.reservation_id,
+            error.payment_id,
+        )

@@ -10,7 +10,6 @@ from payments.domain.exceptions import (
     InconsistencyKind,
     PaymentStateInconsistentError,
 )
-from payments.domain.exceptions import StockNotConnectedError as PaymentsStockNotConnected
 from payments.domain.reservation_snapshot import ReservationSnapshot
 from payments.domain.rules import (
     REFUNDABLE_RESERVATION_STATUSES,
@@ -28,7 +27,6 @@ from reservations.domain.exceptions import (
 )
 from reservations.domain.pickup_reservation import ReservationStatus as S
 from tests.reservations.fakes import NOW, build, set_status
-from tests.reservations.test_stock_guard import NoRestoreStock
 
 pytestmark = pytest.mark.anyio
 
@@ -95,16 +93,24 @@ async def test_cancel_for_refund_no_commit_and_restores_stock():
     assert stock.released and stock.released[0][3] == "환불"
 
 
-async def test_cancel_for_refund_translates_stock_error_to_payments_exception():
-    service, lifecycle, session, repo, stock, _, log, owner = build()
+async def test_cancel_for_refund_on_closed_offer_succeeds_without_commit():
+    service, lifecycle, session, _, stock, *_ = build()
     r = await created(service, stock, S.RESERVED)
-    lifecycle.stock = NoRestoreStock(log, owner)
-    lifecycle.stock.offer_id = stock.offer_id
+    stock.restore_result = False  # 닫힌 할인: 복구 없이 정상(D40)
     session.commits = 0
-    with pytest.raises(PaymentsStockNotConnected) as e:
+    await PaymentReservationAdapter(lifecycle).cancel_for_refund(r.id, "환불")
+    assert r.status == S.CANCELLED and session.commits == 0 and stock.released == []
+
+
+async def test_cancel_for_refund_translates_over_limit_to_payments_inconsistent():
+    service, lifecycle, session, _, stock, *_ = build()
+    r = await created(service, stock, S.RESERVED)
+    stock.over_limit = True
+    session.commits = 0
+    with pytest.raises(PaymentStateInconsistentError) as e:
         await PaymentReservationAdapter(lifecycle).cancel_for_refund(r.id, "환불")
-    assert e.value.error_code == "STOCK_NOT_CONNECTED"
-    assert "결제된 예약의 취소·환불" in str(e.value)
+    assert e.value.kind == InconsistencyKind.STOCK_RESTORE_OVER_LIMIT
+    assert e.value.reservation_id == r.id and e.value.error_code == "DATA_INCONSISTENT"
     assert session.commits == 0  # 어댑터는 commit하지 않는다
 
 

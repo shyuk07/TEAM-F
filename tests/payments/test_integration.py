@@ -5,7 +5,7 @@
 재고 포트는 세 가지다.
 - restores: 복구에 성공하는 가짜 재고(release -> True). 전체 성공 흐름을 본다.
 - release_fails: release가 예외를 내는 가짜 재고. 롤백을 본다.
-- interim: 실제 임시 포트 ReadOnlyOfferStockPort(release -> False). 결제된 예약의 취소·환불은 503이다.
+- real: 실제 재고 어댑터 CatalogStockAdapter + 메모리 catalog 레포(롤백도 흉내). 차감·복구·stock_log·500 롤백을 본다.
 """
 
 import copy
@@ -46,12 +46,6 @@ OWNER = uuid.uuid4()
 PRICE, QTY = 3000, 2
 TOTAL = PRICE * QTY
 H = timedelta(hours=1)
-STOCK_503 = {
-    "success": False,
-    "error_code": "STOCK_NOT_CONNECTED",
-    "message": "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
-}
-
 
 @pytest.fixture
 def anyio_backend():
@@ -176,8 +170,35 @@ class RefRepo(RefundRepository):
         return refund
 
 
+class TxOffers:
+    """catalog 할인 레포 fake. 잠금·저장 이벤트를 남기고, 롤백되면 저장이 사라진다."""
+
+    def __init__(self, tx: Tx, log: Log):
+        self.store, self.log = Store(tx), log
+
+    async def find_by_id(self, offer_id, for_update=False):
+        self.log.events.append("offer_lock" if for_update else "offer_read")
+        return self.store.get(offer_id)
+
+    async def save(self, offer):
+        self.log.events.append("offer_save")
+        self.store.put(offer.id, offer)
+        return offer
+
+
+class TxStockLogs:
+    def __init__(self, tx: Tx, log: Log):
+        self.store, self.log = Store(tx), log
+
+    async def add(self, entry):
+        entry.id = uuid.uuid4()
+        self.log.events.append("stock_log")
+        self.store.put(entry.id, entry)
+        return entry
+
+
 class FailingStock(FakeStock):
-    async def release(self, offer_id, quantity, *, user_id, reason):
+    async def release(self, offer_id, quantity, *, user_id, reason, now):
         raise RuntimeError("재고 복구 실패")
 
 
@@ -202,20 +223,25 @@ class Env:
         self.pay = PayRepo(self.tx, self.log)
         self.refund = RefRepo(self.tx, self.log)
         self.overrides: dict = {}
-        if mode == "interim":
+        if mode == "real":
             self.stock = None
             self.offer_id = uuid.uuid4()
-            offer = DiscountOffer(
-                product_id=uuid.uuid4(), sale_price=PRICE, initial_stock=5, sales_start=NOW - H,
-                sales_end=NOW + H, pickup_start=NOW + H, pickup_end=NOW + 3 * H, id=self.offer_id,
+            self.offers = TxOffers(self.tx, self.log)
+            self.stock_logs = TxStockLogs(self.tx, self.log)
+            offer = DiscountOffer(  # 예약(QTY)이 재고를 잡고 있는 상태: 남은 재고 5 - QTY
+                product_id=uuid.uuid4(), sale_price=PRICE, initial_stock=5, remaining_stock=5 - QTY,
+                sales_start=NOW - H, sales_end=NOW + H, pickup_start=NOW + H, pickup_end=NOW + 3 * H,
+                id=self.offer_id,
             )
+            self.offers.store.committed[self.offer_id] = offer
             product = SimpleNamespace(name="샌드위치", store_id=uuid.uuid4())
             store = SimpleNamespace(owner_id=OWNER, name="마감 베이커리", pickup_address="서울")
             self.overrides.update(
                 {
-                    container.create_discount_offer_repository: lambda: Offers(offer),
+                    container.create_discount_offer_repository: lambda: self.offers,
                     container.create_product_repository: lambda: Products(product),
                     container.create_store_port: lambda: Stores(store),
+                    container.create_stock_log_repository: lambda: self.stock_logs,
                 }
             )
         else:
@@ -238,6 +264,16 @@ class Env:
                 container.create_refund_repository: lambda: self.refund,
             }
         )
+
+    # ── real 모드: 확정된 할인·재고 로그 조회/조작 ──
+    def offer(self):
+        return self.offers.store.committed[self.offer_id]
+
+    def set_remaining(self, remaining: int):
+        self.offers.store.committed[self.offer_id].remaining_stock = remaining
+
+    def close_offer(self):
+        self.offers.store.committed[self.offer_id].is_active = False
 
     # ── 확정된(committed) 상태 조회 ──
     def reservation(self, rid):
@@ -535,13 +571,6 @@ async def test_cancel_pending_with_unpaid_or_missing_payment_is_still_200(
     assert error_records(caplog) == []
 
 
-async def test_cancel_pending_when_stock_not_connected_is_still_200(make_env, client):
-    env = make_env("interim")  # 재고 미연동 임시 포트: 미결제 취소는 막지 않는다
-    rid = await env.seed()
-    r = await cancel(client, rid)
-    assert r.status_code == 200 and env.reservation(rid).status == S.CANCELLED
-
-
 @pytest.mark.parametrize(
     "status,kind",
     [
@@ -633,47 +662,128 @@ async def test_paid_reservation_cancel_still_succeeds_with_fake_stock(make_env, 
     assert error_records(caplog) == []
 
 
-# ══ 임시 재고 포트(실제 container 경로) ══
-async def test_interim_cancel_paid_is_503_and_saves_nothing(make_env, client):
-    env = make_env("interim")
-    rid = await env.seed()
+# ══ 실제 재고 어댑터(CatalogStockAdapter, 메모리 catalog 레포)를 쓰는 container 경로 ══
+def real_stock_rows(env):
+    return [(log.amount, log.reason) for log in env.stock_logs.store.committed.values()]
+
+
+async def test_real_cancel_paid_refunds_and_restores_stock_with_log(make_env, client):
+    env = make_env("real")
+    rid = await env.seed()  # 예약이 재고 QTY를 잡고 있다(남은 재고 3)
     assert (await pay(client, rid)).status_code == 201
     env.tx.commits = 0
 
     r = await cancel(client, rid)
 
-    assert r.status_code == 503 and r.json() == STOCK_503
-    assert env.tx.commits == 0
-    assert env.reservation(rid).status == S.RESERVED
-    assert env.payment_for(rid).status == PaymentStatus.PAID
-    assert env.refunds_saved == []
+    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
+    assert env.tx.commits == 1  # commit 1회
+    assert env.reservation(rid).status == S.CANCELLED
+    assert env.payment_for(rid).status == PaymentStatus.REFUNDED and len(env.refunds_saved) == 1
+    assert env.offer().remaining_stock == 5  # +QTY
+    assert real_stock_rows(env) == [(QTY, "예약 취소 복구")]  # 사용자 입력 사유가 아니라 고정 문구
 
 
-async def test_interim_refund_api_is_503_with_common_format_and_saves_nothing(make_env, client):
-    env = make_env("interim")
+async def test_real_refund_api_cancels_reservation_and_restores_stock_once(make_env, client):
+    env = make_env("real")
     rid = await env.seed()
     payment_id = (await pay(client, rid)).json()["id"]
     env.tx.commits = 0
 
-    r = await refund(client, payment_id)
+    r = await refund(client, payment_id, reason="환불해주세요")
 
-    assert r.status_code == 503 and r.json() == STOCK_503
-    assert env.tx.commits == 0 and env.tx.rollbacks >= 1
-    assert env.reservation(rid).status == S.RESERVED
-    assert env.payment_for(rid).status == PaymentStatus.PAID
-    assert env.refunds_saved == []
+    assert r.status_code == 201
+    assert env.tx.commits == 1
+    assert env.reservation(rid).status == S.CANCELLED
+    assert env.offer().remaining_stock == 5
+    assert real_stock_rows(env) == [(QTY, "예약 취소 복구")]
+    # 같은 환불을 다시 요청해도(409) 재고는 다시 늘지 않는다
+    assert (await refund(client, payment_id)).status_code == 409
+    assert env.offer().remaining_stock == 5 and len(real_stock_rows(env)) == 1
 
 
-async def test_interim_cancel_unpaid_is_200(make_env, client):
-    env = make_env("interim")
+async def test_real_cancel_unpaid_restores_stock(make_env, client):
+    env = make_env("real")
     rid = await env.seed()
 
     r = await cancel(client, rid)
 
-    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
-    assert env.tx.commits == 1
-    assert env.reservation(rid).status == S.CANCELLED
+    assert r.status_code == 200 and env.tx.commits == 1
+    assert env.offer().remaining_stock == 5 and real_stock_rows(env) == [(QTY, "예약 취소 복구")]
     assert env.refunds_saved == []
+
+
+async def test_real_cancel_paid_on_closed_offer_succeeds_and_keeps_stock(make_env, client):
+    env = make_env("real")
+    rid = await env.seed()
+    assert (await pay(client, rid)).status_code == 201
+    env.close_offer()  # 판매 중단된 할인: 재고 복구 없음(D40)
+    env.tx.commits = 0
+
+    r = await cancel(client, rid)
+
+    assert r.status_code == 200 and env.tx.commits == 1
+    assert env.reservation(rid).status == S.CANCELLED and len(env.refunds_saved) == 1  # 환불은 한다
+    assert env.offer().remaining_stock == 3 and real_stock_rows(env) == []  # 재고·로그 불변
+
+
+async def test_real_refund_api_on_closed_offer_succeeds_and_keeps_stock(make_env, client):
+    env = make_env("real")
+    rid = await env.seed()
+    payment_id = (await pay(client, rid)).json()["id"]
+    env.close_offer()
+    r = await refund(client, payment_id)
+    assert r.status_code == 201
+    assert env.reservation(rid).status == S.CANCELLED
+    assert env.offer().remaining_stock == 3 and real_stock_rows(env) == []
+
+
+async def test_real_cancel_restore_over_limit_is_500_logs_once_and_rolls_back(make_env, client, caplog):
+    env = make_env("real")
+    rid = await env.seed()
+    assert (await pay(client, rid)).status_code == 201
+    env.set_remaining(5)  # 차감 기록 없는 데이터 이상: 복구하면 최초 수량(5)을 넘는다
+    env.tx.commits = 0
+
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+
+    assert r.status_code == 500
+    assert_body_has_no_ids(r, rid)
+    assert env.tx.commits == 0
+    assert env.reservation(rid).status == S.RESERVED  # 취소 롤백
+    assert env.payment_for(rid).status == PaymentStatus.PAID and env.refunds_saved == []  # 환불 롤백
+    assert env.offer().remaining_stock == 5 and real_stock_rows(env) == []  # 재고·로그 불변
+    assert_logged_once(caplog, rid, kind="STOCK_RESTORE_OVER_LIMIT")
+
+
+async def test_real_refund_api_restore_over_limit_is_500_logs_once_and_rolls_back(make_env, client, caplog):
+    env = make_env("real")
+    rid = await env.seed()
+    payment_id = (await pay(client, rid)).json()["id"]
+    env.set_remaining(5)
+    env.tx.commits = 0
+
+    with caplog.at_level(logging.DEBUG):
+        r = await refund(client, payment_id)
+
+    assert r.status_code == 500
+    assert_body_has_no_ids(r, rid, payment_id)
+    assert env.tx.commits == 0
+    assert env.reservation(rid).status == S.RESERVED
+    assert env.payment_for(rid).status == PaymentStatus.PAID and env.refunds_saved == []
+    assert env.offer().remaining_stock == 5 and real_stock_rows(env) == []
+    assert_logged_once(caplog, rid, kind="STOCK_RESTORE_OVER_LIMIT")
+
+
+async def test_real_pending_cancel_restore_over_limit_is_500_logs_once(make_env, client, caplog):
+    env = make_env("real")
+    rid = await env.seed()
+    env.set_remaining(5)
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+    assert r.status_code == 500 and r.json() == INCONSISTENT_500
+    assert env.reservation(rid).status == S.PENDING_PAYMENT and env.tx.commits == 0
+    assert_logged_once(caplog, rid, kind="STOCK_RESTORE_OVER_LIMIT")
 
 
 # ══ 잠금 순서 (RD-5: 상품 -> 할인 -> 예약 -> 결제 -> 환불) ══
@@ -717,3 +827,28 @@ async def test_lock_order_refund_api(make_env, client):
     assert events[0] == "pay_read"  # 결제는 잠금 없이 읽기만 먼저 한다
     assert {"offer_lock", "res_lock", "pay_lock", "refund_insert"} <= set(events)
     assert_lock_order(events)
+
+
+# 실제 재고 어댑터로도 잠금 순서(할인 -> 예약 -> 결제 -> 환불 -> 재고 복구 쓰기)가 지켜진다
+async def test_lock_order_customer_cancel_with_real_stock(make_env, client):
+    env = make_env("real")
+    rid = await env.seed()
+    await pay(client, rid)
+    env.log.events.clear()
+    await cancel(client, rid)
+    events = env.log.events
+    assert_lock_order(events)
+    assert events.index("refund_insert") < events.index("offer_save")  # 환불 뒤에 재고 복구 쓰기
+    assert events.count("commit") == 1 and events[-1] == "commit"
+
+
+async def test_lock_order_refund_api_with_real_stock(make_env, client):
+    env = make_env("real")
+    rid = await env.seed()
+    payment_id = (await pay(client, rid)).json()["id"]
+    env.log.events.clear()
+    await refund(client, payment_id)
+    events = env.log.events
+    assert_lock_order(events)
+    assert events.index("refund_insert") < events.index("offer_save")
+    assert events.count("commit") == 1 and events[-1] == "commit"

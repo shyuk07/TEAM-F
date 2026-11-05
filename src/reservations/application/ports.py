@@ -27,8 +27,9 @@ class StockPort(Protocol):
         self, offer_id: uuid.UUID, quantity: int, *, user_id: uuid.UUID, now: datetime
     ) -> OfferTermsInfo: ...
 
+    # 닫힌(중단) 할인은 복구하지 않고 False(D40). 복구 상한 초과(데이터 이상)는 DataInconsistentError.
     async def release(
-        self, offer_id: uuid.UUID, quantity: int, *, user_id: uuid.UUID, reason: str
+        self, offer_id: uuid.UUID, quantity: int, *, user_id: uuid.UUID, reason: str, now: datetime
     ) -> bool: ...
 
 

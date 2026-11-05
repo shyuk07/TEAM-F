@@ -90,7 +90,7 @@ class ReservationApplicationService:
                 await self.refunds.ensure_no_paid_payment(reservation_id)  # 읽기 전용, 쓰기 전에 확인(RD-39)
             if was_paid:
                 # 환불(불일치 검사 포함)을 취소·재고 복구보다 먼저 한다(reservations.md 13.6.4).
-                # 불일치(500)가 재고 미연동(503) 등 재고 쪽 오류에 가려지지 않고, 재고 복구 전에 중단된다.
+                # 불일치(500)가 재고 쪽 오류에 가려지지 않고, 재고 복구 전에 중단된다.
                 await self.refunds.refund_for_cancelled_reservation(
                     target, reason=rules.CUSTOMER_CANCEL_REASON, waive_penalty=False
                 )

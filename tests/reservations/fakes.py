@@ -94,6 +94,8 @@ class FakeStock:
         self.stock = stock
         self.offer_id = uuid.uuid4()
         self.released: list[tuple] = []
+        self.restore_result = True  # False면 닫힌 할인처럼 복구하지 않고 False(D40)
+        self.over_limit = False  # True면 복구 상한 초과(데이터 이상)
 
     def _terms(self, offer_id):
         if offer_id != self.offer_id:
@@ -112,8 +114,12 @@ class FakeStock:
         self.stock -= quantity
         return terms
 
-    async def release(self, offer_id, quantity, *, user_id, reason):
+    async def release(self, offer_id, quantity, *, user_id, reason, now):
         self.log.events.append("release")
+        if self.over_limit:
+            raise DataInconsistentError([InconsistencyDetail(None, "STOCK_RESTORE_OVER_LIMIT")])
+        if not self.restore_result:
+            return False
         self.stock += quantity
         self.released.append((offer_id, quantity, user_id, reason))
         return True

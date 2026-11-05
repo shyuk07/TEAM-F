@@ -31,8 +31,6 @@ from catalog.infrastructure.repositories import (
     SqlAlchemyProductRepository,
     SqlAlchemyStockLogRepository,
 )
-from catalog.infrastructure.reservation_cancel import NoReservationCancel
-from catalog.infrastructure.reservation_lookup import NoReservationLookup
 from catalog.presentation.dependencies import (
     provide_catalog_service,
     provide_reservation_cancel,
@@ -41,7 +39,8 @@ from catalog.presentation.dependencies import (
 )
 from database import get_db
 from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
-from reservations.application.interim_stock_port import ReadOnlyOfferStockPort
+from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
+from reservations.application.catalog_stock_adapter import CatalogStockAdapter
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.ports import RefundPort, StockPort
 from reservations.application.service import ReservationApplicationService
@@ -49,7 +48,6 @@ from reservations.domain.repository import ReservationRepository
 from reservations.domain.service import Clock as ReservationsClock
 from reservations.domain.service import PickupCodeGenerator
 from reservations.infrastructure.clock import SystemClock as ReservationsSystemClock
-from reservations.infrastructure.payment_refund_stub import NoPaymentRefund
 from reservations.infrastructure.pickup_code import SecretsPickupCodeGenerator
 from reservations.infrastructure.repositories import SqlAlchemyReservationRepository
 from reservations.presentation.dependencies import (
@@ -81,11 +79,8 @@ _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
-_reservation_lookup: ReservationLookupPort = NoReservationLookup()  # 임시 (CI-10)
-_reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI-11)
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
-_payment_refund: RefundPort = NoPaymentRefund()  # 기본값(fail-closed 503). wire_dependencies가 결제 어댑터로 override한다
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
 
@@ -165,11 +160,14 @@ def create_store_port(
 
 
 def create_reservation_lookup() -> ReservationLookupPort:
-    return _reservation_lookup
+    """자리 표시 함수. 예약 구역이 아래에 있어 여기서 직접 만들 수 없다.
+    wire_dependencies가 create_catalog_reservation_lookup(아래 예약 구역)으로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_catalog_reservation_lookup으로 교체됩니다.")
 
 
 def create_reservation_cancel() -> ReservationCancelPort:
-    return _reservation_cancel
+    """자리 표시 함수. wire_dependencies가 create_catalog_reservation_canceller(아래 예약 구역)로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_catalog_reservation_canceller로 교체됩니다.")
 
 
 def create_catalog_service(
@@ -202,13 +200,16 @@ def create_stock_port(
     offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
     products: ProductRepository = Depends(create_product_repository),
     stores: StorePort = Depends(create_store_port),
+    stock_logs: StockLogRepository = Depends(create_stock_log_repository),
 ) -> StockPort:
-    # 임시 읽기 전용 구현 (D-25). catalog의 재고 서비스(C-1)가 생기면 교체한다.
-    return ReadOnlyOfferStockPort(offers=offers, products=products, stores=stores)
+    # catalog 도메인·레포지토리만 쓰는 실제 재고 어댑터 (catalog 서비스는 받지 않는다: R12)
+    return CatalogStockAdapter(offers=offers, products=products, stores=stores, stock_logs=stock_logs)
 
 
 def create_refund_port() -> RefundPort:
-    return _payment_refund
+    """자리 표시 함수. 결제 구역이 아래에 있어 여기서 직접 만들 수 없다.
+    wire_dependencies가 create_reservation_refund_port(아래 결제 구역)로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_reservation_refund_port로 교체됩니다.")
 
 
 def create_reservation_lifecycle_service(
@@ -237,6 +238,20 @@ def create_reservation_service(
         clock=_reservations_clock,
         code_generator=_pickup_code_generator,
     )
+
+
+def create_catalog_reservation_lookup(
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+) -> ReservationLookupPort:
+    """catalog용 예약 조회 포트. 위쪽 catalog 구역의 create_reservation_lookup을 옮기지 않고 override한다."""
+    return OfferReservationLookup(reservations)
+
+
+def create_catalog_reservation_canceller(
+    service: ReservationApplicationService = Depends(create_reservation_service),
+) -> ReservationCancelPort:
+    """catalog용 일괄 취소 포트. 같은 요청 세션의 예약 서비스를 쓴다(R13). 예약 쪽은 catalog 서비스를 받지 않는다(R12)."""
+    return OfferReservationCanceller(service)
 
 
 # ── payments ─────────────────────────
@@ -285,12 +300,15 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_stores_service: create_stores_service,
             provide_store_port: create_store_port,
             provide_catalog_service: create_catalog_service,
-            provide_reservation_lookup: create_reservation_lookup,
-            provide_reservation_cancel: create_reservation_cancel,
+            provide_reservation_lookup: create_catalog_reservation_lookup,
+            provide_reservation_cancel: create_catalog_reservation_canceller,
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
             provide_payment_service: create_payment_service,
             # 중첩 Depends도 override가 적용된다: create_reservation_service가 받는 RefundPort를 결제 어댑터로 교체
             create_refund_port: create_reservation_refund_port,
+            # catalog 서비스가 받는 포트도 같은 방식으로 교체 (정의 순서 때문에 위쪽 함수를 옮기지 않는다)
+            create_reservation_lookup: create_catalog_reservation_lookup,
+            create_reservation_cancel: create_catalog_reservation_canceller,
         }
     )

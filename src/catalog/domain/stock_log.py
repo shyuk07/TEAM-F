@@ -4,6 +4,8 @@ from datetime import datetime
 MAX_REASON_LENGTH = 200
 INITIAL_STOCK_REASON = "최초 입고"
 OFFER_EDIT_REASON = "할인 수정"
+RESERVATION_DEDUCT_REASON = "예약 생성"
+RESERVATION_CANCEL_RESTORE_REASON = "예약 취소 복구"
 
 
 class StockLog:
@@ -44,3 +46,15 @@ class StockLog:
     @classmethod
     def offer_edit(cls, offer_id: uuid.UUID, user_id: uuid.UUID | None, amount: int) -> "StockLog":
         return cls(offer_id=offer_id, user_id=user_id, amount=amount, reason=OFFER_EDIT_REASON)
+
+    @classmethod
+    def reservation_deduction(cls, offer_id: uuid.UUID, user_id: uuid.UUID | None, quantity: int) -> "StockLog":
+        """예약으로 재고를 차감한 기록(-quantity). 사유는 고정 문구다."""
+        return cls(offer_id=offer_id, user_id=user_id, amount=-quantity, reason=RESERVATION_DEDUCT_REASON)
+
+    @classmethod
+    def reservation_cancel_restore(
+        cls, offer_id: uuid.UUID, user_id: uuid.UUID | None, quantity: int
+    ) -> "StockLog":
+        """예약 취소·환불로 재고를 되돌린 기록(+quantity). 사유는 고정 문구다."""
+        return cls(offer_id=offer_id, user_id=user_id, amount=quantity, reason=RESERVATION_CANCEL_RESTORE_REASON)
