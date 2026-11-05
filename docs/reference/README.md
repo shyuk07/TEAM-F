@@ -9,7 +9,7 @@
 ## 문서 구성
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
-| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 5 |
+| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 7 |
 | [stores.md](stores.md) | `src/stores` 상점 | 2 |
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
@@ -61,6 +61,8 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 36 | admin | [할인 상품 정지](admin.md#7-할인-상품-정지) | PATCH | `/v1/admin/offers/{offer_id}/suspend` | 관리자 | 200 |
 | 37 | admin | [회원 포인트 잔액·이력 조회](admin.md#8-회원-포인트-잔액이력-조회) | GET | `/v1/admin/users/{user_id}/points` | 관리자 | 200 |
 | 38 | admin | [회원 포인트 지급](admin.md#9-회원-포인트-지급) | POST | `/v1/admin/users/{user_id}/points` | 관리자 | 201 |
+| 39 | auth | [관리자 회원 조회](auth.md#6-관리자-회원-조회) | GET | `/v1/admin/users/{user_id}` | 관리자 | 200 |
+| 40 | auth | [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리) | POST | `/v1/admin/token-blacklist/purge` | 관리자 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
