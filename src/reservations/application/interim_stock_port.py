@@ -12,6 +12,7 @@ from reservations.domain.exceptions import (
     OfferNotFoundError,
     OfferNotReservableError,
     OutOfStockError,
+    StockNotConnectedError,
 )
 
 
@@ -30,9 +31,8 @@ class OfferTerms:
 class ReadOnlyOfferStockPort:
     """읽기 전용 임시 구현.
 
-    한계: 재고를 차감하지 않고, 행을 잠그지 않으며, stock_log를 쓰지 않는다.
-    release는 아무것도 하지 않고 False를 돌려준다. 실서버에서 예약이 재고를 줄이지 않는다
-    (오버셀 가능, 취소해도 복구 없음).
+    재고를 차감할 수 없으므로 reserve는 검사(404/409) 통과 후 StockNotConnectedError(503)를 낸다.
+    행을 잠그지 않고 stock_log도 쓰지 않는다. release는 아무것도 하지 않고 False를 돌려준다.
     """
 
     def __init__(self, offers: DiscountOfferRepository, products: ProductRepository, stores: StorePort):
@@ -74,7 +74,8 @@ class ReadOnlyOfferStockPort:
             raise OfferNotReservableError()
         if quantity > offer.remaining_stock:
             raise OutOfStockError()
-        return terms
+        # 재고 차감 연동 전: 검사를 모두 통과해도 예약을 만들지 않는다 (오버셀 방지). TODO: catalog 재고 서비스 연결 시 제거
+        raise StockNotConnectedError()
 
     async def release(
         self, offer_id: uuid.UUID, quantity: int, *, user_id: uuid.UUID, reason: str

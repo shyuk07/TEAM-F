@@ -94,3 +94,37 @@ class OutOfStockError(ReservationConflictError):
 
     error_code = "OUT_OF_STOCK"
     default_message = "재고가 부족합니다."
+
+
+class IntegrationNotReadyError(Exception):
+    """503. 다른 모듈 연동이 아직 준비되지 않았다.
+
+    ValueError/PermissionError/LookupError/RuntimeError/ReservationConflictError를 상속하지 않는다
+    (전역 핸들러에 400/403/404/409로 잡히거나 500으로 새는 것을 막는다).
+    예약 라우터가 공통 에러 형식의 503으로 변환한다 (TODO 참고).
+    """
+
+    error_code = "INTEGRATION_NOT_READY"
+
+    def __init__(self, message: str = "연동이 아직 준비되지 않았습니다."):
+        super().__init__(message)
+
+
+class StockNotConnectedError(IntegrationNotReadyError):
+    """503 STOCK_NOT_CONNECTED (재고 차감 연동 전)"""
+
+    error_code = "STOCK_NOT_CONNECTED"
+
+    def __init__(self, message: str = "재고 연동이 아직 준비되지 않아 예약을 생성할 수 없습니다."):
+        super().__init__(message)
+
+
+class RefundNotConnectedError(IntegrationNotReadyError):
+    """503 REFUND_NOT_CONNECTED (환불 연동 전)"""
+
+    error_code = "REFUND_NOT_CONNECTED"
+
+    def __init__(
+        self, message: str = "환불 연동이 아직 준비되지 않아 결제된 예약은 취소할 수 없습니다."
+    ):
+        super().__init__(message)

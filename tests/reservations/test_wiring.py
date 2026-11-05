@@ -62,10 +62,20 @@ def test_placeholders_raise_when_not_wired():
 
 
 def test_interim_implementations_remind_replacement():
-    # 임시 구현. catalog 재고 서비스(C-1)·payments 환불 어댑터(C-4)가 연결되면 이 단언이 실패해 교체를 상기시킨다.
+    # 임시 구현(호출하면 503). catalog 재고 서비스(C-1)·payments 환불 어댑터(C-4)가 연결되면 이 단언이 실패해 교체를 상기시킨다.
     assert isinstance(create_refund_port(), NoPaymentRefund)
     stock = create_stock_port(offers=SimpleNamespace(), products=SimpleNamespace(), stores=SimpleNamespace())
     assert isinstance(stock, ReadOnlyOfferStockPort)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_no_payment_refund_raises_not_connected(anyio_backend):
+    from reservations.domain.exceptions import RefundNotConnectedError
+
+    with pytest.raises(RefundNotConnectedError) as e:
+        await NoPaymentRefund().refund_for_cancelled_reservation(object(), reason="x")
+    assert e.value.error_code == "REFUND_NOT_CONNECTED"
 
 
 def test_service_constructors_require_all_args():

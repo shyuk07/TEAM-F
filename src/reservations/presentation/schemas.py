@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 class ReservationCreateRequest(BaseModel):
     offer_id: uuid.UUID = Field(..., description="예약할 할인 상품 ID")
-    quantity: int = Field(..., ge=1, description="예약 수량")
+    quantity: StrictInt = Field(..., ge=1, description="예약 수량")
 
 
 class ReservationCreateResponse(BaseModel):

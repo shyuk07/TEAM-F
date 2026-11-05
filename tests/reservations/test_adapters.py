@@ -7,7 +7,12 @@ import pytest
 from catalog.domain.discount_offer import DiscountOffer
 from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
 from reservations.application.interim_stock_port import ReadOnlyOfferStockPort
-from reservations.domain.exceptions import OfferNotFoundError, OfferNotReservableError, OutOfStockError
+from reservations.domain.exceptions import (
+    OfferNotFoundError,
+    OfferNotReservableError,
+    OutOfStockError,
+    StockNotConnectedError,
+)
 from reservations.domain.pickup_reservation import ReservationStatus as S
 from tests.reservations.fakes import build, set_status
 
@@ -65,15 +70,22 @@ def port(offer=True, product=True, store=True, **offer_kw):
     )
 
 
-async def test_interim_get_terms_and_reserve_do_not_change_stock():
+async def test_interim_get_terms_and_release_do_not_change_stock():
     stock, offer, owner = port()
     terms = await stock.get_terms(offer.id, for_update=True)
     assert (terms.sale_price, terms.owner_id, terms.store_name, terms.product_name) == (
         3000, owner, "마감 베이커리", "샌드위치",
     )
-    t2 = await stock.reserve(offer.id, 2, user_id=uuid.uuid4(), now=NOW)
-    assert t2.offer_id == offer.id and offer.remaining_stock == 3  # 차감 없음 (임시)
     assert await stock.release(offer.id, 2, user_id=uuid.uuid4(), reason="x") is False
+    assert offer.remaining_stock == 3  # 차감도 복구도 없음 (임시)
+
+
+async def test_interim_reserve_passes_checks_then_raises_not_connected():
+    stock, offer, _ = port()
+    with pytest.raises(StockNotConnectedError) as e:
+        await stock.reserve(offer.id, 2, user_id=uuid.uuid4(), now=NOW)
+    assert e.value.error_code == "STOCK_NOT_CONNECTED"
+    assert offer.remaining_stock == 3  # 차감 없음
 
 
 async def test_interim_reserve_checks():

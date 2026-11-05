@@ -2,10 +2,12 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from auth.presentation.dependencies import CurrentUser, OwnerUser
 from reservations.application.service import ReservationApplicationService
 from reservations.domain import rules
+from reservations.domain.exceptions import IntegrationNotReadyError
 from reservations.domain.pickup_reservation import ReservationStatus
 from reservations.presentation.dependencies import provide_reservation_service
 from reservations.presentation.schemas import (
@@ -18,6 +20,16 @@ from reservations.presentation.schemas import (
 )
 
 router = APIRouter(prefix="/v1", tags=["예약"])
+
+
+
+# TODO: 연동 전 임시 처리. 503 전역 핸들러가 생기면 제거한다 (R6/R7 예외: 공통 에러 형식은 유지).
+def _not_ready_response(error: IntegrationNotReadyError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"success": False, "error_code": error.error_code, "message": str(error)},
+    )
+
 
 Service = Annotated[ReservationApplicationService, Depends(provide_reservation_service)]
 PageParam = Annotated[int, Query(ge=1, description="페이지 (1부터)")]
@@ -33,7 +45,10 @@ SizeParam = Annotated[
     summary="예약 생성",
 )
 async def create_reservation(body: ReservationCreateRequest, user: CurrentUser, service: Service):
-    return await service.create_reservation(user.id, body.offer_id, body.quantity)
+    try:
+        return await service.create_reservation(user.id, body.offer_id, body.quantity)
+    except IntegrationNotReadyError as error:  # TODO: 임시 503 변환
+        return _not_ready_response(error)
 
 
 @router.get(
@@ -60,7 +75,10 @@ async def list_my_reservations(
     summary="예약 취소",
 )
 async def cancel_reservation(reservation_id: uuid.UUID, user: CurrentUser, service: Service):
-    return await service.cancel_reservation(user.id, reservation_id)
+    try:
+        return await service.cancel_reservation(user.id, reservation_id)
+    except IntegrationNotReadyError as error:  # TODO: 임시 503 변환
+        return _not_ready_response(error)
 
 
 @router.post(
