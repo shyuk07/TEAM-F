@@ -111,3 +111,40 @@ class PaymentAlreadyRefundedError(PaymentConflictError):
 
     def __init__(self, message: str = "이미 환불 처리된 결제입니다."):
         super().__init__(message)
+
+
+class PaymentStateInconsistentError(PaymentConflictError):
+    """409 DATA_INCONSISTENT (임시). 예약은 결제 완료인데 결제 PAID가 없거나 이미 환불됨 등 상태 불일치.
+
+    3단계는 환불을 만들지 않고 전부 롤백한다. TODO(RD-38): 4단계에서 500 DATA_INCONSISTENT + ERROR 로그로 바꾼다.
+    """
+
+    error_code = "DATA_INCONSISTENT"
+
+    def __init__(self, message: str = "예약과 결제 상태가 일치하지 않아 처리할 수 없습니다."):
+        super().__init__(message)
+
+
+# ---------- 503 ----------
+class IntegrationNotReadyError(Exception):
+    """503. 다른 모듈 연동이 준비되지 않았다. 400/403/404/409로 잡히지 않도록 일반 Exception을 상속한다.
+
+    payments 라우터가 공통 에러 형식의 503으로 바꾼다(error_handlers.py는 수정하지 않는 결정).
+    """
+
+    error_code = "INTEGRATION_NOT_READY"
+
+    def __init__(self, message: str = "연동이 아직 준비되지 않았습니다."):
+        super().__init__(message)
+
+
+class StockNotConnectedError(IntegrationNotReadyError):
+    """503 STOCK_NOT_CONNECTED (재고 복구 연동 전). 예약 모듈의 같은 이름 예외를 어댑터가 번역한 것."""
+
+    error_code = "STOCK_NOT_CONNECTED"
+
+    def __init__(
+        self,
+        message: str = "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
+    ):
+        super().__init__(message)

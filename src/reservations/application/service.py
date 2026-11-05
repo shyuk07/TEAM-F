@@ -59,10 +59,14 @@ class ReservationApplicationService:
     async def cancel_reservation(
         self, user_id: uuid.UUID, reservation_id: uuid.UUID
     ) -> PickupReservation:
-        view = await self.lifecycle.get_snapshot(reservation_id)
+        peek = await self.lifecycle.get_snapshot(reservation_id)  # 잠금 없이: 404·403을 잠금보다 먼저
+        if peek is None:
+            raise ReservationNotFoundError()
+        peek.reservation.ensure_owned_by(user_id, "본인 예약만 취소할 수 있습니다.")
+        # 잠금 순서(RD-5): 할인 -> 예약. 환불 여부는 잠근 뒤의 상태로 정한다(그 사이 결제될 수 있음).
+        view = await self.lifecycle.get_snapshot(reservation_id, for_update=True)
         if view is None:
             raise ReservationNotFoundError()
-        view.reservation.ensure_owned_by(user_id, "본인 예약만 취소할 수 있습니다.")  # 잠금보다 먼저
         was_paid = view.reservation.is_paid
         target = RefundTarget(
             reservation_id=reservation_id,

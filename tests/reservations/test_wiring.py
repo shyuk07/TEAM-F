@@ -62,7 +62,8 @@ def test_placeholders_raise_when_not_wired():
 
 
 def test_interim_implementations_remind_replacement():
-    # 임시 구현(호출하면 503). catalog 재고 서비스(C-1)·payments 환불 어댑터(C-4)가 연결되면 이 단언이 실패해 교체를 상기시킨다.
+    # 재고는 아직 임시 포트(catalog 재고 서비스 C-1 연결 시 교체). 환불 포트의 기본값 create_refund_port는
+    # 호출하면 503인 fail-closed 안전망이고, 실제 앱에서는 wire_dependencies가 결제 어댑터로 override한다(아래 테스트).
     assert isinstance(create_refund_port(), NoPaymentRefund)
     stock = create_stock_port(offers=SimpleNamespace(), products=SimpleNamespace(), stores=SimpleNamespace())
     assert isinstance(stock, ReadOnlyOfferStockPort)
@@ -121,3 +122,54 @@ async def test_conflict_handler_format(anyio_backend):
             r = await c.get(f"/c/{kind}")
             assert r.status_code == 409
             assert r.json() == {"success": False, "error_code": code, "message": msg}
+
+
+# ── 결제 연동 조립 (container를 옮기지 않고 override로 교체) ──
+def test_refund_port_is_overridden_with_payment_adapter_in_wiring():
+    from container import create_reservation_refund_port
+
+    fresh = FastAPI()
+    wire_dependencies(fresh)
+    assert fresh.dependency_overrides[create_refund_port] is create_reservation_refund_port
+    assert app.dependency_overrides[create_refund_port] is create_reservation_refund_port
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_container_graph_resolves_and_shares_session(anyio_backend):
+    """중첩 Depends까지 override가 적용되고, 예약·결제·어댑터가 같은 세션·같은 lifecycle을 쓴다. NameError 없음."""
+    from fastapi import Depends
+
+    from database import get_db
+    from payments.application.service import PaymentApplicationService
+    from payments.presentation.dependencies import provide_payment_service
+    from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
+
+    probe = FastAPI()
+    wire_dependencies(probe)
+    session = object()
+    probe.dependency_overrides[get_db] = lambda: session
+    seen = {}
+
+    @probe.get("/probe")
+    async def route(
+        reservation_service: ReservationApplicationService = Depends(deps.provide_reservation_service),
+        payment_service: PaymentApplicationService = Depends(provide_payment_service),
+    ):
+        seen["reservation"] = reservation_service
+        seen["payment"] = payment_service
+        return {}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=probe), base_url="http://t") as client:
+        assert (await client.get("/probe")).status_code == 200
+
+    reservation_service, payment_service = seen["reservation"], seen["payment"]
+    refunds = reservation_service.refunds
+    assert isinstance(refunds, PaymentRefundAdapter)  # NoPaymentRefund가 아니다
+    assert isinstance(payment_service.reservations, PaymentReservationAdapter)  # InMemory 스텁이 아니다
+    assert isinstance(refunds.payments, PaymentApplicationService)
+    assert isinstance(refunds.payments.reservations, PaymentReservationAdapter)
+    lifecycle = reservation_service.lifecycle
+    assert refunds.payments.reservations.lifecycle is lifecycle  # 같은 lifecycle(같은 요청 캐시)
+    for owner in (reservation_service, lifecycle, refunds.payments, payment_service):
+        assert owner.session is session  # 한 요청 한 세션 (R13)

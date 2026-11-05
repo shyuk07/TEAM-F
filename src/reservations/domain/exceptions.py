@@ -128,3 +128,30 @@ class RefundNotConnectedError(IntegrationNotReadyError):
         self, message: str = "환불 연동이 아직 준비되지 않아 결제된 예약은 취소할 수 없습니다."
     ):
         super().__init__(message)
+
+
+class StockRestoreNotConnectedError(StockNotConnectedError):
+    """503 STOCK_NOT_CONNECTED (재고 복구 연동 전). 결제된 예약의 취소·환불은 재고를 되돌릴 수 없어 중단한다."""
+
+    def __init__(
+        self,
+        message: str = "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
+    ):
+        super().__init__(message)
+
+
+class RefundConflictError(ReservationConflictError):
+    """409 REFUND_CONFLICT. 환불 모듈의 충돌 예외를 어댑터가 번역한 것."""
+
+    error_code = "REFUND_CONFLICT"
+    default_message = "환불 요청이 현재 상태와 충돌합니다."
+
+
+class DataInconsistentError(ReservationConflictError):
+    """409 DATA_INCONSISTENT (임시). 예약과 결제 상태가 어긋나 환불을 만들지 않고 전부 롤백한다.
+
+    TODO(RD-38): 4단계에서 500 DATA_INCONSISTENT + ERROR 로그로 바꾼다.
+    """
+
+    error_code = "DATA_INCONSISTENT"
+    default_message = "예약과 결제 상태가 일치하지 않아 처리할 수 없습니다."

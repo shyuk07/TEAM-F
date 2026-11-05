@@ -33,10 +33,10 @@ STOCK_503 = {
     "error_code": "STOCK_NOT_CONNECTED",
     "message": "재고 연동이 아직 준비되지 않아 예약을 생성할 수 없습니다.",
 }
-REFUND_503 = {
+CANCEL_STOCK_503 = {
     "success": False,
-    "error_code": "REFUND_NOT_CONNECTED",
-    "message": "환불 연동이 아직 준비되지 않아 결제된 예약은 취소할 수 없습니다.",
+    "error_code": "STOCK_NOT_CONNECTED",
+    "message": "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
 }
 
 
@@ -185,13 +185,22 @@ async def test_cancel_twice_is_409(client, env):
     assert r.json() == err("RESERVATION_ALREADY_CANCELLED", "이미 취소된 예약입니다.")
 
 
-async def test_cancel_paid_is_503_and_not_committed(client, env):
+async def test_cancel_paid_is_503_stock_not_connected_and_not_committed(client, env):
+    # 임시 재고 포트는 복구하지 못하므로 결제된 예약 취소는 503 (환불 포트까지 가지 않는다)
     res = await add_reservation(env, status=S.RESERVED)
     r = await client.post(f"/v1/reservations/{res.id}/cancel", headers=headers())
     assert r.status_code == 503
-    assert r.json() == REFUND_503
+    assert r.json() == CANCEL_STOCK_503
     assert env[1].commits == 0  # commit 전에 예외가 올라 DB 변경은 롤백된다
     assert env[3].remaining_stock == 3
+
+
+async def test_cancel_unpaid_is_200_without_stock_restore(client, env):
+    res = await add_reservation(env)
+    r = await client.post(f"/v1/reservations/{res.id}/cancel", headers=headers())
+    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
+    assert env[1].commits == 1
+    assert env[3].remaining_stock == 3  # 임시 포트: 복구 없이 통과
 
 
 # ── 목록·픽업 (변경 없음 확인) ──

@@ -8,12 +8,27 @@ from payments.domain.exceptions import (
     PaymentAlreadyExistsError,
     PaymentAlreadyRefundedError,
     PaymentNotFoundError,
+    ReservationNotFoundError,
 )
 from payments.domain.payment import Payment, PaymentStatus
 from payments.domain.refund import Refund, RefundStatus
 from payments.domain.repository.payment_repository import PaymentRepository
 from payments.domain.repository.refund_repository import RefundRepository
 from payments.infrastructure.models import PaymentModel, RefundModel
+
+_FK_VIOLATION = "23503"  # foreign_key_violation
+_UNIQUE_VIOLATION = "23505"  # unique_violation
+
+
+def _sqlstate(error: IntegrityError) -> str | None:
+    """IntegrityError 원인의 PostgreSQL SQLSTATE. 드라이버 래퍼(orig)와 원본(__cause__)을 모두 본다."""
+    orig = getattr(error, "orig", None)
+    for candidate in (orig, getattr(orig, "__cause__", None)):
+        code = getattr(candidate, "sqlstate", None) or getattr(candidate, "pgcode", None)
+        if code:
+            return str(code)
+    return None
+
 
 # 레포지토리는 flush까지만 하고 commit/rollback은 서비스가 한다.
 # 현재 models.py에 없는 도메인 필드는 저장하지 못한다(조회하면 None):
@@ -31,7 +46,8 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
     ) -> Payment | None:
         stmt = select(PaymentModel).where(PaymentModel.id == payment_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            # RC-27: 잠금 읽기는 이미 읽힌 행도 DB 최신 값으로 덮어쓴다(오래된 상태로 판단 금지)
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.db.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -41,7 +57,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
         # 현재 models.py의 reservation_id가 UNIQUE라서 상태와 상관없이 예약당 결제는 1건이다.
         stmt = select(PaymentModel).where(PaymentModel.reservation_id == reservation_id)
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self.db.execute(stmt)).scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -59,8 +75,13 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
             try:
                 await self.db.flush()
             except IntegrityError as error:
-                # 동시 결제로 reservation_id UNIQUE에 걸린 경우(DB 레벨 최종 방어)
-                raise PaymentAlreadyExistsError() from error
+                # RC-28: UNIQUE(동시 결제) = 409, FK(없는 예약) = 404, 그 외는 그대로 올린다
+                state = _sqlstate(error)
+                if state == _UNIQUE_VIOLATION:
+                    raise PaymentAlreadyExistsError() from error
+                if state == _FK_VIOLATION:
+                    raise ReservationNotFoundError() from error
+                raise
             payment.id = model.id
         else:
             model = await self.db.get(PaymentModel, payment.id)
@@ -111,8 +132,13 @@ class SqlAlchemyRefundRepository(RefundRepository):
         try:
             await self.db.flush()
         except IntegrityError as error:
-            # 동시 환불로 payment_id UNIQUE에 걸린 경우(DB 레벨 최종 방어)
-            raise PaymentAlreadyRefundedError() from error
+            # RC-28: UNIQUE(동시 환불) = 409, FK(없는 결제) = 404, 그 외는 그대로 올린다
+            state = _sqlstate(error)
+            if state == _UNIQUE_VIOLATION:
+                raise PaymentAlreadyRefundedError() from error
+            if state == _FK_VIOLATION:
+                raise PaymentNotFoundError() from error
+            raise
         refund.id = model.id
         return refund
 

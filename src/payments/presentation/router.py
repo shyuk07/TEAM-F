@@ -2,10 +2,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 
 from auth.presentation.dependencies import CurrentUser
 from payments.application.service import PaymentApplicationService
-from payments.domain.exceptions import PaymentConflictError
+from payments.domain.exceptions import IntegrationNotReadyError, PaymentConflictError
 from payments.presentation.dependencies import provide_payment_service
 from payments.presentation.schemas import (
     PaymentCreate,
@@ -16,6 +17,17 @@ from payments.presentation.schemas import (
 )
 
 router = APIRouter(prefix="/v1")
+
+
+
+# TODO: 연동 전 임시 처리. 503 전역 핸들러가 생기면 제거한다 (R6/R7 예외: 공통 에러 형식은 유지).
+#       error_handlers.py를 고치지 않는 결정으로 각 라우터가 변환한다(예약 라우터와 같은 방식).
+def _not_ready_response(error: IntegrationNotReadyError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"success": False, "error_code": error.error_code, "message": str(error)},
+    )
+
 
 ServiceDep = Annotated[PaymentApplicationService, Depends(provide_payment_service)]
 
@@ -59,6 +71,8 @@ async def create_refund(
 ):
     try:
         return await service.refund(user.id, payment_id, body.reason)
+    except IntegrationNotReadyError as error:  # TODO: 임시 503 변환 (재고 복구 연동 전)
+        return _not_ready_response(error)
     except PaymentConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 

@@ -40,6 +40,7 @@ from catalog.presentation.dependencies import (
     provide_store_port,
 )
 from database import get_db
+from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
 from reservations.application.interim_stock_port import ReadOnlyOfferStockPort
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.ports import RefundPort, StockPort
@@ -67,7 +68,6 @@ from payments.infrastructure.repositories import (
     SqlAlchemyPaymentRepository,
     SqlAlchemyRefundRepository,
 )
-from payments.infrastructure.reservation_stub import InMemoryReservationPort
 from payments.presentation.dependencies import provide_payment_service
 from stores.application.service import StoresApplicationService
 from stores.domain.repository import StoreRepository
@@ -85,10 +85,9 @@ _reservation_lookup: ReservationLookupPort = NoReservationLookup()  # 임시 (CI
 _reservation_cancel: ReservationCancelPort = NoReservationCancel()  # 임시 (CI-11)
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
-_payment_refund: RefundPort = NoPaymentRefund()  # 임시 (D-15, C-4)
+_payment_refund: RefundPort = NoPaymentRefund()  # 기본값(fail-closed 503). wire_dependencies가 결제 어댑터로 override한다
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
-_payments_reservations: ReservationPort = InMemoryReservationPort()  # 임시: reservations 구현 시 어댑터로 교체
 
 
 # ── auth ─────────────────────────────
@@ -249,8 +248,10 @@ def create_refund_repository(session: AsyncSession = Depends(get_db)) -> RefundR
     return SqlAlchemyRefundRepository(session)
 
 
-def create_payment_reservation_port() -> ReservationPort:
-    return _payments_reservations
+def create_payment_reservation_port(
+    lifecycle: ReservationLifecycleService = Depends(create_reservation_lifecycle_service),
+) -> ReservationPort:
+    return PaymentReservationAdapter(lifecycle)  # 같은 요청 세션의 lifecycle (R13)
 
 
 def create_payment_service(
@@ -269,6 +270,13 @@ def create_payment_service(
     )
 
 
+def create_reservation_refund_port(
+    payments: PaymentApplicationService = Depends(create_payment_service),
+) -> RefundPort:
+    """예약용 RefundPort. 위쪽 예약 구역의 create_refund_port를 옮기지 않고, wire_dependencies에서 이 함수로 override한다."""
+    return PaymentRefundAdapter(payments)
+
+
 def wire_dependencies(app: FastAPI) -> None:
     app.dependency_overrides.update(
         {
@@ -282,5 +290,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
             provide_payment_service: create_payment_service,
+            # 중첩 Depends도 override가 적용된다: create_reservation_service가 받는 RefundPort를 결제 어댑터로 교체
+            create_refund_port: create_reservation_refund_port,
         }
     )

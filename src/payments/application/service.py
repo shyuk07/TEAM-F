@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,12 +10,16 @@ from payments.domain.exceptions import (
     PaymentAlreadyRefundedError,
     PaymentFailedError,
     PaymentNotFoundError,
+    PaymentStateInconsistentError,
     RefundNotFoundError,
     ReservationNotFoundError,
 )
 from payments.domain.payment import Payment
 from payments.domain.refund import Refund
-from payments.domain.rules import DEFAULT_CANCELLATION_POLICY
+from payments.domain.rules import (
+    DEFAULT_CANCELLATION_POLICY,
+    REFUNDABLE_RESERVATION_STATUSES,
+)
 from payments.domain.repository.payment_repository import PaymentRepository
 from payments.domain.repository.refund_repository import RefundRepository
 from payments.domain.service import Clock, PaymentGateway
@@ -100,7 +105,8 @@ class PaymentApplicationService:
 
     # 환불 요청. 전액 기준이고 위약금은 정책이 계산한다(현재 0원).
     # 검사 순서: 404(결제 없음) -> 403(본인 아님) -> 409(이미 환불) -> 400(환불 불가)
-    # 락 순서: 예약 -> 결제 -> 환불 INSERT (예약 취소와의 교착 방지)
+    # 락 순서(RD-5): (상품 ->) 할인 -> 예약 -> 결제 -> 환불 INSERT. 결제를 먼저 잠그지 않는다.
+    #   결제는 잠금 없이 읽어 예약 ID만 얻고, 예약(할인->예약) 잠금 뒤에 결제를 잠근다.
     async def refund(self, user_id: UUID, payment_id: UUID, reason: str) -> Refund:
         payment = await self.payments.find_by_id(payment_id)
         if payment is None:
@@ -126,9 +132,39 @@ class PaymentApplicationService:
         try:
             await self.refunds.save(refund)  # 동시 환불이면 UNIQUE 위반 -> 409
             await self.payments.save(payment)
-            # TODO(D-6): 예약 취소·재고 복구(cancel_for_refund)는 처리 순서가 미정이라 호출하지 않는다.
+            # RD-2: 환불 API도 예약 취소 + 재고 복구까지. 재고 복구가 안 되면 503으로 중단되고 위 저장은 롤백된다.
+            await self.reservations.cancel_for_refund(payment.reservation_id, reason, commit=False)
         except Exception:
             await self.session.rollback()
             raise
         await self.session.commit()  # 한 번만
+        return refund
+
+    # 예약 취소가 부르는 환불. commit하지 않는다(R13): 호출한 예약 서비스가 마지막에 한 번 commit한다.
+    # 예약은 이미 결제 완료(RESERVED)였으므로 결제 PAID가 정확히 1건 있고 환불이 없어야 한다.
+    # 아니면 환불을 만들지 않고 예외로 중단한다(호출 쪽이 전부 롤백).
+    # 위약금은 정책이 계산한다(RD-3: 현재 0원). waive_penalty=True(판매자 중단 등)면 항상 0원.
+    # 락 순서: 호출자가 이미 할인 -> 예약을 잠갔고, 여기서 결제 -> 환불 순으로 잠근다.
+    async def refund_for_cancelled_reservation(
+        self,
+        reservation_id: UUID,
+        *,
+        reservation_status: str,
+        pickup_start: datetime | None,
+        reason: str,
+        waive_penalty: bool = False,
+    ) -> Refund:
+        if reservation_status not in REFUNDABLE_RESERVATION_STATUSES:
+            raise PaymentStateInconsistentError()
+        payment = await self.payments.find_by_reservation_id(reservation_id, for_update=True)
+        if payment is None or payment.id is None or not payment.is_paid:
+            raise PaymentStateInconsistentError()  # TODO(RD-38): 4단계에서 500 DATA_INCONSISTENT
+        if await self.refunds.find_by_payment_id(payment.id) is not None:
+            raise PaymentStateInconsistentError()  # TODO(RD-38)
+
+        now = self.clock.now()
+        penalty = 0 if waive_penalty else self.policy.penalty(payment.amount, pickup_start, now)
+        refund = payment.refund(penalty, reason, now)
+        await self.refunds.save(refund)
+        await self.payments.save(payment)
         return refund

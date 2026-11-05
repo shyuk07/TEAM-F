@@ -200,7 +200,8 @@ async def test_cancel_paid_is_503_and_row_unchanged(client):
 
     assert r.status_code == 503
     assert r.json() == err(
-        "REFUND_NOT_CONNECTED", "환불 연동이 아직 준비되지 않아 결제된 예약은 취소할 수 없습니다."
+        "STOCK_NOT_CONNECTED",
+        "재고 연동이 아직 준비되지 않아 결제된 예약의 취소·환불을 처리할 수 없습니다.",
     )
     async with client.session_factory() as s:
         row = (await s.execute(select(PickupReservationModel))).scalar_one()

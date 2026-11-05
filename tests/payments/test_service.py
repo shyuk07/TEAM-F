@@ -266,12 +266,14 @@ async def test_refund_policy_out_of_range_is_value_error():
     assert env.db.commits == commits_before and env.refunds.items == {}
 
 
-async def test_refund_does_not_change_reservation(env):
-    # TODO(D-6): 예약 취소 연동은 아직 없다. 서비스는 예약 상태를 바꾸지 않는다.
+async def test_refund_cancels_reservation_without_own_commit(env):
+    # RD-2: 환불 API는 예약 취소(+재고 복구)까지. 예약 쪽은 commit=False로 부르고 서비스가 commit 1회.
     payment = await paid(env)
+    commits_before = env.db.commits
     await env.service.refund(USER, payment.id, "사유")
-    assert env.reservations.items[payment.reservation_id].status == RESERVATION_PAID_STATUS
-    assert len(env.reservations.mark_paid_calls) == 1  # 결제 때의 1회뿐
+    assert env.reservations.items[payment.reservation_id].status == "CANCELLED"
+    assert env.reservations.cancel_calls == [(payment.reservation_id, "사유", False)]
+    assert env.db.commits == commits_before + 1
 
 
 async def test_refund_twice_is_409(env):
@@ -357,6 +359,7 @@ async def test_refund_race_conflict_rolls_back(env):
             return await self.real.save(refund)
 
     env.payments.items[payment.id].status = PaymentStatus.PAID  # 사전 검사를 통과시키기 위해
+    env.reservations.set_status(payment.reservation_id, RESERVATION_PAID_STATUS)
     env.service.refunds = StaleRefunds(env.refunds)
     commits_before, rollbacks_before = env.db.commits, env.db.rollbacks
     with pytest.raises(PaymentAlreadyRefundedError):

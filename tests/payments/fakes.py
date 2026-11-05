@@ -72,6 +72,8 @@ class FakeReservationPort:
         self.mark_paid_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, commit)
         self.get_calls: list[tuple[uuid.UUID, bool]] = []  # (reservation_id, for_update)
         self.raise_on_mark_paid: Exception | None = None
+        self.cancel_calls: list[tuple[uuid.UUID, str, bool]] = []  # (reservation_id, reason, commit)
+        self.raise_on_cancel: Exception | None = None
 
     def add(
         self,
@@ -103,6 +105,12 @@ class FakeReservationPort:
             raise self.raise_on_mark_paid
         self.set_status(reservation_id, RESERVATION_PAID_STATUS)
 
+    async def cancel_for_refund(self, reservation_id, reason, *, commit=False):
+        self.cancel_calls.append((reservation_id, reason, commit))
+        if self.raise_on_cancel is not None:
+            raise self.raise_on_cancel
+        self.set_status(reservation_id, "CANCELLED")
+
 
 class FakeGateway(PaymentGateway):
     def __init__(self):
@@ -124,3 +132,4 @@ class FixedClock(Clock):
 
     def now(self) -> datetime:
         return self.current
+

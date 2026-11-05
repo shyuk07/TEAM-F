@@ -15,7 +15,7 @@ from payments.application.service import PaymentApplicationService
 from payments.domain.repository.payment_repository import PaymentRepository
 from payments.domain.repository.refund_repository import RefundRepository
 from payments.domain.service import Clock, PaymentGateway
-from payments.infrastructure.reservation_stub import InMemoryReservationPort
+from reservations.application.adapters import PaymentReservationAdapter
 from payments.presentation import dependencies as deps
 
 
@@ -38,9 +38,8 @@ def test_placeholder_raises_when_not_wired():
 
 
 def test_create_payment_service_uses_abstract_implementations():
-    reservations = create_payment_reservation_port()
-    # 임시 구현. reservations 구현 시 어댑터로 교체하며 이 단언이 실패해 상기시킨다.
-    assert isinstance(reservations, InMemoryReservationPort)
+    reservations = create_payment_reservation_port(lifecycle=object())  # type: ignore[arg-type]
+    assert isinstance(reservations, PaymentReservationAdapter)  # 가짜 스텁이 아닌 실제 예약 어댑터
     session = object()  # 세션은 쓰이지 않는다(생성만 확인)
     service = create_payment_service(
         session=session,  # type: ignore[arg-type]

@@ -12,8 +12,10 @@ class PaymentModel(Base):
     __tablename__ = "payments"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    # TODO: reservations 테이블이 생기면 ForeignKey("reservations.id") 추가
-    reservation_id: Mapped[UUID] = mapped_column(unique=True, index=True)
+    # RD-33: 예약 테이블 FK. 다른 모듈 모델은 import하지 않고 문자열로만 연결한다.
+    reservation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("pickup_reservations.id"), unique=True, index=True
+    )
     # TODO: users 테이블이 생기면 ForeignKey("users.id") 추가
     user_id: Mapped[UUID] = mapped_column(index=True)
     amount: Mapped[int] = mapped_column(Integer)

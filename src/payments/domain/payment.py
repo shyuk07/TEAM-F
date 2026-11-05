@@ -113,6 +113,10 @@ class Payment:
         self.failed_response = dict(response) if response else None
         self.failed_at = now or datetime.now(UTC)
 
+    @property
+    def is_paid(self) -> bool:
+        return self.status == PaymentStatus.PAID
+
     def ensure_refundable(self) -> None:
         """409(이미 환불) -> 400(환불 불가 상태) 순서로 검사한다."""
         if self.status == PaymentStatus.REFUNDED:
