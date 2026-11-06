@@ -634,3 +634,31 @@ def test_reservation_data_inconsistent_error_is_standalone_exception():
     assert str(error) == "예약과 결제 상태가 일치하지 않습니다. 관리자에게 문의해 주세요."
     for family in (ValueError, PermissionError, LookupError, RuntimeError):
         assert not isinstance(error, family)
+
+
+# ── REQ-3 가격 상한, 재노출 ──
+def test_product_price_upper_bound():
+    assert product(original_price=99_999_999).original_price == 99_999_999
+    with pytest.raises(ValueError, match="정상 가격은 1억 원 미만이어야 합니다."):
+        product(original_price=100_000_000)
+    p = product()
+    with pytest.raises(ValueError, match="1억 원 미만"):
+        p.apply_changes({"original_price": 100_000_000}, None)
+    assert p.original_price == 6000
+
+
+def test_product_restore_over_upper_bound_allowed():
+    """상한 도입 전 저장된 값은 복원(생성자)에서 막지 않는다."""
+    p = Product(store_id=uuid.uuid4(), name="a", original_price=100_000_000)
+    assert p.original_price == 100_000_000
+
+
+def test_product_reactivate():
+    from catalog.domain.exceptions import ProductAlreadyActiveError
+
+    p = product()
+    with pytest.raises(ProductAlreadyActiveError, match="이미 노출 중인 상품입니다."):
+        p.reactivate()
+    p.deactivate(False)
+    p.reactivate()
+    assert p.is_active

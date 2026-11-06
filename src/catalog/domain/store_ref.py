@@ -69,6 +69,15 @@ class StoreRef:
         if not self.is_visible_to(viewer_id):
             raise StoreNotFoundError()
 
+    def are_products_visible_to(self, viewer_id: uuid.UUID | None) -> bool:
+        """폐점·정지된 상점의 상품은 소유자에게만 보인다 (requirements 정책 표, CI-15).
+        할인 조회(#9·#10)는 is_visible_to를 그대로 쓴다."""
+        return not (self.closed or self.suspended) or self.is_owned_by(viewer_id)
+
+    def ensure_products_visible_to(self, viewer_id: uuid.UUID | None) -> None:
+        if not self.are_products_visible_to(viewer_id):
+            raise StoreNotFoundError()
+
     def ensure_can_register(self, what: str) -> None:
         """what: '상품' 또는 '할인'. 검사 순서는 폐점 -> 정지 -> 미승인 (D9, admin.md D17)."""
         if self.closed:

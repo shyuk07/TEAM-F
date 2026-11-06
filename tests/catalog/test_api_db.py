@@ -251,6 +251,58 @@ async def test_deactivate_blocked_by_open_offer(client):
     assert r.json() == err(400, "PRODUCT_HAS_OPEN_OFFER", "진행 중인 할인 판매가 있어 비활성화할 수 없습니다.")
 
 
+# ── 상품 재노출 ──
+async def test_activate(client):
+    token, store_id = await owner_with_store(client)
+    p = await make_product(client, token, store_id)
+    url = f"/v1/products/{p['id']}/activate"
+    r = await client.post(url, headers=bearer(token))
+    assert r.json() == err(400, "PRODUCT_ALREADY_ACTIVE", "이미 노출 중인 상품입니다.")
+    await client.post(f"/v1/products/{p['id']}/deactivate", headers=bearer(token))
+    assert (await client.post(url)).status_code == 401
+    other, _ = await owner_with_store(client, "o2@test.com")
+    assert (await client.post(url, headers=bearer(other))).status_code == 403
+    assert (await client.post(f"/v1/products/{uuid.uuid4()}/activate", headers=bearer(token))).status_code == 404
+    r = await client.post(url, headers=bearer(token))
+    assert r.status_code == 200 and r.json()["is_active"] is True
+
+
+async def test_activate_closed_store(client):
+    token, store_id = await owner_with_store(client)
+    p = await make_product(client, token, store_id)
+    await client.post(f"/v1/products/{p['id']}/deactivate", headers=bearer(token))
+    async with client.session_factory() as s:
+        from stores.infrastructure.models import StoreModel
+
+        (await s.get(StoreModel, uuid.UUID(store_id))).closed_at = datetime.now(timezone.utc)
+        await s.commit()
+    r = await client.post(f"/v1/products/{p['id']}/activate", headers=bearer(token))
+    assert r.json() == err(400, "STORE_CLOSED", "폐점된 상점에서는 상품을 다시 노출할 수 없습니다.")
+
+
+async def test_closed_store_products_hidden_except_owner(client):
+    token, store_id = await owner_with_store(client)
+    p = await make_product(client, token, store_id)
+    async with client.session_factory() as s:
+        from stores.infrastructure.models import StoreModel
+
+        (await s.get(StoreModel, uuid.UUID(store_id))).closed_at = datetime.now(timezone.utc)
+        await s.commit()
+    assert (await client.get(f"/v1/stores/{store_id}/products")).status_code == 404
+    assert (await client.get(f"/v1/products/{p['id']}")).status_code == 404
+    r = await client.get(f"/v1/stores/{store_id}/products", headers=bearer(token))
+    assert r.status_code == 200 and r.json()["total"] == 1
+    assert (await client.get(f"/v1/products/{p['id']}", headers=bearer(token))).status_code == 200
+
+
+async def test_create_product_price_upper_bound(client):
+    token, store_id = await owner_with_store(client)
+    url = f"/v1/stores/{store_id}/products"
+    r = await client.post(url, json={"name": "a", "original_price": 99_999_999}, headers=bearer(token))
+    assert r.status_code == 201
+    r = await client.post(url, json={"name": "a", "original_price": 100_000_000}, headers=bearer(token))
+    assert r.json() == err(400, "VALIDATION_ERROR", "정상 가격은 1억 원 미만이어야 합니다.")
+
 # ── #12 할인 판매 중단 (16.7) ──
 NOT_FOUND_MSG = "할인 판매를 찾을 수 없습니다."
 OFFER_KEYS = {

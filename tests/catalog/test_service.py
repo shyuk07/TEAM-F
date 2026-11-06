@@ -714,3 +714,50 @@ async def test_offer_detail_visible_when_closed_product_inactive_store_closed_no
     d = await c.service.get_offer_detail(None, o.offer.id)
     assert d.view.status == OfferStatus.CLOSED and d.view.offer.is_active is False
     assert d.latitude is None and d.longitude is None and d.description is None
+
+
+# ── 재노출 ──
+async def test_reactivate(ctx):
+    from catalog.domain.exceptions import ProductAlreadyActiveError
+
+    p = await ctx.product()
+    with pytest.raises(ProductAlreadyActiveError):
+        await ctx.service.reactivate_product(ctx.owner, p.id)
+    await ctx.service.deactivate_product(ctx.owner, p.id)
+    before = ctx.session.commits
+    out = await ctx.service.reactivate_product(ctx.owner, p.id)
+    assert out.is_active and ctx.session.commits == before + 1 and p.id in ctx.products.locked
+
+
+async def test_reactivate_forbidden_and_closed_store(ctx):
+    p = await ctx.product()
+    await ctx.service.deactivate_product(ctx.owner, p.id)
+    with pytest.raises(NotStoreOwnerError, match="본인 상점의 상품만 변경할 수 있습니다."):
+        await ctx.service.reactivate_product(uuid.uuid4(), p.id)
+    with pytest.raises(ProductNotFoundError):
+        await ctx.service.reactivate_product(ctx.owner, uuid.uuid4())
+    ctx.store.closed_at = NOW
+    before = ctx.session.commits
+    with pytest.raises(StoreClosedError, match="폐점된 상점에서는 상품을 다시 노출할 수 없습니다."):
+        await ctx.service.reactivate_product(ctx.owner, p.id)
+    assert not p.is_active and ctx.session.commits == before
+
+
+# ── 폐점 상점의 상품은 소유자에게만 (CI-15) ──
+async def test_closed_store_products_hidden_except_owner(ctx):
+    p = await ctx.product()
+    ctx.store.closed_at = NOW
+    for viewer in (None, uuid.uuid4()):
+        with pytest.raises(StoreNotFoundError):
+            await ctx.service.list_products(viewer, ctx.store.id, None, True, 1, 20)
+        with pytest.raises(StoreNotFoundError):
+            await ctx.service.get_product(viewer, p.id)
+    assert (await ctx.service.list_products(ctx.owner, ctx.store.id, None, True, 1, 20)).total == 1
+    assert (await ctx.service.get_product(ctx.owner, p.id)).product is p
+
+
+async def test_create_product_price_upper_bound(ctx):
+    with pytest.raises(ValueError, match="1억 원 미만"):
+        await ctx.service.create_product(
+            ctx.owner, ctx.store.id, {"name": "x", "original_price": 100_000_000}
+        )
