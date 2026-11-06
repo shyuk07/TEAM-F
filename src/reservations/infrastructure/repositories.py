@@ -108,6 +108,32 @@ class SqlAlchemyReservationRepository(ReservationRepository):
         )
         return found is not None
 
+    async def find_by_offers(
+        self,
+        offer_ids: Sequence[uuid.UUID],
+        *,
+        status: ReservationStatus | None,
+        page: int,
+        size: int,
+    ) -> tuple[list[PickupReservation], int]:
+        if not offer_ids:
+            return [], 0
+        conditions = [PickupReservationModel.offer_id.in_(list(offer_ids))]
+        if status is not None:
+            conditions.append(PickupReservationModel.status == str(status))
+        total = await self.session.scalar(
+            select(func.count()).select_from(PickupReservationModel).where(*conditions)
+        )
+        stmt = (
+            select(PickupReservationModel)
+            .where(*conditions)
+            .order_by(PickupReservationModel.created_at.desc(), PickupReservationModel.id.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        models = (await self.session.execute(stmt)).scalars().all()
+        return [self._to_domain(m) for m in models], int(total or 0)
+
     async def save(self, reservation: PickupReservation) -> PickupReservation:
         if reservation.id is None:
             model = PickupReservationModel(

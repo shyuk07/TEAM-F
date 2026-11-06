@@ -52,3 +52,15 @@ class StoreOffersPort(Protocol):
     async def list_offer_ids_of_store(
         self, store_id: uuid.UUID, *, for_update: bool = False
     ) -> list[uuid.UUID]: ...
+
+
+class StoreOwnerInfo(Protocol):
+    """상점 소유 확인에 필요한 값만. stores의 Store가 구조적으로 만족한다 (R11)."""
+
+    owner_id: uuid.UUID
+
+
+class StoreOwnerPort(Protocol):
+    """상점 1건 조회. stores StoreQueryService가 구조적으로 만족한다. commit 없음 (R13)."""
+
+    async def find_store_by_id(self, store_id: uuid.UUID) -> StoreOwnerInfo | None: ...

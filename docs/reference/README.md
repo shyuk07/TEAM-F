@@ -12,7 +12,7 @@
 | [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 12 |
 | [stores.md](stores.md) | `src/stores` 상점 | 2 |
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
-| [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
+| [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 5 |
 | [payments.md](payments.md) | `src/payments` 결제·환불 | 4 |
 | [admin.md](admin.md) | `src/admin` 관리자 기능 | 9 |
 
@@ -69,6 +69,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 43 | auth | [비밀번호 재설정 코드 요청](auth.md#10-비밀번호-재설정-코드-요청) | POST | `/v1/auth/password-reset/request` | 공개 | 204 |
 | 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
 | 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
+| 46 | reservations | [상점주용 매장 예약 목록 조회](reservations.md#5-상점주용-매장-예약-목록-조회) | GET | `/v1/stores/{store_id}/reservations` | 상점주(본인 상점) | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -187,7 +188,7 @@ ISO 8601에 시간대를 붙입니다. 예: `2026-10-29T18:00:00+09:00`
 
 ### reservations
 18. **`pickup_code` 발급 시점:** 예약 생성 응답에 없고 픽업 완료에서 처음 나옵니다. 결제 완료 시 발급하는지 정해야 합니다.
-19. **상점주용 예약 목록 없음:** 픽업 완료에 `reservation_id`가 필요한데 상점주가 자기 매장 예약을 볼 API가 없습니다.
+19. ~~**상점주용 예약 목록 없음**~~ → 해결: [상점주용 매장 예약 목록 조회](reservations.md#5-상점주용-매장-예약-목록-조회) 추가.
 20. **예약 취소와 환불의 관계:** 예약 취소가 환불을 자동으로 만드는지, 고객이 환불 요청을 따로 하는지 정해야 합니다.
 
 ### payments

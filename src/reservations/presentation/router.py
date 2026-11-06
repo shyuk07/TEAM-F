@@ -6,10 +6,14 @@ from fastapi.responses import JSONResponse
 
 from auth.presentation.dependencies import CurrentUser, SuspendedAllowedOwnerUser
 from reservations.application.service import ReservationApplicationService
+from reservations.application.store_reservation_service import StoreReservationListService
 from reservations.domain import rules
 from reservations.domain.exceptions import DataInconsistentError
 from reservations.domain.pickup_reservation import ReservationStatus
-from reservations.presentation.dependencies import provide_reservation_service
+from reservations.presentation.dependencies import (
+    provide_reservation_service,
+    provide_store_reservation_list_service,
+)
 from reservations.presentation.schemas import (
     PickupRequest,
     PickupResponse,
@@ -17,6 +21,7 @@ from reservations.presentation.schemas import (
     ReservationCreateRequest,
     ReservationCreateResponse,
     ReservationListResponse,
+    StoreReservationListResponse,
 )
 
 router = APIRouter(prefix="/v1", tags=["예약"])
@@ -32,6 +37,9 @@ def _data_inconsistent_response(error: DataInconsistentError) -> JSONResponse:
 
 
 Service = Annotated[ReservationApplicationService, Depends(provide_reservation_service)]
+StoreListService = Annotated[
+    StoreReservationListService, Depends(provide_store_reservation_list_service)
+]
 PageParam = Annotated[int, Query(ge=1, description="페이지 (1부터)")]
 SizeParam = Annotated[
     int, Query(ge=1, le=rules.LIST_MAX_SIZE, description=f"페이지 크기 (1~{rules.LIST_MAX_SIZE})")
@@ -62,6 +70,25 @@ async def list_my_reservations(
 ):
     result = await service.list_my_reservations(user.id, status, page, size)
     return ReservationListResponse(
+        reservations=result.items, page=result.page, size=result.size, total=result.total
+    )
+
+
+@router.get(
+    "/stores/{store_id}/reservations",
+    response_model=StoreReservationListResponse,
+    summary="상점주용 매장 예약 목록 조회",
+)
+async def list_store_reservations(
+    store_id: uuid.UUID,
+    owner: SuspendedAllowedOwnerUser,  # 정지된 상점주도 본인 매장 조회 가능(픽업 EP와 같음, D-38)
+    service: StoreListService,
+    status: ReservationStatus | None = None,
+    page: PageParam = 1,
+    size: SizeParam = rules.LIST_DEFAULT_SIZE,
+):
+    result = await service.list_store_reservations(owner.id, store_id, status, page, size)
+    return StoreReservationListResponse(
         reservations=result.items, page=result.page, size=result.size, total=result.total
     )
 
