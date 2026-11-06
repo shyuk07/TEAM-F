@@ -32,7 +32,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 7 | stores | [상점 폐점](stores.md#2-상점-폐점) | POST | `/v1/stores/{store_id}/close` | 상점주(본인) | 200 |
 | 8 | catalog | [상품 등록](catalog.md#1-상품-등록) | POST | `/v1/stores/{store_id}/products` | 상점주(본인) | 201 |
 | 9 | catalog | [상점 상품 목록](catalog.md#2-상점-상품-목록) | GET | `/v1/stores/{store_id}/products` | 공개 | 200 |
-| 10 | catalog | [상품 검색](catalog.md#3-상품-검색) | GET | `/v1/products/search` | 공개 | 200 |
+| 10 | catalog | [상품 검색](catalog.md#3-상품-검색) | GET | `/v1/products` | 공개 | 200 |
 | 11 | catalog | [상품 상세](catalog.md#4-상품-상세) | GET | `/v1/products/{product_id}` | 공개 | 200 |
 | 12 | catalog | [상품 수정](catalog.md#5-상품-수정) | PATCH | `/v1/products/{product_id}` | 상점주(본인) | 200 |
 | 13 | catalog | [상품 노출 중단](catalog.md#6-상품-노출-중단) | POST | `/v1/products/{product_id}/deactivate` | 상점주(본인) | 200 |
@@ -76,7 +76,6 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 - 할인 수정(`PATCH /v1/offers/{offer_id}`)은 필드 수정과 함께 `is_active`로 판매 중단·재개를 받는 예외입니다.
 - 상태만 바꾸는 동작(폐점, 노출 중단, 판매 중단, 재등록, 취소, 픽업)은 `POST /{id}/동사` 형태로 둡니다. 요청 본문이 있거나 부수 효과(환불, 재고 이력)가 있어서 `PATCH`로 표현하기 어렵기 때문입니다.
 - 로그인한 사용자 기준 조회는 노션의 `/v1/users/me/...` 형태에 맞춥니다.
-- **FastAPI 주의:** `/v1/products/search`는 `/v1/products/{product_id}`보다 **먼저** 등록해야 합니다.
 
 ## 공통 규칙
 

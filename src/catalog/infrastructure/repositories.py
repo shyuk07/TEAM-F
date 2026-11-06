@@ -2,21 +2,53 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, and_, func, not_, or_, select
+from sqlalchemy import BigInteger, ColumnElement, and_, any_, cast, exists, func, literal, not_, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from catalog.domain.discount_offer import DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
 from catalog.domain.exceptions import OfferNotFoundError, ProductNotFoundError
 from catalog.domain.product import Product
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
+from catalog.domain.search import OfferSort
 from catalog.domain.stock_log import StockLog
 from catalog.infrastructure.models import (
     DiscountOfferModel,
     ProductModel,
     StockLogModel,
 )
+
+
+def _id_array(ids: Sequence[uuid.UUID]):
+    """id 목록을 배열 바인드 파라미터 하나로 만든다 (asyncpg 파라미터 상한 회피, D74)."""
+    return literal(list(ids), ARRAY(UUID(as_uuid=True)))
+
+
+def _like_pattern(keyword: str) -> str:
+    escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _product_conditions(
+    store_ids: Sequence[uuid.UUID], keyword: str | None, category: str | None
+) -> list[ColumnElement[bool]]:
+    conditions: list[ColumnElement[bool]] = [
+        ProductModel.store_id == any_(_id_array(store_ids)),
+        ProductModel.is_active,
+    ]
+    if category is not None:
+        conditions.append(ProductModel.category == category)
+    if keyword is not None:
+        pat = _like_pattern(keyword)
+        conditions.append(
+            or_(
+                ProductModel.name.ilike(pat, escape="\\"),
+                ProductModel.description.ilike(pat, escape="\\"),
+            )
+        )
+    return conditions
 
 
 class SqlAlchemyProductRepository(ProductRepository):
@@ -65,6 +97,52 @@ class SqlAlchemyProductRepository(ProductRepository):
         )
         models = (await self.session.execute(stmt)).scalars().all()
         return [self._to_domain(m) for m in models], total
+
+    async def search_store_ids(
+        self,
+        *,
+        store_ids: Sequence[uuid.UUID],
+        keyword: str | None,
+        category: str | None,
+        page: int,
+        size: int,
+    ) -> tuple[list[uuid.UUID], int]:
+        conditions = _product_conditions(store_ids, keyword, category)
+        total = (
+            await self.session.execute(
+                select(func.count(ProductModel.store_id.distinct())).where(*conditions)
+            )
+        ).scalar_one()
+        stmt = (
+            select(ProductModel.store_id)
+            .where(*conditions)
+            .group_by(ProductModel.store_id)
+            .order_by(func.array_position(_id_array(store_ids), ProductModel.store_id))
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        return list((await self.session.execute(stmt)).scalars().all()), total
+
+    async def find_matching_in_stores(
+        self,
+        *,
+        store_ids: Sequence[uuid.UUID],
+        keyword: str | None,
+        category: str | None,
+        now: datetime,
+    ) -> list[tuple[Product, bool]]:
+        O = DiscountOfferModel
+        has_offer = exists().where(
+            O.product_id == ProductModel.id,
+            or_(*[_status_clause(s, now) for s in OPEN_OFFER_STATUSES]),
+        )
+        stmt = (
+            select(ProductModel, has_offer)
+            .where(*_product_conditions(store_ids, keyword, category))
+            .order_by(ProductModel.name.asc(), ProductModel.id.asc())
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [(self._to_domain(m), bool(flag)) for m, flag in rows]
 
     async def save(self, product: Product) -> Product:
         if product.id is None:
@@ -236,6 +314,61 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
         stmt = (
             base.where(*conditions)
             .order_by(DiscountOfferModel.sales_end.asc(), DiscountOfferModel.id.asc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            (self._to_domain(o), SqlAlchemyProductRepository._to_domain(p)) for o, p in rows
+        ], total
+
+    async def search_in_stores(
+        self,
+        *,
+        store_ids: Sequence[uuid.UUID],
+        status: OfferStatus,
+        keyword: str | None,
+        category: str | None,
+        sort: OfferSort,
+        now: datetime,
+        page: int,
+        size: int,
+    ) -> tuple[list[tuple[DiscountOffer, Product]], int]:
+        M = DiscountOfferModel
+        conditions: list[ColumnElement[bool]] = [
+            ProductModel.store_id == any_(_id_array(store_ids)),
+            ProductModel.is_active,
+            _status_clause(status, now),
+        ]
+        if category is not None:
+            conditions.append(ProductModel.category == category)
+        if keyword is not None:
+            conditions.append(ProductModel.name.ilike(_like_pattern(keyword), escape="\\"))
+        tail = [M.sales_end.asc(), M.id.asc()]
+        if sort == OfferSort.DISTANCE:
+            order = [func.array_position(_id_array(store_ids), ProductModel.store_id).asc(), *tail]
+        elif sort == OfferSort.PRICE:
+            order = [M.sale_price.asc(), *tail]
+        elif sort == OfferSort.DISCOUNT_RATE:
+            rate = cast(ProductModel.original_price - M.sale_price, BigInteger).op("*")(100).op("/")(
+                func.nullif(ProductModel.original_price, 0)
+            )
+            order = [rate.desc().nulls_last(), *tail]
+        else:
+            order = tail
+        total = (
+            await self.session.execute(
+                select(func.count())
+                .select_from(M)
+                .join(ProductModel, ProductModel.id == M.product_id)
+                .where(*conditions)
+            )
+        ).scalar_one()
+        stmt = (
+            select(M, ProductModel)
+            .join(ProductModel, ProductModel.id == M.product_id)
+            .where(*conditions)
+            .order_by(*order)
             .offset((page - 1) * size)
             .limit(size)
         )

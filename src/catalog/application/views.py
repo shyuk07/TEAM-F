@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from catalog.application.ports import StoreInfo
 from catalog.domain.discount_offer import CancelPolicy, DiscountOffer, OfferStatus
 from catalog.domain.product import Product
 
@@ -66,3 +67,22 @@ class OfferDetailView:
     longitude: float | None
     notice: str
     cancel_policy: CancelPolicy
+
+
+@dataclass(frozen=True)
+class SearchedProduct:
+    product: Product
+    has_active_offer: bool
+
+
+@dataclass(frozen=True)
+class StoreSearchHit:
+    store: StoreInfo
+    distance_km: float | None
+    products: list[SearchedProduct]
+
+
+@dataclass(frozen=True)
+class NearbyOfferView:
+    view: OfferView
+    distance_km: float | None
