@@ -424,6 +424,21 @@ async def test_list_store_offers_api_public_vs_owner(client):
     assert r.status_code == 200 and [i["id"] for i in r.json()["items"]] == [offers[1][1]["id"]]
 
 
+async def test_owner_suspended_filter_includes_suspended_offer_of_inactive_product(client):
+    """소유자는 상품 노출 조건이 없다(D84): 노출 중단 상품의 정지 할인도 SUSPENDED 조회에 나온다."""
+    token, store_id, offers = await _setup_exposure(client, n=2)
+    await suspend_offer_row(client, offers[0][1]["id"])  # 0번 상품은 is_active=False
+    url = f"/v1/stores/{store_id}/offers"
+    r = await client.get(url, params={"status": "SUSPENDED"}, headers=bearer(token))
+    assert r.status_code == 200 and r.json()["total"] == 2
+    assert {i["id"] for i in r.json()["items"]} == {offers[0][1]["id"], offers[1][1]["id"]}
+    other = await token_for(client, "other2@test.com", "OWNER")
+    r = await client.get(url, params={"status": "SUSPENDED"}, headers=bearer(other))
+    assert r.status_code == 400 and r.json() == err(
+        400, "VALIDATION_ERROR", "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다."
+    )
+
+
 async def test_list_store_offers_hidden_store_404_for_non_owner_200_for_owner(client):
     token, store_id, offers = await _setup_exposure(client, n=2)
     url = f"/v1/stores/{store_id}/offers"

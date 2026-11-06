@@ -23,15 +23,13 @@ from catalog.application.views import (
 )
 from catalog.domain.discount_offer import (
     OFFER_NOTICE,
-    OPEN_OFFER_STATUSES,
-    OWNER_DEFAULT_OFFER_STATUSES,
     DiscountOffer,
     OfferStatus,
+    resolve_store_list_statuses,
 )
 from catalog.domain.exceptions import (
     NotStoreOwnerError,
     OfferNotFoundError,
-    OfferStatusNotAllowedError,
     OpenOfferExistsError,
     ProductNotFoundError,
     StoreNotFoundError,
@@ -425,12 +423,7 @@ class CatalogApplicationService:
         store = await self._load_store(store_id)
         store.ensure_products_visible_to(viewer_id)
         is_owner = store.is_owned_by(viewer_id)
-        if statuses and not is_owner and OfferStatus.SUSPENDED in statuses:
-            raise OfferStatusNotAllowedError()
-        if statuses:
-            selected = tuple(dict.fromkeys(statuses))
-        else:
-            selected = OWNER_DEFAULT_OFFER_STATUSES if is_owner else OPEN_OFFER_STATUSES
+        selected = resolve_store_list_statuses(statuses, is_owner=is_owner)
         rows, total = await self.offers.find_by_store(
             store_id, statuses=selected, now=now, exposed_only=not is_owner, page=page, size=size
         )

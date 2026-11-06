@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -13,6 +14,7 @@ from catalog.domain.exceptions import (
     OfferNotReservableError,
     OfferOutOfStockError,
     OfferSalesEndedError,
+    OfferStatusNotAllowedError,
     OfferSuspendedError,
     OpenOfferExistsError,
     ProductInactiveError,
@@ -84,6 +86,19 @@ OPEN_OFFER_STATUSES: tuple[OfferStatus, ...] = (
 
 # 상점주의 #9 기본 목록 집합 = 공개 기본 집합 + 정지 (D84). is_open이 참인 유효 상태 집합과 같다.
 OWNER_DEFAULT_OFFER_STATUSES: tuple[OfferStatus, ...] = OPEN_OFFER_STATUSES + (OfferStatus.SUSPENDED,)
+
+
+def resolve_store_list_statuses(statuses: Sequence[OfferStatus] | None, *, is_owner: bool) -> tuple[OfferStatus, ...]:
+    """#9 상점 할인 목록의 조회 상태 집합을 정한다 (D83·D84).
+
+    비소유자가 SUSPENDED를 지정하면 OfferStatusNotAllowedError. 지정이 없으면 소유자는 정지 포함 기본 집합,
+    그 외는 공개 기본 집합. 지정 값은 순서를 유지한 채 중복을 제거한다.
+    """
+    if statuses and not is_owner and OfferStatus.SUSPENDED in statuses:
+        raise OfferStatusNotAllowedError()
+    if statuses:
+        return tuple(dict.fromkeys(statuses))
+    return OWNER_DEFAULT_OFFER_STATUSES if is_owner else OPEN_OFFER_STATUSES
 
 
 class DiscountOffer:
