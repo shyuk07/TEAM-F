@@ -65,6 +65,10 @@ def _check_profile_text(value: str, label: str) -> None:
         raise ValueError(f"{label}은 공백이 아닌 {PROFILE_TEXT_MAX_LENGTH}자 이하여야 합니다.")
 
 
+def _is_filled(value: str | None) -> bool:
+    return value is not None and bool(value.strip())
+
+
 def _require_aware(value: datetime | None, name: str) -> None:
     if value is not None and value.tzinfo is None:
         raise ValueError(f"{name}은 timezone 정보가 있어야 합니다.")
@@ -357,11 +361,16 @@ class User:
             _check_profile_text(name, "이름")
         if phone is not None:
             _check_profile_text(phone, "전화번호")
-        # 요청에 들어온 필드만 검사한다(위). 이름·전화번호가 비어 있는 기존 회원·관리자도 다른 필드는 바꿀 수 있다.
-        if name is not None:
-            self.name = name
-        if phone is not None:
-            self.phone = phone
+        new_name = self.name if name is None else name
+        new_phone = self.phone if phone is None else phone
+        # REQ-2: 기존 회원도 내 정보를 바꿀 때는 이름·전화번호를 둘 다 채워야 한다(관리자 예외, B-5).
+        if self.role is not Role.ADMIN:
+            if not _is_filled(new_name):
+                raise ValueError("이름은 필수입니다.")
+            if not _is_filled(new_phone):
+                raise ValueError("전화번호는 필수입니다.")
+        self.name = new_name
+        self.phone = new_phone
 
     def ensure_current_password(self, raw: str, hasher: PasswordHasher) -> None:
         if not hasher.verify(raw, self.password_hash):

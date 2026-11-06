@@ -87,13 +87,16 @@ def test_update_profile_rejects_none_blank_long():
     assert (u.name, u.phone) == ("n", "010")
 
 
-def test_update_profile_legacy_member_can_change_only_one_field():
+def test_update_profile_legacy_member_must_fill_both():
+    """REQ-2: 이름·전화번호가 빈 기존 회원은 정보를 바꿀 때 둘 다 채워야 한다."""
     u = user(phone=None)
-    u.update_profile("새이름", None)  # 요청에 든 필드만 검사한다
-    assert (u.name, u.phone) == ("새이름", None)
+    with pytest.raises(ValueError):
+        u.update_profile("새이름", None)  # 적용 뒤 전화번호가 비어 있음
+    u.update_profile("새이름", "011")
+    assert (u.name, u.phone) == ("새이름", "011")
     legacy = user(name=None)
-    legacy.update_profile(None, "011")
-    assert (legacy.name, legacy.phone) == (None, "011")
+    with pytest.raises(ValueError):
+        legacy.update_profile(None, "011")  # 적용 뒤 이름이 비어 있음
     with pytest.raises(ValueError):
         u.update_profile("  ", None)  # 보낸 값은 여전히 검사
 
@@ -254,19 +257,24 @@ def test_point_log_grant_and_other_types_reason_creator():
 
 
 # ── PasswordResetCode (REQ-28·29) ──
-def test_reissue_carries_failed_attempts_until_expiry():
+def test_reissue_always_starts_with_zero_failed_attempts():
     old = issued()
     old.failed_attempts = 5
     now = T0 + timedelta(minutes=14)
-    new = PasswordResetCode.issue(old.user_id, "654321", H, now, old)
-    assert new.failed_attempts == 5 and not new.is_usable(now)
-    with pytest.raises(InvalidResetCodeError):
-        new.check("654321", H, now)  # 맞는 새 코드도 거부
-    old.failed_attempts = 3
-    assert PasswordResetCode.issue(old.user_id, "654321", H, now, old).failed_attempts == 3
-    # 만료된 이전 코드 뒤에는 0, 이전 코드가 없어도 0
-    assert PasswordResetCode.issue(old.user_id, "654321", H, T0 + timedelta(minutes=15), old).failed_attempts == 0
-    assert PasswordResetCode.issue(old.user_id, "654321", H, now, None).failed_attempts == 0
+    new = PasswordResetCode.issue(old.user_id, "654321", H, now)
+    assert new.failed_attempts == 0 and new.is_usable(now) and new.created_at == now
+    assert new.check("654321", H, now) is True  # 5회 실패 뒤 새 코드로 성공 (REQ-29)
+
+
+def test_request_throttled_within_cooldown_only():
+    old = issued()  # created_at == T0
+    cd = PasswordResetCode.REQUEST_COOLDOWN
+    assert cd == timedelta(seconds=60)
+    assert PasswordResetCode.is_request_throttled(old, T0) is True
+    assert PasswordResetCode.is_request_throttled(old, T0 + cd - timedelta(seconds=1)) is True
+    assert PasswordResetCode.is_request_throttled(old, T0 + cd) is False  # 정확히 60초는 허용
+    assert PasswordResetCode.is_request_throttled(old, T0 + timedelta(minutes=20)) is False
+    assert PasswordResetCode.is_request_throttled(None, T0) is False
 
 
 def issued(raw="123456"):
