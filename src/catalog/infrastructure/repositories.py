@@ -293,6 +293,7 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
         *,
         statuses: Sequence[OfferStatus],
         now: datetime,
+        exposed_only: bool,
         page: int,
         size: int,
     ) -> tuple[list[tuple[DiscountOffer, Product]], int]:
@@ -300,6 +301,9 @@ class SqlAlchemyDiscountOfferRepository(DiscountOfferRepository):
             ProductModel.store_id == store_id,
             or_(*[_status_clause(s, now) for s in statuses]),
         ]
+        if exposed_only:
+            conditions.append(ProductModel.is_active.is_(True))
+            conditions.append(not_(_status_clause(OfferStatus.SUSPENDED, now)))
         base = select(DiscountOfferModel, ProductModel).join(
             ProductModel, ProductModel.id == DiscountOfferModel.product_id
         )

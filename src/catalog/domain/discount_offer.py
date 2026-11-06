@@ -82,6 +82,9 @@ OPEN_OFFER_STATUSES: tuple[OfferStatus, ...] = (
     OfferStatus.SOLD_OUT,
 )
 
+# 상점주의 #9 기본 목록 집합 = 공개 기본 집합 + 정지 (D84). is_open이 참인 유효 상태 집합과 같다.
+OWNER_DEFAULT_OFFER_STATUSES: tuple[OfferStatus, ...] = OPEN_OFFER_STATUSES + (OfferStatus.SUSPENDED,)
+
 
 class DiscountOffer:
     def __init__(

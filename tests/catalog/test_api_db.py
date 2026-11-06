@@ -812,11 +812,11 @@ async def test_status_clause_matches_effective_status(client):
     async with client.session_factory() as s:
         offers = SqlAlchemyDiscountOfferRepository(s)
         for status in OfferStatus:
-            rows, total = await offers.find_by_store(sid, statuses=[status], now=now, page=1, size=100)
+            rows, total = await offers.find_by_store(sid, statuses=[status], now=now, exposed_only=False, page=1, size=100)
             expected = {o.id for o in saved if o.effective_status(now) == status}
             assert {o.id for o, _ in rows} == expected and total == len(expected), status
         multi = [OfferStatus.SCHEDULED, OfferStatus.SOLD_OUT]
-        rows, total = await offers.find_by_store(sid, statuses=multi, now=now, page=1, size=100)
+        rows, total = await offers.find_by_store(sid, statuses=multi, now=now, exposed_only=False, page=1, size=100)
         expected = {o.id for o in saved if o.effective_status(now) in multi}
         assert {o.id for o, _ in rows} == expected and total == len(expected)
         assert await offers.exists_open_by_store(sid, now)

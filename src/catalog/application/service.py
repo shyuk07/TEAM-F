@@ -24,12 +24,14 @@ from catalog.application.views import (
 from catalog.domain.discount_offer import (
     OFFER_NOTICE,
     OPEN_OFFER_STATUSES,
+    OWNER_DEFAULT_OFFER_STATUSES,
     DiscountOffer,
     OfferStatus,
 )
 from catalog.domain.exceptions import (
     NotStoreOwnerError,
     OfferNotFoundError,
+    OfferStatusNotAllowedError,
     OpenOfferExistsError,
     ProductNotFoundError,
     StoreNotFoundError,
@@ -356,7 +358,7 @@ class CatalogApplicationService:
         if changes == {"is_active": False}:
             offer.pause(now)
         elif changes == {"is_active": True}:
-            store.ensure_not_closed("할인을 재개")
+            store.ensure_can_resume()
             has_other = await self.offers.find_open_by_product(product.id, now) is not None
             offer.resume(now, product_active=product.is_active, has_other_open_offer=has_other)
         else:
@@ -421,10 +423,16 @@ class CatalogApplicationService:
     ) -> Page[OfferView]:
         now = self.clock.now()
         store = await self._load_store(store_id)
-        store.ensure_visible_to(viewer_id)
-        selected = tuple(dict.fromkeys(statuses)) if statuses else OPEN_OFFER_STATUSES
+        store.ensure_products_visible_to(viewer_id)
+        is_owner = store.is_owned_by(viewer_id)
+        if statuses and not is_owner and OfferStatus.SUSPENDED in statuses:
+            raise OfferStatusNotAllowedError()
+        if statuses:
+            selected = tuple(dict.fromkeys(statuses))
+        else:
+            selected = OWNER_DEFAULT_OFFER_STATUSES if is_owner else OPEN_OFFER_STATUSES
         rows, total = await self.offers.find_by_store(
-            store_id, statuses=selected, now=now, page=page, size=size
+            store_id, statuses=selected, now=now, exposed_only=not is_owner, page=page, size=size
         )
         items = [self._offer_view(o, p, store.name, now) for o, p in rows]
         return Page(items=items, page=page, size=size, total=total)

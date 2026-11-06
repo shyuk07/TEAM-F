@@ -28,6 +28,7 @@ from catalog.presentation.schemas import (
     StoreSearchItem,
     ProductResponse,
     ProductUpdateRequest,
+    OfferListStatus,
     PublicOfferStatus,
     StockAdjustmentRequest,
     StockAdjustmentResponse,
@@ -83,10 +84,10 @@ async def list_store_offers(
     viewer: OptionalUser,
     service: Service,
     status: Annotated[
-        list[PublicOfferStatus] | None,
+        list[OfferListStatus] | None,
         Query(
-            description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED (반복 가능). "
-            "생략하면 SCHEDULED, ON_SALE, SOLD_OUT"
+            description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED / SUSPENDED(상점주만) (반복 가능). "
+            "생략하면 SCHEDULED, ON_SALE, SOLD_OUT (상점주는 SUSPENDED 포함)"
         ),
     ] = None,
     page: PageParam = 1,

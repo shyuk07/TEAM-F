@@ -12,7 +12,10 @@ from catalog.domain.exceptions import (
 
 
 class StoreRef:
-    """stores 컨텍스트에서 받은 값의 읽기 전용 복사본."""
+    """stores 컨텍스트에서 받은 값의 읽기 전용 복사본.
+
+    정지 상점은 등록(#7)·재등록(#13)·재개(#11 is_active:true)가 막히고, 중단·#12·재고 조정은 허용된다 (D86).
+    """
 
     def __init__(
         self,
@@ -71,7 +74,7 @@ class StoreRef:
 
     def are_products_visible_to(self, viewer_id: uuid.UUID | None) -> bool:
         """폐점·정지된 상점의 상품은 소유자에게만 보인다 (requirements 정책 표, CI-15).
-        할인 조회(#9·#10)는 is_visible_to를 그대로 쓴다."""
+        할인 상세(#10)만 is_visible_to(정지만 숨김)를 그대로 쓴다 (D82, D83)."""
         return not (self.closed or self.suspended) or self.is_owned_by(viewer_id)
 
     def ensure_products_visible_to(self, viewer_id: uuid.UUID | None) -> None:
@@ -88,6 +91,13 @@ class StoreRef:
             raise StoreNotApprovedError(f"승인되지 않은 상점에는 {what}을 등록할 수 없습니다.")
 
     def ensure_not_closed(self, action: str) -> None:
-        """이미 등록된 대상에 대한 동작용. 미승인은 검사하지 않는다."""
+        """이미 등록된 대상에 대한 동작용. 미승인·정지는 검사하지 않는다 (할인 재개는 ensure_can_resume, D86)."""
         if self.closed:
             raise StoreClosedError(f"폐점된 상점에서는 {action}할 수 없습니다.")
+
+    def ensure_can_resume(self) -> None:
+        """할인 재개(#11 is_active:true)용. 검사 순서는 폐점 -> 정지. 미승인은 검사하지 않는다 (D86)."""
+        if self.closed:
+            raise StoreClosedError("폐점된 상점에서는 할인을 재개할 수 없습니다.")
+        if self.suspended:
+            raise StoreSuspendedError("관리자에 의해 정지된 상점입니다.")

@@ -876,7 +876,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | Q44 | 한 상점의 `products[]` 개수 상한 필요 여부 | 사용자 결정 후속 | 상한 없음. 한 요청은 상점 최대 100개(`size le=100`)의 일치 상품 전체를 한 번에 읽는다. 대안: 상점당 상위 N개만 담고 `product_total` 필드를 더하는 안(응답 필드 추가라 별도 확인) | 상점당 상품 수가 많지 않다는 전제(요구 조건에 상점당 상품 상한 없음, requirements "상점당 상품 개수 상한 없음") | `find_matching_in_stores`, 스키마 | 확정(사용자 결정) |
 | Q45 | #9에서 비소유자가 `status=SUSPENDED`를 보냈을 때 400 메시지 문구(코드는 `VALIDATION_ERROR` 고정) | D84, 요구 조건에 문구 없음 | "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다." | 기존 Pydantic 오류의 `필드: 오류` 형식과 맞춤 | `OfferStatusNotAllowedError` 한 곳 | 닫힘(사용자 결정, 2026-11-06: 임시안 문구 그대로 확정) |
 | Q46 | 상점 강제 폐점으로 `is_active=false`가 된 정지 할인(유효 상태 `CLOSED`, 정지 이력 있음)이 비소유자에게 보이는가 | D83, requirements "정지 → 상점 강제 폐점 → 종료(중단됨)" | 유효 상태 기준이라 `CLOSED`로 취급: #10은 공개, #9는 폐점 상점 자체가 404라 목록에 나오지 않음(결과적으로 문제없음) | #10 `is_visible`·`_status_clause`가 유효 상태 기준 | `DiscountOffer.is_visible` | 닫힘(사용자 결정, 2026-11-06: 제안대로 공개 확정) |
-| Q47 | 정지된 상점의 정지된 할인을 #11로 재개할 때 어느 에러가 먼저인가 | D86, 요구 조건에 순서 없음 | `STORE_SUSPENDED`가 먼저(현재 코드 순서 유지: 상점 검사 → `offer.resume`) | 코드 변경 최소 | `update_offer` 재개 분기 | 임시 |
+| Q47 | 정지된 상점의 정지된 할인을 #11로 재개할 때 어느 에러가 먼저인가 | D86, 요구 조건에 순서 없음 | `STORE_SUSPENDED`가 먼저(현재 코드 순서 유지: 상점 검사 → `offer.resume`) | 코드 변경 최소 | `update_offer` 재개 분기 | 닫힘(사용자 결정, 2026-11-06: 그대로 진행) |
 | - | 스키마 S3(`discount_offers.price` 삭제), S6(`products.created_at`) | 4절, db-schema §5 | S3 삭제 보류(모델은 매핑 안 함), S6 보류 | 4절 | `schema.sql`, `db-schema/SKILL.md` | 팀 확인 |
 | - | 명세 #14의 403 문구와 422 표기 | 11절 | D8, D14 | 전역 핸들러 동작 | `docs/reference/catalog.md` | 팀 확인 |
 
