@@ -572,15 +572,13 @@ async def test_cancel_pending_with_paid_payment_is_500_and_saves_nothing(make_en
     assert_logged_once(caplog, rid, payment.id, kind="PAID_PAYMENT_ON_PENDING_RESERVATION")
 
 
-@pytest.mark.parametrize("payment_status", [None, "READY", "FAILED", "REFUNDED"])
+@pytest.mark.parametrize("payment_status", [None, "READY", "FAILED"])
 async def test_cancel_pending_with_unpaid_or_missing_payment_is_still_200(
     make_env, client, caplog, payment_status
 ):
     env = make_env()
     rid = await env.seed(S.PENDING_PAYMENT)
-    if payment_status == "REFUNDED":
-        await env.seed_payment(rid, refunded=True)  # RD-40 미정: 막지 않는다
-    elif payment_status:
+    if payment_status:
         await env.seed_payment(rid, status=payment_status)
 
     with caplog.at_level(logging.DEBUG):
@@ -874,3 +872,54 @@ async def test_lock_order_refund_api_with_real_stock(make_env, client):
     assert_lock_order(events)
     assert events.index("refund_insert") < events.index("offer_save")
     assert events.count("commit") == 1 and events[-1] == "commit"
+
+
+# ══ RD-40 결정(payments REQ-35): 결제 대기 예약 + REFUNDED 결제 = 불일치 ══
+async def test_cancel_pending_with_refunded_payment_is_500_and_changes_nothing(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed(S.PENDING_PAYMENT)
+    payment = await env.seed_payment(rid, refunded=True)
+    refunds_before = list(env.refunds_saved)  # 기존 환불 1건(seed)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await cancel(client, rid)
+
+    assert r.status_code == 500 and r.json()["error_code"] == "DATA_INCONSISTENT"
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0
+    assert env.reservation(rid).status == S.PENDING_PAYMENT  # 예약 상태 그대로
+    assert env.stock.released == []  # 추가 재고 복구 없음
+    assert env.refunds_saved == refunds_before  # 새 환불 없음
+    assert_logged_once(caplog, rid, payment.id, kind="REFUNDED_PAYMENT_ON_PENDING_RESERVATION")
+
+
+async def test_pay_with_refunded_payment_on_pending_reservation_is_500_not_409(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed(S.PENDING_PAYMENT)
+    payment = await env.seed_payment(rid, refunded=True)
+    refunds_before = list(env.refunds_saved)  # 기존 환불 1건(seed)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await pay(client, rid)
+
+    assert r.status_code == 500 and r.json()["error_code"] == "DATA_INCONSISTENT"  # 409 "이미 결제됨"보다 먼저
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0 and env.refunds_saved == refunds_before
+    assert env.reservation(rid).status == S.PENDING_PAYMENT
+    assert_logged_once(caplog, rid, payment.id, kind="REFUNDED_PAYMENT_ON_PENDING_RESERVATION")
+
+
+async def test_refund_api_with_refunded_payment_on_pending_reservation_is_500(make_env, client, caplog):
+    env = make_env()
+    rid = await env.seed(S.PENDING_PAYMENT)
+    payment = await env.seed_payment(rid, refunded=True)
+    refunds_before = list(env.refunds_saved)  # 기존 환불 1건(seed)
+
+    with caplog.at_level(logging.DEBUG):
+        r = await refund(client, str(payment.id))
+
+    assert r.status_code == 500 and r.json()["error_code"] == "DATA_INCONSISTENT"  # 409 "이미 환불됨"보다 먼저
+    assert_body_has_no_ids(r, rid, payment.id)
+    assert env.tx.commits == 0 and env.refunds_saved == refunds_before
+    assert env.reservation(rid).status == S.PENDING_PAYMENT
+    assert_logged_once(caplog, rid, payment.id, kind="REFUNDED_PAYMENT_ON_PENDING_RESERVATION")

@@ -55,6 +55,7 @@ class PaymentApplicationService:
     # 모의 결제 실행: 금액은 클라이언트가 아니라 서버(예약 정보)에서 계산한다.
     # 검사 순서: 404(예약 없음) -> 403(본인 아님) -> 500(데이터 불일치) -> 409(이미 결제) -> 400(결제 불가 상태)
     # 500: 예약이 CANCELLED/PENDING_PAYMENT인데 PAID 결제가 이미 있음(RD-38). 정상 중복 결제(예약 RESERVED)는 409.
+    #      예약이 PENDING_PAYMENT인데 REFUNDED 결제가 있어도 500(RD-40, payments REQ-35). 재결제할 수 없다.
     # 이미 결제된 예약은 상태가 바뀌어 있으므로 중복(409) 검사가 상태(400) 검사보다 먼저여야 한다.
     # 포인트(REQ-42~48): use_points -> 게이트웨이 -> 저장 -> earn_points -> mark_paid -> commit 1회.
     # 어느 단계든 실패하면 rollback으로 사용·적립이 함께 되돌아간다(REQ-45). auth 호출은 commit=False(R13).
@@ -123,7 +124,8 @@ class PaymentApplicationService:
 
     # 환불 요청. 전액 기준이고 위약금은 정책이 계산한다(현재 0원).
     # 검사 순서: 404(결제 없음) -> 403(본인 아님) -> 500(데이터 불일치) -> 409(이미 환불) -> 400(환불 불가)
-    # 500: 예약이 CANCELLED/PENDING_PAYMENT인데 결제가 PAID(RD-38). 정상 중복 환불(결제 REFUNDED)은 409.
+    # 500: 예약이 CANCELLED/PENDING_PAYMENT인데 결제가 PAID(RD-38), 예약이 PENDING_PAYMENT인데 결제가 REFUNDED(RD-40).
+    #      정상 중복 환불(예약 CANCELLED + 결제 REFUNDED)은 409.
     # 락 순서(RD-5): (상품 ->) 할인 -> 예약 -> 결제 -> 환불 INSERT. 결제를 먼저 잠그지 않는다.
     #   결제는 잠금 없이 읽어 예약 ID만 얻고, 예약(할인->예약) 잠금 뒤에 결제를 잠근다.
     async def refund(self, user_id: UUID, payment_id: UUID, reason: str) -> Refund:
@@ -206,7 +208,7 @@ class PaymentApplicationService:
             await self.auth.revoke_points(payment.user_id, earned, commit=False)  # 실제 회수액은 무시(REQ-50)
 
     # 예약 취소(직전 PENDING_PAYMENT)가 부르는 읽기 전용 확인(RD-39). 쓰기·commit·잠금 없음.
-    # 결제가 없거나 PAID가 아니면 통과(RD-40 미정이라 REFUNDED도 막지 않음). PAID면 불일치 예외(500).
+    # 결제가 없거나 READY/FAILED면 통과. PAID(RD-39)나 REFUNDED(RD-40, payments REQ-35)면 불일치 예외(500).
     async def ensure_no_paid_payment_for_reservation(self, reservation_id: UUID) -> None:
         payment = await self.payments.find_by_reservation_id(reservation_id)
         if payment is None:
