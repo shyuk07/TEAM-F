@@ -125,7 +125,8 @@ async def test_cancel_pending_with_paid_payment_is_500_and_rows_unchanged(client
 # Payment 생성자 검증(FAILED면 failed_at 필수)으로 400이 난다. 실제 서비스는 FAILED 결제를
 # 저장하지 않는다(D-11/D-23). FAILED 판단은 DB 없는 tests/payments/test_domain.py의
 # test_status_time_mismatch_rejected(FAILED + failed_at 없음)와 test_fail_records_response_and_failed_at에서 검증한다.
-@pytest.mark.parametrize("payment_status", [None, "READY", "REFUNDED"])
+# REFUNDED는 RD-40 결정(payments REQ-35)으로 불일치가 되어 tests/payments/test_rd40_db.py에서 500을 검증한다.
+@pytest.mark.parametrize("payment_status", [None, "READY"])
 async def test_cancel_pending_without_paid_payment_is_still_200(client, payment_status):
     _, offer_id, _ = await seed_offer(client)
     me = await token_for(client, "me@test.com")

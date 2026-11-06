@@ -100,7 +100,7 @@ def test_ensure_cancel_refundable_rejects_other_reservation_status(reservation_s
         ("PAID", "PENDING_PAYMENT", K.PAID_PAYMENT_ON_PENDING_RESERVATION),
         ("READY", "PENDING_PAYMENT", None),
         ("FAILED", "PENDING_PAYMENT", None),
-        ("REFUNDED", "PENDING_PAYMENT", None),  # RD-40 미정: 막지 않는다
+        ("REFUNDED", "PENDING_PAYMENT", K.REFUNDED_PAYMENT_ON_PENDING_RESERVATION),  # RD-40 결정(REQ-35): 불일치
         ("REFUNDED", "CANCELLED", None),  # 정상
     ],
 )
@@ -157,12 +157,27 @@ async def test_ensure_no_paid_payment_passes_without_payment_or_when_not_paid():
     env = Env()
     await env.service.ensure_no_paid_payment_for_reservation(uuid.uuid4())  # 결제 없음
 
-    for status in ("READY", "FAILED", "REFUNDED"):
+    for status in ("READY", "FAILED"):
         env = Env()
         payment = make_payment(status)
         await env.payments.save(payment)
         await env.service.ensure_no_paid_payment_for_reservation(payment.reservation_id)
         assert (env.db.commits, env.db.rollbacks) == (0, 0)
+
+
+async def test_ensure_no_paid_payment_raises_for_refunded_and_writes_nothing(caplog):
+    """RD-40 결정(payments REQ-35): 결제 대기 예약에 REFUNDED 결제가 있으면 불일치. 쓰기·로그 없음(호출한 쪽이 기록)."""
+    env = Env()
+    payment = make_payment("REFUNDED")
+    await env.payments.save(payment)
+    commits, saved = env.db.commits, dict(env.payments.items)
+    with caplog.at_level("DEBUG"):
+        with pytest.raises(PaymentStateInconsistentError) as e:
+            await env.service.ensure_no_paid_payment_for_reservation(payment.reservation_id)
+    assert e.value.kind == K.REFUNDED_PAYMENT_ON_PENDING_RESERVATION
+    assert env.db.commits == commits and env.db.rollbacks == 0
+    assert env.payments.items == saved and env.refunds.items == {}
+    assert caplog.records == []
 
 
 async def test_ensure_no_paid_payment_raises_for_paid_and_writes_nothing(caplog):

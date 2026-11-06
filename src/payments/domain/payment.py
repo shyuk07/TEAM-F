@@ -17,6 +17,7 @@ from payments.domain.rules import (
     PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES,
     REFUNDABLE_RESERVATION_STATUSES,
     RESERVATION_CANCELLED_STATUS,
+    RESERVATION_PAYABLE_STATUS,
 )
 
 
@@ -174,10 +175,15 @@ class Payment:
             raise self._inconsistent(InconsistencyKind.REFUND_ROW_WITH_PAID_PAYMENT)
 
     def ensure_consistent_with_reservation(self, reservation_status: str) -> None:
-        """반대 방향 불일치 검사(RD-38 ④, RD-39): 결제가 PAID인데 예약이 CANCELLED/PENDING_PAYMENT면 불일치.
+        """반대 방향 불일치 검사.
 
-        PAID가 아닌 결제(READY/FAILED/REFUNDED)는 여기서 막지 않는다(RD-40 미정).
+        - RD-38 ④, RD-39: 결제가 PAID인데 예약이 CANCELLED/PENDING_PAYMENT면 불일치.
+        - RD-40(사용자 결정, payments REQ-35): 결제가 REFUNDED인데 예약이 PENDING_PAYMENT면 불일치.
+          환불은 예약 취소와 함께 일어나므로 정상 흐름에서는 생기지 않는다.
+        READY/FAILED 결제와 REFUNDED + CANCELLED(정상 환불 결과)는 막지 않는다.
         """
+        if self.status == PaymentStatus.REFUNDED and reservation_status == RESERVATION_PAYABLE_STATUS:
+            raise self._inconsistent(InconsistencyKind.REFUNDED_PAYMENT_ON_PENDING_RESERVATION)
         if self.is_paid and reservation_status in PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES:
             kind = (
                 InconsistencyKind.PAID_PAYMENT_ON_CANCELLED_RESERVATION
