@@ -102,9 +102,9 @@ from stores.domain.repository import StoreRepository
 from stores.domain.service import Clock as StoresClock
 from stores.domain.service import Geocoder
 from stores.infrastructure.clock import SystemClock
-from stores.infrastructure.geocoder import NaverGeocoder
+from stores.infrastructure.geocoder import KakaoGeocoder
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
-from stores.infrastructure.settings import get_naver_geocoding_settings
+from stores.infrastructure.settings import get_kakao_geocoding_settings
 from stores.presentation.dependencies import provide_store_repository, provide_stores_service
 
 # 상태 없는 유틸은 싱글턴 (세션을 가진 객체는 요청마다 만든다)
@@ -120,8 +120,8 @@ _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
-# 네이버 지오코딩: NAVER_MAP_* 환경변수가 없으면 개설이 503 (stores.md D28)
-_geocoder: Geocoder = NaverGeocoder(get_naver_geocoding_settings())
+# 카카오 지오코딩: KAKAO_REST_API_KEY가 없으면 개설이 503 (stores.md D28, D50)
+_geocoder: Geocoder = KakaoGeocoder(get_kakao_geocoding_settings())
 _admin_clock: AdminClock = AdminSystemClock()
 
 

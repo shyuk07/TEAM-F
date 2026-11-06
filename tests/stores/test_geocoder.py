@@ -1,4 +1,4 @@
-"""NaverGeocoder·설정 단위 테스트 (stores.md 14.8). httpx.MockTransport만 쓴다: 네트워크 금지(R16)."""
+"""KakaoGeocoder·설정 단위 테스트 (stores.md 15.4). httpx.MockTransport만 쓴다: 네트워크 금지(R16)."""
 
 import logging
 
@@ -7,24 +7,20 @@ import pytest
 
 from stores.domain.coordinates import Coordinates
 from stores.domain.exceptions import AddressNotFoundError, GeocodingUnavailableError
-from stores.infrastructure.geocoder import NaverGeocoder
+from stores.infrastructure.geocoder import KakaoGeocoder
 from stores.infrastructure.settings import (
     DEFAULT_GEOCODE_URL,
-    NaverGeocodingSettings,
-    get_naver_geocoding_settings,
+    KakaoGeocodingSettings,
+    get_kakao_geocoding_settings,
 )
 
 pytestmark = pytest.mark.anyio
 
 SECRET = "super-secret-value-xyz"
-SETTINGS = NaverGeocodingSettings(
-    client_id="the-key-id", client_secret=SECRET, url="https://geo.example.test/geocode"
-)
+SETTINGS = KakaoGeocodingSettings(rest_api_key=SECRET, url="https://geo.example.test/geocode")
 OK_BODY = {
-    "status": "OK",
-    "meta": {"totalCount": 1, "page": 1, "count": 1},
-    "addresses": [{"roadAddress": "r", "x": "127.0276", "y": "37.4979"}],
-    "errorMessage": "",
+    "meta": {"total_count": 1, "pageable_count": 1, "is_end": True},
+    "documents": [{"address_name": "r", "address_type": "ROAD_ADDR", "x": "127.0276", "y": "37.4979"}],
 }
 
 
@@ -48,7 +44,7 @@ class Recorder:
 
 def geocoder_for(handler, settings=SETTINGS):
     rec = Recorder(handler)
-    return NaverGeocoder(settings, transport=httpx.MockTransport(rec)), rec
+    return KakaoGeocoder(settings, transport=httpx.MockTransport(rec)), rec
 
 
 def json_response(body, status=200):
@@ -71,15 +67,19 @@ async def test_request_shape():
     assert req.method == "GET"
     assert str(req.url).startswith("https://geo.example.test/geocode?")
     assert req.url.params["query"] == address  # 한글·공백·&·# 이 쿼리 값으로 온전히 인코딩
-    assert list(req.url.params.keys()) == ["query"]
-    assert req.headers["x-ncp-apigw-api-key-id"] == "the-key-id"
-    assert req.headers["x-ncp-apigw-api-key"] == SECRET
+    assert req.url.params["size"] == "1"
+    assert "analyze_type" not in req.url.params
+    assert sorted(req.url.params.keys()) == ["query", "size"]
+    assert req.headers["authorization"] == f"KakaoAK {SECRET}"
     assert req.headers["accept"] == "application/json"
+    assert not any(name.lower().startswith("x-ncp") for name in req.headers)
 
 
 async def test_multiple_results_use_first():
-    body = dict(OK_BODY, addresses=[{"x": "127.0", "y": "37.0"}, {"x": "128.0", "y": "38.0"}])
-    body["meta"] = {"totalCount": 2}
+    body = {
+        "meta": {"total_count": 2},
+        "documents": [{"x": "127.0", "y": "37.0"}, {"x": "128.0", "y": "38.0"}],
+    }
     g, _ = geocoder_for(json_response(body))
     assert await g.geocode("a") == Coordinates(37.0, 127.0)
 
@@ -87,9 +87,9 @@ async def test_multiple_results_use_first():
 @pytest.mark.parametrize(
     "body",
     [
-        {"status": "OK", "meta": {"totalCount": 0}, "addresses": []},
-        {"status": "OK", "addresses": []},
-        {"status": "OK", "meta": {"totalCount": 0}, "addresses": [{"x": "1", "y": "2"}]},
+        {"meta": {"total_count": 0, "pageable_count": 0, "is_end": True}, "documents": []},
+        {"documents": []},
+        {"meta": {"total_count": 0}, "documents": [{"x": "1", "y": "2"}]},
     ],
 )
 async def test_zero_results_is_address_not_found(body):
@@ -100,7 +100,7 @@ async def test_zero_results_is_address_not_found(body):
 
 @pytest.mark.parametrize("status", [400, 401, 403, 429, 500, 503])
 async def test_upstream_http_errors_are_unavailable_not_not_found(status):
-    g, _ = geocoder_for(json_response({"errorMessage": "x"}, status))
+    g, _ = geocoder_for(json_response({"errorType": "X", "message": "x"}, status))
     with pytest.raises(GeocodingUnavailableError) as e:
         await g.geocode("a")
     assert not isinstance(e.value, AddressNotFoundError)
@@ -117,7 +117,7 @@ async def test_redirect_is_not_followed():
     g, _ = geocoder_for(handler)
     with pytest.raises(GeocodingUnavailableError):
         await g.geocode("a")
-    assert calls == ["https://geo.example.test/geocode?query=a"]
+    assert calls == ["https://geo.example.test/geocode?query=a&size=1"]
 
 
 @pytest.mark.parametrize(
@@ -135,8 +135,8 @@ async def test_network_errors_are_unavailable(error):
         await g.geocode("a")
 
 
-def _with_address(**item):
-    return {"status": "OK", "meta": {"totalCount": 1}, "addresses": [item]}
+def _with_document(**item):
+    return {"meta": {"total_count": 1}, "documents": [item]}
 
 
 @pytest.mark.parametrize(
@@ -145,18 +145,18 @@ def _with_address(**item):
         lambda r: httpx.Response(200, content=b"<html>not json</html>"),
         lambda r: httpx.Response(200, content=b""),
         lambda r: httpx.Response(200, json=["list"]),
-        lambda r: httpx.Response(200, json={"status": "INVALID_REQUEST", "addresses": []}),
-        lambda r: httpx.Response(200, json={"status": "OK"}),
-        lambda r: httpx.Response(200, json={"status": "OK", "addresses": "nope"}),
-        lambda r: httpx.Response(200, json={"status": "OK", "meta": {"totalCount": "1"}, "addresses": []}),
-        lambda r: httpx.Response(200, json=_with_address(y="37.0")),  # x 없음
-        lambda r: httpx.Response(200, json=_with_address(x="127.0")),  # y 없음
-        lambda r: httpx.Response(200, json=_with_address(x="abc", y="37.0")),
-        lambda r: httpx.Response(200, json=_with_address(x=None, y="37.0")),
-        lambda r: httpx.Response(200, json=_with_address(x="nan", y="37.0")),
-        lambda r: httpx.Response(200, json=_with_address(x="127.0", y="91")),
-        lambda r: httpx.Response(200, json=_with_address(x="181", y="37.0")),
-        lambda r: httpx.Response(200, json={"status": "OK", "addresses": ["str"]}),
+        lambda r: httpx.Response(200, json={"meta": {"total_count": 1}}),  # documents 없음
+        lambda r: httpx.Response(200, json={"documents": "nope"}),
+        lambda r: httpx.Response(200, json={"meta": {"total_count": "1"}, "documents": []}),
+        lambda r: httpx.Response(200, json={"meta": {"total_count": True}, "documents": []}),
+        lambda r: httpx.Response(200, json=_with_document(y="37.0")),  # x 없음
+        lambda r: httpx.Response(200, json=_with_document(x="127.0")),  # y 없음
+        lambda r: httpx.Response(200, json=_with_document(x="abc", y="37.0")),
+        lambda r: httpx.Response(200, json=_with_document(x=None, y="37.0")),
+        lambda r: httpx.Response(200, json=_with_document(x="nan", y="37.0")),
+        lambda r: httpx.Response(200, json=_with_document(x="127.0", y="91")),
+        lambda r: httpx.Response(200, json=_with_document(x="181", y="37.0")),
+        lambda r: httpx.Response(200, json={"documents": ["str"]}),
     ],
 )
 async def test_malformed_responses_are_unavailable_not_validation_error(response):
@@ -168,8 +168,8 @@ async def test_malformed_responses_are_unavailable_not_validation_error(response
 
 @pytest.mark.parametrize("bad_url", ["http://[bad", "http://exa mple.test:99999999/x"])
 async def test_invalid_url_is_unavailable_without_leaking_secret(bad_url):
-    settings = NaverGeocodingSettings(client_id="the-key-id", client_secret=SECRET, url=bad_url)
-    g = NaverGeocoder(settings)
+    settings = KakaoGeocodingSettings(rest_api_key=SECRET, url=bad_url)
+    g = KakaoGeocoder(settings)
     with pytest.raises(GeocodingUnavailableError) as e:
         await g.geocode("a")
     assert SECRET not in str(e.value) and bad_url not in str(e.value)
@@ -192,18 +192,19 @@ async def test_no_settings_makes_no_http_call():
 async def test_failures_do_not_leak_secret(caplog):
     caplog.set_level(logging.DEBUG)
     cases = [
-        json_response({"errorMessage": SECRET}, 401),
-        json_response({"errorMessage": SECRET}, 500),
+        json_response({"message": SECRET}, 401),
+        json_response({"message": SECRET}, 429),
+        json_response({"message": SECRET}, 500),
         lambda r: httpx.ConnectError(f"cannot connect with {SECRET}"),
         lambda r: httpx.Response(200, content=SECRET.encode()),
-        json_response(_with_address(x=SECRET, y="1")),
+        json_response(_with_document(x=SECRET, y="1")),
     ]
     for handler in cases:
         g, _ = geocoder_for(handler)
         with pytest.raises(GeocodingUnavailableError) as e:
             await g.geocode("a-secret-free-address")
         assert SECRET not in str(e.value)
-    assert SECRET not in caplog.text and "the-key-id" not in caplog.text
+    assert SECRET not in caplog.text
     # 우리 코드는 주소 본문도 기록하지 않는다. (httpx 자체 INFO 로그는 요청 URL=주소를 남긴다: 보고서 참고)
     ours = " | ".join(r.getMessage() for r in caplog.records if r.name.startswith("stores."))
     assert ours and "a-secret-free-address" not in ours
@@ -212,48 +213,54 @@ async def test_failures_do_not_leak_secret(caplog):
 
 # ── 설정 ──
 def test_settings_complete():
-    s = get_naver_geocoding_settings(
-        {"NAVER_MAP_CLIENT_ID": "id", "NAVER_MAP_CLIENT_SECRET": "sec"}
-    )
-    assert s == NaverGeocodingSettings("id", "sec", DEFAULT_GEOCODE_URL, 5.0)
+    s = get_kakao_geocoding_settings({"KAKAO_REST_API_KEY": "key"})
+    assert s == KakaoGeocodingSettings("key", DEFAULT_GEOCODE_URL, 5.0)
+    assert DEFAULT_GEOCODE_URL == "https://dapi.kakao.com/v2/local/search/address.json"
 
 
 @pytest.mark.parametrize(
     "env",
     [
         {},
-        {"NAVER_MAP_CLIENT_ID": "id"},
-        {"NAVER_MAP_CLIENT_SECRET": "sec"},
-        {"NAVER_MAP_CLIENT_ID": "id", "NAVER_MAP_CLIENT_SECRET": "  "},
-        {"NAVER_MAP_CLIENT_ID": "", "NAVER_MAP_CLIENT_SECRET": ""},
+        {"KAKAO_REST_API_KEY": "  "},
+        {"KAKAO_REST_API_KEY": ""},
     ],
 )
-def test_settings_missing_keys_returns_none_without_raising(env):
-    assert get_naver_geocoding_settings(env) is None
+def test_settings_missing_key_returns_none_without_raising(env):
+    assert get_kakao_geocoding_settings(env) is None
 
 
-def test_settings_missing_keys_logs_warning_without_values(caplog):
+def test_settings_missing_key_logs_warning_without_values(caplog):
     with caplog.at_level(logging.WARNING):
-        get_naver_geocoding_settings({"NAVER_MAP_CLIENT_ID": "only-id-value"})
-    assert "NAVER_MAP_CLIENT_SECRET" in caplog.text
-    assert "only-id-value" not in caplog.text
+        get_kakao_geocoding_settings({"KAKAO_REST_API_KEY": " ", "KAKAO_GEOCODE_URL": "https://x-url-value.test"})
+    assert "KAKAO_REST_API_KEY" in caplog.text
+    assert "x-url-value" not in caplog.text
 
 
 @pytest.mark.parametrize("raw", ["abc", "0", "-3", "inf", "nan", ""])
 def test_settings_invalid_timeout_uses_default(raw):
-    s = get_naver_geocoding_settings(
-        {"NAVER_MAP_CLIENT_ID": "id", "NAVER_MAP_CLIENT_SECRET": "sec", "NAVER_MAP_TIMEOUT_SECONDS": raw}
-    )
+    s = get_kakao_geocoding_settings({"KAKAO_REST_API_KEY": "key", "KAKAO_TIMEOUT_SECONDS": raw})
     assert s.timeout_seconds == 5.0
 
 
+def test_settings_invalid_timeout_warning_names_variable_only(caplog):
+    with caplog.at_level(logging.WARNING):
+        get_kakao_geocoding_settings({"KAKAO_REST_API_KEY": "key-value-abc", "KAKAO_TIMEOUT_SECONDS": "abc"})
+    assert "KAKAO_TIMEOUT_SECONDS" in caplog.text
+    assert "key-value-abc" not in caplog.text
+
+
 def test_settings_custom_timeout_and_url():
-    s = get_naver_geocoding_settings(
+    s = get_kakao_geocoding_settings(
         {
-            "NAVER_MAP_CLIENT_ID": "id",
-            "NAVER_MAP_CLIENT_SECRET": "sec",
-            "NAVER_MAP_TIMEOUT_SECONDS": "2.5",
-            "NAVER_MAP_GEOCODE_URL": "https://other.example.test/g",
+            "KAKAO_REST_API_KEY": "key",
+            "KAKAO_TIMEOUT_SECONDS": "2.5",
+            "KAKAO_GEOCODE_URL": "https://other.example.test/g",
         }
     )
     assert s.timeout_seconds == 2.5 and s.url == "https://other.example.test/g"
+
+
+def test_settings_repr_has_no_key():
+    s = get_kakao_geocoding_settings({"KAKAO_REST_API_KEY": SECRET})
+    assert SECRET not in repr(s) and "KakaoGeocodingSettings(" in repr(s)

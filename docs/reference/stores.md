@@ -62,15 +62,15 @@
 
 - **검사 순서:** 주소 → 상점명 → 이미 개설 → 동일 상점명·주소 → 지오코딩. 앞 검사가 실패하면 지오코딩을 호출하지 않는다(설계 D40). 명세 표와 달리 "주소를 찾을 수 없습니다"가 "이미 개설"보다 뒤에 온다(둘 다 400).
 - **동일 상점명·주소:** 유니코드 NFC 정규화, 앞뒤·연속 공백 정리 후 정확히 일치하면 중복이다(대소문자 구분). 폐점·정지 상점도 포함한다. DB 제약 `uq_stores_name_address`가 동시 요청에서도 보장한다(설계 D32·D33). 응답의 `pickup_address`는 정규화된 입력값이다.
-- **지오코딩:** 네이버 Geocoding API(Naver Cloud Platform Maps). 결과가 여러 건이면 첫 번째를 쓴다. 타임아웃 5초, 재시도 없음. 네트워크 오류·타임아웃·네이버 오류 응답·키 미설정은 503이다. 서버는 키 없이도 시작되며(경고 로그), 이때 상점 개설만 503이다(설계 D28·D29).
-- **설정 (`.env`):** `NAVER_MAP_CLIENT_ID`, `NAVER_MAP_CLIENT_SECRET` (필수), `NAVER_MAP_GEOCODE_URL`, `NAVER_MAP_TIMEOUT_SECONDS` (선택). 예시는 `.env.example`.
+- **지오코딩:** 카카오 로컬 API 주소 검색(`GET https://dapi.kakao.com/v2/local/search/address.json`, 헤더 `Authorization: KakaoAK {REST API 키}`, `query`·`size=1`). 응답의 첫 번째 결과(`x`=경도, `y`=위도)를 쓴다. 타임아웃 5초, 재시도 없음. 결과 0건이면 400 `ADDRESS_NOT_FOUND`이며, 주소가 아닌 키워드형 입력(가게 이름 등)도 0건이 될 수 있다. 네트워크 오류·타임아웃·카카오 오류 응답(401 키 오류, 429 한도 초과, 5xx 등)·키 미설정은 503이다. 서버는 키 없이도 시작되며(경고 로그), 이때 상점 개설만 503이다(설계 D28·D29, D48~D53).
+- **설정 (`.env`):** `KAKAO_REST_API_KEY` (필수, Kakao Developers 앱의 REST API 키), `KAKAO_GEOCODE_URL`, `KAKAO_TIMEOUT_SECONDS` (선택). 예시는 `.env.example`.
 
 > **확인 필요**
-> - 네이버 엔드포인트·헤더 이름은 오프라인에서 가정한 값이다(설계 D27, 기본 `https://maps.apigw.ntruss.com/map-geocode/v2/geocode`, 헤더 `x-ncp-apigw-api-key-id`·`x-ncp-apigw-api-key`). NCP 콘솔에서 확인하고, 다르면 `NAVER_MAP_GEOCODE_URL`로 바꾼다.
+> - 실제 키로 한 번 호출해 `size=1` 파라미터와 오류 상태 코드가 가정과 같은지 확인한다(설계 §16).
 > - 이 기능 이전에 개설된 상점은 좌표가 `null`이다(백필 없음, 설계 C20).
-> - ~~주소 → 좌표 변환 방법~~ (해결됨: 네이버 Geocoding API)
+> - ~~주소 → 좌표 변환 방법~~ (해결됨: 카카오 로컬 API, 2026-11-06 네이버에서 교체)
 > - ~~상점주 승인 상태를 어디에 저장할지~~ (해결됨: `users.status`, 승인은 [admin.md 1번](admin.md#1-상점주-계정-승인))
-> - "1인 1상점" 규칙에 맞춰 `db-schema` 스킬의 `schema.sql`에 `stores.owner_id UNIQUE`를 넣었습니다. 폐점 후 재개점도 같은 행을 다시 쓰는 방식이어야 합니다
+> - "1인 1상점" 규칙에 맞춰 `db-schema` 스킬의 `schema.sql`에 `stores.owner_id UNIQUE`를 넣었습니다
 
 ---
 
@@ -84,7 +84,6 @@
 - 진행 중이거나 예정된 할인 판매, 또는 픽업 대기 중인 예약이 있으면 폐점할 수 없다.
 - 폐점 시 `closed_at`이 기록된다.
 - 폐점된 상점에서는 상품 및 할인 판매를 등록할 수 없다.
-- 폐점한 상점은 재개점할 수 있다.
 
 **헤더**
 - `Authorization: Bearer {access_token}`
@@ -133,5 +132,3 @@
 > **미연계 (reservations):** 픽업 대기 예약 검사는 현재 자리표시자(`NoPickupPendingReservations`)라 항상 통과한다. reservations 연동 후 `src/container.py`의 바인딩만 바꾼다.
 >
 > **알려진 경합 (설계 D22, 후속):** 할인 등록은 상점 행을 잠그지 않으므로, 폐점 확인과 커밋 사이에 같은 상점주가 할인을 등록하면 폐점된 상점에 할인이 남을 수 있다.
-
-> **확인 필요:** 재개점 API가 없습니다. 만든다면 `POST /v1/stores/{store_id}/reopen`을 제안합니다.
