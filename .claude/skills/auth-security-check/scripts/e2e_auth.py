@@ -49,12 +49,12 @@ async def run(r: Report, keep: bool) -> None:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             try:
                 r.section("회원가입")
-                res = await c.post("/v1/auth/signup", json={"email": email, "password": PW, "role": "CUSTOMER"})
+                res = await c.post("/v1/auth/signup", json={"email": email, "password": PW, "name": "보안점검", "phone": "010-0000-0000", "role": "CUSTOMER"})
                 r.check(res.status_code == 201, "가입 201", str(res.status_code))
                 r.check(not any("password" in k for k in res.json()), "가입 응답에 password 없음", str(sorted(res.json())))
-                res = await c.post("/v1/auth/signup", json={"email": f"sec-adm-{tag}@example.com", "password": PW, "role": "ADMIN"})
+                res = await c.post("/v1/auth/signup", json={"email": f"sec-adm-{tag}@example.com", "password": PW, "name": "보안점검", "phone": "010-0000-0000", "role": "ADMIN"})
                 r.check(res.status_code == 400 and is_error(res, "VALIDATION_ERROR"), "ADMIN 가입 거부 400", str(res.status_code))
-                res = await c.post("/v1/auth/signup", json={"email": owner_email, "password": PW, "role": "OWNER"})
+                res = await c.post("/v1/auth/signup", json={"email": owner_email, "password": PW, "name": "보안점검", "phone": "010-0000-0000", "role": "OWNER"})
                 if res.status_code == 201:
                     r.add("주의", "누구나 OWNER로 가입 가능", "상점주 승인 절차 없음 (stores 구현 시 승인 상태 확인 필요)")
                 else:

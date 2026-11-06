@@ -123,3 +123,15 @@ class UserAlreadyWithdrawnError(_CodedValueError):
 class InvalidPageError(_CodedValueError):
     error_code = "INVALID_PAGE"
     default_message = "페이지 값이 올바르지 않습니다."
+
+
+class CurrentPasswordMismatchError(_CodedValueError):
+    error_code = "CURRENT_PASSWORD_MISMATCH"
+    default_message = "현재 비밀번호가 올바르지 않습니다."
+
+
+class InvalidResetCodeError(_CodedValueError):
+    """코드 불일치·만료·횟수 초과·미가입·탈퇴를 구분하지 않는다(가입 여부 노출 방지)."""
+
+    error_code = "INVALID_RESET_CODE"
+    default_message = "재설정 코드가 올바르지 않거나 만료되었습니다."

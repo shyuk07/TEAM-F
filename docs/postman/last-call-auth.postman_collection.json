@@ -61,7 +61,7 @@
         "method": "POST",
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "url": "{{baseUrl}}/v1/auth/signup",
-        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"role\": \"CUSTOMER\"\n}" }
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"name\": \"홍길동\",\n  \"phone\": \"010-1234-5678\",\n  \"role\": \"CUSTOMER\"\n}" }
       },
       "event": [{ "listen": "test", "script": { "exec": [
         "pm.test('409 EMAIL_DUPLICATED', () => {",
@@ -123,7 +123,7 @@
           "host": ["{{baseUrl}}"],
           "path": ["v1", "users", "me", "points"],
           "query": [
-            { "key": "type", "value": "EARN", "disabled": true, "description": "EARN, USE, RESTORE, REVOKE" },
+            { "key": "type", "value": "EARN", "disabled": true, "description": "EARN, USE, RESTORE, REVOKE, GRANT, EXPIRE" },
             { "key": "page", "value": "0" },
             { "key": "size", "value": "20" }
           ]

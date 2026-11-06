@@ -3,6 +3,7 @@ from datetime import datetime
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 from auth.infrastructure import models as auth_models  # noqa: F401
 from database import get_db
@@ -84,10 +85,11 @@ async def test_open_store_validation(client):
 
 
 async def test_open_store_owner_without_name(client):
-    await client.post(
-        "/v1/auth/signup",
-        json={"email": "n@test.com", "password": "password123", "role": "OWNER"},
-    )
+    # 가입은 이름이 필수가 되었으므로, 이름 없는 기존 회원은 가입 뒤 DB에서 이름을 지워 만든다.
+    await signup(client, "n@test.com", "OWNER")
+    async with client.session_factory() as s:
+        await s.execute(text("UPDATE users SET name = NULL WHERE email = 'n@test.com'"))
+        await s.commit()
     await approve_owner(client, "n@test.com")
     token = (await login(client, "n@test.com")).json()["access_token"]
     r = await client.post("/v1/stores", json={"pickup_address": "주소"}, headers=bearer(token))

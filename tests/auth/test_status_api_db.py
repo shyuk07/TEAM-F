@@ -193,7 +193,7 @@ async def test_user_columns_roundtrip_with_timezone(client):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     async with client.session_factory() as s:
         repo = SqlAlchemyUserRepository(s)
-        u = User.register("r@test.com", "h", "OWNER")
+        u = User.register("r@test.com", "h", "OWNER", name="n", phone="010-0000-0000")
         await repo.save(u)
         u.reject_owner("서류 미비", now)
         await repo.save(u)
@@ -217,7 +217,7 @@ async def test_suspension_columns_roundtrip(client):
     until = now + timedelta(days=3)
     async with client.session_factory() as s:
         repo = SqlAlchemyUserRepository(s)
-        u = User.register("s@test.com", "h", "CUSTOMER")
+        u = User.register("s@test.com", "h", "CUSTOMER", name="n", phone="010-0000-0000")
         await repo.save(u)
         u.suspend("욕설", until, now)
         await repo.save(u)

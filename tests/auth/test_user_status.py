@@ -53,8 +53,8 @@ def withdrawn(role=Role.CUSTOMER):
 
 # ── 생성·불변식 ──
 def test_register_status_by_role():
-    assert User.register("a@b.com", "h", "OWNER").status is UserStatus.PENDING
-    assert User.register("a@b.com", "h", "CUSTOMER").status is UserStatus.APPROVED
+    assert User.register("a@b.com", "h", "OWNER", name="n", phone="010-0000-0000").status is UserStatus.PENDING
+    assert User.register("a@b.com", "h", "CUSTOMER", name="n", phone="010-0000-0000").status is UserStatus.APPROVED
     assert User.register_admin("a@b.com", "h").status is UserStatus.APPROVED
     assert make().status is UserStatus.APPROVED
 

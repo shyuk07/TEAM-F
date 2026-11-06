@@ -9,7 +9,7 @@
 ## 문서 구성
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
-| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 7 |
+| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 12 |
 | [stores.md](stores.md) | `src/stores` 상점 | 2 |
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
@@ -63,6 +63,11 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 38 | admin | [회원 포인트 지급](admin.md#9-회원-포인트-지급) | POST | `/v1/admin/users/{user_id}/points` | 관리자 | 201 |
 | 39 | auth | [관리자 회원 조회](auth.md#6-관리자-회원-조회) | GET | `/v1/admin/users/{user_id}` | 관리자 | 200 |
 | 40 | auth | [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리) | POST | `/v1/admin/token-blacklist/purge` | 관리자 | 200 |
+| 41 | auth | [프로필 변경](auth.md#8-프로필-변경) | PATCH | `/v1/users/me` | 회원 | 200 |
+| 42 | auth | [비밀번호 변경](auth.md#9-비밀번호-변경) | POST | `/v1/users/me/password` | 회원 | 204 |
+| 43 | auth | [비밀번호 재설정 코드 요청](auth.md#10-비밀번호-재설정-코드-요청) | POST | `/v1/auth/password-reset/request` | 공개 | 204 |
+| 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
+| 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -105,7 +110,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 예약 `pickup_reservations.status` | `PENDING_PAYMENT`, `RESERVED`(?), `CANCELLED`, `PICKED_UP` | 예약 API (**확인 필요**: `RESERVED`와 결제 완료 상태의 관계) |
 | 결제 `payments.status` | `READY`, `PAID` (+ 실패 상태?) | 결제 요청, 포인트 정책 |
 | 환불 `refunds.status` | `COMPLETED` (+ 다른 상태?) | 환불 API |
-| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE`, `GRANT`(관리자 지급) | 포인트 내역 조회, 관리자 포인트 지급 |
+| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE`, `GRANT`(관리자 지급), `EXPIRE`(탈퇴 소멸) | 포인트 내역 조회, 관리자 포인트 지급, 회원 탈퇴 |
 
 ### 포인트 정책 (노션 포인트 내역 조회 페이지)
 별도 API 없이 payments 서비스가 내부에서 처리합니다.
@@ -116,6 +121,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | `EARN` | 결제 승인(`READY` → `PAID`) 직후 | 결제 금액 × 1% (소수점 버림) |
 | `RESTORE` | 환불 시 사용 포인트 복구 | `total_price − payments.amount` |
 | `REVOKE` | 환불 시 적립 포인트 회수 | 결제 금액 × 1%, 잔액 한도 |
+| `EXPIRE` | 회원 탈퇴(자진·관리자 강제) 처리 시 남은 잔액 소멸. 예약 취소의 환불·포인트 복구가 끝난 뒤 발생. 시간 경과 소멸은 없다 | 음수(남은 잔액 전부), `balance_after`는 0. 잔액이 0이면 내역 없음 |
 
 ### 에러 응답 (제안)
 노션 auth 페이지는 아래 형식을 쓰고, 나머지 페이지는 상태 코드와 메시지만 적혀 있습니다. 전역 예외 핸들러로 모든 API를 이 형식으로 맞추는 것을 제안합니다.
@@ -125,6 +131,8 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 ```
 
 노션에 나온 `error_code`: `VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED`
+
+auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
 
 ### 상태 코드
 | 코드 | 쓰임 |

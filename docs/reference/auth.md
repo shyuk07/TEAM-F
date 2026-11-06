@@ -1,7 +1,9 @@
 # auth API
 
-회원가입, 로그인, 로그아웃, 내 정보, 포인트 내역, 관리자 회원 조회, 블랙리스트 정리. 모듈: `src/auth`
-테이블: `users`, `token_blacklist`, `point_log`
+회원가입, 로그인, 로그아웃, 내 정보, 프로필·비밀번호 변경, 비밀번호 재설정, 자진 탈퇴, 포인트 내역, 관리자 회원 조회, 블랙리스트 정리. 모듈: `src/auth`
+테이블: `users`, `token_blacklist`, `point_log`, `password_reset_codes`
+
+포인트 소멸(`EXPIRE`)은 회원 탈퇴 처리(자진·관리자 강제)에서만 발생한다. 별도 API는 없다.
 
 [← 전체 목록](README.md)
 
@@ -22,8 +24,8 @@
 | --- | --- | --- | --- |
 | `email` | string | O | 이메일. 중복 불가 |
 | `password` | string | O | 비밀번호 |
-| `name` | string | X | 이름 (상점주는 상호) |
-| `phone` | string | X | 전화번호 |
+| `name` | string | O | 이름 (상점주는 상호). 공백만이거나 100자 초과면 400 |
+| `phone` | string | O | 전화번호. 공백만이거나 100자 초과면 400 |
 | `role` | string | O | `CUSTOMER` 또는 상점주. `ADMIN`은 입력 불가 |
 
 ```json
@@ -55,7 +57,7 @@
 **에러**
 | HTTP | error_code | 상황 |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | 필수값 누락, 형식 오류, `role`에 `ADMIN` 입력 |
+| 400 | `VALIDATION_ERROR` | 필수값 누락(이름·전화번호 포함), 형식 오류, `role`에 `ADMIN` 입력 |
 | 409 | `EMAIL_DUPLICATED` | 이미 가입된 이메일 |
 
 ```json
@@ -118,7 +120,9 @@
 ## 3. 로그아웃
 | Method | URI (제안) | 권한 | 성공 |
 | --- | --- | --- | --- |
-| POST | `/v1/auth/logout` | 회원 | 204 No Content |
+| POST | `/v1/auth/logout` | 회원 (정지된 회원도 가능) | 204 No Content |
+
+정지된 회원도 로그아웃할 수 있다(정지 회원은 로그아웃 외 보호 API가 403). 탈퇴·폐기·위조 토큰은 401이다.
 
 요청 토큰의 `jti`와 `exp`를 `token_blacklist(jti, expires_at)`에 저장해 토큰을 무효화한다. 로그인이 필요한 모든 API는 토큰을 확인할 때 블랙리스트도 함께 조회하므로, 로그아웃한 토큰으로 다시 요청하면 401을 반환한다.
 
@@ -200,7 +204,7 @@
 **쿼리 매개변수**
 | 이름 | 타입 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- | --- |
-| `type` | string | X | | `EARN` / `USE` / `RESTORE` / `REVOKE` |
+| `type` | string | X | | `EARN` / `USE` / `RESTORE` / `REVOKE` / `GRANT` / `EXPIRE` |
 | `page` | integer | X | 0 | 페이지 (0부터) |
 | `size` | integer | X | 20 | 페이지 크기, 최대 100 |
 
@@ -211,14 +215,17 @@
 {
   "users_point": 1540,
   "logs": [
-    { "id": "c3d4e5f6-...", "amount": 40, "point_type": "EARN", "created_at": "2026-10-29T18:32:10+09:00" },
-    { "id": "b2c3d4e5-...", "amount": -1000, "point_type": "USE", "created_at": "2026-10-29T18:31:00+09:00" }
+    { "id": "c3d4e5f6-...", "amount": 40, "point_type": "EARN", "balance_after": 1540, "created_at": "2026-10-29T18:32:10+09:00" },
+    { "id": "b2c3d4e5-...", "amount": -1000, "point_type": "USE", "balance_after": 1500, "created_at": "2026-10-29T18:31:00+09:00" }
   ],
   "page": 0,
   "size": 20,
   "total_elements": 2
 }
 ```
+
+- `point_type`: `EARN` / `USE` / `RESTORE` / `REVOKE` / `GRANT` / `EXPIRE`. `EXPIRE`는 탈퇴로 소멸한 잔액(음수)이다.
+- `balance_after`(정수, nullable): 변경 직후 잔액. 이 필드 도입 전 내역은 `null`.
 
 **에러**
 | HTTP | error_code | 상황 |
@@ -228,7 +235,7 @@
 | 401 | `TOKEN_REVOKED` | 로그아웃된 토큰 |
 
 ```json
-{ "success": false, "error_code": "VALIDATION_ERROR", "message": "type은 EARN, USE, RESTORE, REVOKE 중 하나여야 합니다." }
+{ "success": false, "error_code": "VALIDATION_ERROR", "message": "type은 EARN, USE, RESTORE, REVOKE, GRANT, EXPIRE 중 하나여야 합니다." }
 ```
 
 > **확인 필요:** 이 API만 `page`가 0부터 시작하고 `total_elements`를 씁니다. 다른 목록 API는 1부터, `total`입니다.
@@ -300,6 +307,120 @@
 
 ---
 
+## 8. 프로필 변경
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| PATCH | `/v1/users/me` | 회원 | 200 OK |
+
+이름·전화번호를 바꾼다. 보낸 값만 바뀌며 둘 중 하나는 반드시 보내야 한다. 이메일·역할은 바꿀 수 없다(보내도 무시). 변경 뒤에도 이름·전화번호가 모두 채워져 있어야 한다(관리자 제외).
+
+**요청 본문**
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `name` | string | X | 공백만이거나 100자 초과면 400 |
+| `phone` | string | X | 공백만이거나 100자 초과면 400 |
+
+**응답:** [내 정보 조회](#4-내-정보-조회)와 같음
+
+**에러**
+| HTTP | error_code | 상황 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | 변경할 항목 없음, 형식 오류, 변경 뒤 이름·전화번호 중 빈 값 |
+| 401 | `UNAUTHORIZED` / `TOKEN_REVOKED` | 토큰 없음·만료·로그아웃·비밀번호 변경으로 무효 |
+| 403 | `FORBIDDEN` | 정지된 계정 |
+
+---
+
+## 9. 비밀번호 변경
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/users/me/password` | 회원 | 204 No Content |
+
+현재 비밀번호를 확인하고 새 비밀번호로 바꾼다(새 비밀번호 규칙은 가입과 같다. 현재와 같아도 허용). **이 요청에 쓴 토큰만 유지되고, 그 전에 발급된 다른 토큰은 `401 TOKEN_REVOKED`가 된다.**
+
+**요청 본문**
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `current_password` | string | O | 현재 비밀번호 |
+| `new_password` | string | O | 새 비밀번호 (8자 이상, 72바이트 이하) |
+
+**에러**
+| HTTP | error_code | 상황 |
+| --- | --- | --- |
+| 400 | `CURRENT_PASSWORD_MISMATCH` | 현재 비밀번호 불일치 ("현재 비밀번호가 올바르지 않습니다.") |
+| 400 | `VALIDATION_ERROR` | 필수값 누락, 새 비밀번호 규칙 위반 |
+| 401 | `UNAUTHORIZED` / `TOKEN_REVOKED` | 토큰 없음·만료·무효 |
+| 403 | `FORBIDDEN` | 정지된 계정 |
+
+---
+
+## 10. 비밀번호 재설정 코드 요청
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/auth/password-reset/request` | 공개 | 204 No Content |
+
+가입된 이메일이면 6자리 숫자 재설정 코드(유효 15분)를 만든다. 다시 요청하면 이전 코드는 무효가 되지만, 이전 코드가 아직 만료 전이면 **실패 횟수는 이어받는다**(재요청으로 5회 제한을 초기화할 수 없다. 이미 5회 실패했으면 새 코드도 거부되고, 이전 코드가 만료된 뒤에 발급한 코드부터 0회로 시작한다). **가입 여부와 무관하게 항상 204**이며(탈퇴 회원 포함) 응답으로 가입 여부를 알 수 없다. 코드는 해시로 저장한다.
+
+> **임시(개발용) 전달:** 코드는 서버 로그(`auth.password_reset`)에 남는다. 실제 메일 발송으로 교체하기 전에는 배포하지 않는다(auth 설계 D-재설정전달).
+
+**요청 본문:** `{ "email": "user@test.com" }`
+
+**에러:** 400 `VALIDATION_ERROR`(`email` 누락)
+
+---
+
+## 11. 비밀번호 재설정 확인
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/auth/password-reset/confirm` | 공개 | 204 No Content |
+
+코드가 맞으면 비밀번호를 바꾸고 코드를 지운다(1회용). **이전에 발급된 모든 토큰이 무효**(`401 TOKEN_REVOKED`)가 된다. 코드는 5번 틀리면 맞는 코드도 거부한다(만료 15분 정각 포함).
+
+**요청 본문**
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `email` | string | O | 이메일 |
+| `code` | string | O | 6자리 숫자(`^\d{6}$`). 형식이 다르면 400 `VALIDATION_ERROR`이고 횟수에 세지 않음 |
+| `new_password` | string | O | 새 비밀번호. 규칙 위반이면 400이고 코드·횟수는 그대로 |
+
+**에러**
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 400 | `INVALID_RESET_CODE` | 코드 불일치·만료·횟수 초과, 미가입·탈퇴 회원(구분하지 않음) | 재설정 코드가 올바르지 않거나 만료되었습니다. |
+| 400 | `VALIDATION_ERROR` | 필수값 누락, 코드 형식, 새 비밀번호 규칙 위반 | |
+
+---
+
+## 12. 회원 탈퇴 (자진)
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/users/me/withdraw` | 회원 (정지된 회원 불가) | 200 OK |
+
+비밀번호를 확인하고 탈퇴한다(DELETE는 본문이 비표준이라 POST). 한 트랜잭션에서 순서대로: 결제 대기·예약 완료 예약 취소(환불·사용 포인트 복구) → (상점주면) 판매 중 할인 종료와 상점 폐점 → 회원 `WITHDRAWN` 처리와 **남은 포인트 소멸(`EXPIRE`)**. 이후 로그인과 기존 토큰은 401이다. 관리자 강제 탈퇴([admin.md 4](admin.md#4-회원-강제-탈퇴))와 같은 규칙이다.
+
+**요청 본문:** `{ "password": "password123" }`
+
+**응답**
+```json
+{
+  "id": "7f1c2a9e-1b2c-4d3e-8f90-123456789abc",
+  "status": "WITHDRAWN",
+  "deleted_at": "2026-11-05T10:00:00Z",
+  "cancelled_reservation_count": 1
+}
+```
+
+**에러**
+| HTTP | error_code | 상황 |
+| --- | --- | --- |
+| 400 | `CURRENT_PASSWORD_MISMATCH` | 비밀번호 불일치 |
+| 400 | `ADMIN_ACCOUNT_PROTECTED` | 관리자 계정 |
+| 400 | `STORE_HAS_RESERVED_RESERVATIONS` | 상점주의 상점에 다른 고객의 처리되지 않은 예약 있음(전체 롤백) |
+| 400 | `VALIDATION_ERROR` | 비밀번호 누락 |
+| 401 | `UNAUTHORIZED` / `TOKEN_REVOKED` | 토큰 없음·만료·무효 |
+| 403 | `FORBIDDEN` | 정지된 계정 |
+| 500 | `DATA_INCONSISTENT` | 예약·결제 데이터 불일치(전체 롤백) |
+
 ---
 
 ## 관리자 계정 생성
@@ -318,4 +439,4 @@ API가 아니라 서버 시작 시 동작이다(D-관리자생성, 2026-11-04 �
 > 관리자 회원 조회(6절)와 만료 토큰 정리(7절)는 auth에 있고, 그 밖의 관리자 API(상점주 승인·거부, 정지, 강제 탈퇴, 포인트 지급 등)는 admin 모듈 소관이다(`docs/reference/admin.md`, `docs/design/admin.md`).
 
 ## 포인트 변경 (API 없음)
-포인트 사용·적립·복구·회수는 **공개 API로 제공하지 않는다**(D-포인트비공개). 공개하면 사용자가 자기 포인트를 직접 늘릴 수 있기 때문이다. 결제·환불을 처리하는 payments 모듈이 `AuthApplicationService`의 포인트 메서드를 같은 트랜잭션(`commit=False`)으로 호출한다. 연동 방법은 `docs/design/auth.md` §6.1을 따른다.
+포인트 사용·적립·복구·회수·소멸은 **공개 API로 제공하지 않는다**(D-포인트비공개). 공개하면 사용자가 자기 포인트를 직접 늘릴 수 있기 때문이다. 결제·환불을 처리하는 payments 모듈이 `AuthApplicationService`의 포인트 메서드를 같은 트랜잭션(`commit=False`)으로 호출한다. 연동 방법은 `docs/design/auth.md` §6.1을 따른다.

@@ -6,20 +6,25 @@ from auth.domain.exceptions import (
     AccountSuspendedError,
     AdminAccountProtectedError,
     AuthenticationError,
+    CurrentPasswordMismatchError,
     InvalidCredentialsError,
     InvalidSuspensionEndError,
     OwnerNotApprovedError,
     OwnerNotFoundError,
     OwnerNotPendingError,
     RoleForbiddenError,
+    TokenRevokedError,
     UserAlreadySuspendedError,
     UserAlreadyWithdrawnError,
     UserNotSuspendableError,
     UserWithdrawnError,
 )
+from auth.domain.service import PasswordHasher
 
 REASON_MAX_LENGTH = 500
 POINT_MAX_BALANCE = 2_147_483_647  # DB INTEGER 상한 (D24)
+PROFILE_TEXT_MAX_LENGTH = 100
+SELF_WITHDRAWAL_REASON = "회원 본인 탈퇴"  # 자진 탈퇴 사유 (D-자진탈퇴조정)
 
 
 class Role(StrEnum):
@@ -54,6 +59,12 @@ def _normalize_reason(reason: str | None, empty_message: str) -> str:
     return normalized
 
 
+def _check_profile_text(value: str, label: str) -> None:
+    """이름·전화번호 공통 검사: 공백만이거나 100자 초과면 거부 (D-가입필수)."""
+    if not value.strip() or len(value) > PROFILE_TEXT_MAX_LENGTH:
+        raise ValueError(f"{label}은 공백이 아닌 {PROFILE_TEXT_MAX_LENGTH}자 이하여야 합니다.")
+
+
 def _require_aware(value: datetime | None, name: str) -> None:
     if value is not None and value.tzinfo is None:
         raise ValueError(f"{name}은 timezone 정보가 있어야 합니다.")
@@ -84,6 +95,8 @@ class User:
         suspended_until: datetime | None = None,
         deleted_at: datetime | None = None,
         deleted_reason: str | None = None,
+        token_version: int = 0,
+        token_keep_jti: str | None = None,
     ):
         email = self.normalize_email(email)
         self._validate_email(email)
@@ -97,6 +110,8 @@ class User:
             raise ValueError("전화번호는 100자 이하여야 합니다.")
         if users_point < 0:
             raise ValueError("포인트는 0 이상이어야 합니다.")
+        if token_version < 0:
+            raise ValueError("토큰 세대는 0 이상이어야 합니다.")
         if created_at is not None and created_at.tzinfo is None:
             raise ValueError("created_at은 timezone 정보가 있어야 합니다.")
         status = UserStatus(status)
@@ -137,6 +152,8 @@ class User:
         self.suspended_until = suspended_until
         self.deleted_at = deleted_at
         self.deleted_reason = deleted_reason
+        self.token_version = token_version
+        self.token_keep_jti = token_keep_jti
 
     @staticmethod
     def normalize_email(email: str) -> str:
@@ -172,7 +189,14 @@ class User:
         phone: str | None = None,
         business_number: str | None = None,
     ) -> "User":
+        """가입 팩토리. 이름·전화번호는 필수다(DB 복원용 생성자는 기존 회원 보존을 위해 허용)."""
         signup_role = Role.for_signup(role)
+        if name is None:
+            raise ValueError("이름은 필수입니다.")
+        if phone is None:
+            raise ValueError("전화번호는 필수입니다.")
+        _check_profile_text(name, "이름")
+        _check_profile_text(phone, "전화번호")
         return cls(
             email=email,
             password_hash=password_hash,
@@ -216,9 +240,17 @@ class User:
         if amount <= 0:
             raise ValueError("포인트는 1 이상이어야 합니다.")
 
+    def _add_points(self, amount: int) -> None:
+        """적립·복구·지급 공통: 탈퇴 회원 거부, 잔액 상한 초과 거부(잔액 불변) (D-포인트상한)."""
+        if self.status is UserStatus.WITHDRAWN:
+            raise UserWithdrawnError()
+        if self.users_point + amount > POINT_MAX_BALANCE:
+            raise ValueError("포인트 잔액이 한도를 넘습니다.")
+        self.users_point += amount
+
     def earn_points(self, amount: int) -> None:
         self._require_positive(amount)
-        self.users_point += amount
+        self._add_points(amount)
 
     def use_points(self, amount: int) -> None:
         self._require_positive(amount)
@@ -230,7 +262,7 @@ class User:
 
     def restore_points(self, amount: int) -> None:
         self._require_positive(amount)
-        self.users_point += amount
+        self._add_points(amount)
 
     def revoke_points(self, amount: int) -> int:
         self._require_positive(amount)
@@ -301,23 +333,80 @@ class User:
             raise AdminAccountProtectedError("관리자 계정은 탈퇴시킬 수 없습니다.")
         return normalized
 
-    def withdraw(self, reason: str, now: datetime) -> None:
+    def withdraw(self, reason: str, now: datetime) -> int:
+        """탈퇴 처리. 남은 포인트를 소멸(잔액 0)시키고 소멸량을 돌려준다 (D-탈퇴포인트소멸).
+
+        거부(관리자·이미 탈퇴·사유 오류)면 잔액은 그대로다. 호출자는 포인트 복구(환불)를 먼저 끝내야 한다.
+        """
         normalized = self.ensure_withdrawable(reason)
         _require_aware(now, "now")
+        expired = self.users_point
+        self.users_point = 0
         self.status = UserStatus.WITHDRAWN
         self.deleted_at = now
         self.deleted_reason = normalized
+        return expired
+
+    # ── 프로필·비밀번호·토큰 세대 (D-프로필변경, D-비밀번호변경, D-토큰무효화) ──
+    def update_profile(self, name: str | None, phone: str | None) -> None:
+        if self.status is UserStatus.WITHDRAWN:
+            raise UserWithdrawnError()
+        if name is None and phone is None:
+            raise ValueError("변경할 항목이 없습니다.")
+        if name is not None:
+            _check_profile_text(name, "이름")
+        if phone is not None:
+            _check_profile_text(phone, "전화번호")
+        # 요청에 들어온 필드만 검사한다(위). 이름·전화번호가 비어 있는 기존 회원·관리자도 다른 필드는 바꿀 수 있다.
+        if name is not None:
+            self.name = name
+        if phone is not None:
+            self.phone = phone
+
+    def ensure_current_password(self, raw: str, hasher: PasswordHasher) -> None:
+        if not hasher.verify(raw, self.password_hash):
+            raise CurrentPasswordMismatchError()
+
+    def change_password(
+        self, current: str, new: str, hasher: PasswordHasher, *, keep_jti: str | None
+    ) -> None:
+        """현재 비밀번호 확인 후 변경. 변경에 쓴 토큰(keep_jti) 외의 기존 토큰은 무효가 된다."""
+        if self.status is UserStatus.WITHDRAWN:
+            raise UserWithdrawnError()
+        self.ensure_current_password(current, hasher)
+        self.validate_raw_password(new)
+        self.password_hash = hasher.hash(new)
+        self.invalidate_tokens(keep_jti)
+
+    def reset_password(self, new: str, hasher: PasswordHasher) -> None:
+        """재설정 코드로 인증된 변경. 모든 기존 토큰이 무효가 된다."""
+        if self.status is UserStatus.WITHDRAWN:
+            raise UserWithdrawnError()
+        self.validate_raw_password(new)
+        self.password_hash = hasher.hash(new)
+        self.invalidate_tokens(None)
+
+    def invalidate_tokens(self, keep_jti: str | None = None) -> None:
+        self.token_version += 1
+        self.token_keep_jti = keep_jti
+
+    def ensure_token_current(self, version: int, jti: str) -> None:
+        if version == self.token_version:
+            return
+        if self.token_keep_jti is not None and jti == self.token_keep_jti:
+            return
+        raise TokenRevokedError("비밀번호가 변경되어 무효가 된 토큰입니다.")
+
+    @property
+    def can_reset_password(self) -> bool:
+        return self.status is not UserStatus.WITHDRAWN
 
     def grant_points(self, amount: int, reason: str) -> str:
         """관리자 포인트 지급. 정규화된 사유를 돌려준다 (D24)."""
         if isinstance(amount, bool) or not isinstance(amount, int) or amount < 1:
             raise ValueError("지급 포인트는 1 이상이어야 합니다.")
         normalized = _normalize_reason(reason, "지급 사유를 입력해 주세요.")
-        if self.status is UserStatus.WITHDRAWN:
-            raise UserWithdrawnError()
-        if self.users_point + amount > POINT_MAX_BALANCE:
-            raise ValueError("포인트 잔액이 한도를 넘습니다.")
-        self.users_point += amount
+        self._add_points(amount)
         return normalized
 
     def ensure_can_login(self, now: datetime) -> None:

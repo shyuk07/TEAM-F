@@ -121,40 +121,40 @@ def build(race=False):
 
 async def test_signup_ok_and_commit():
     svc, db, _ = build()
-    u = await svc.signup("A@b.com", "password1", "CUSTOMER", name="n")
+    u = await svc.signup("A@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     assert u.email == "a@b.com" and u.id and db.commits == 1
 
 
 async def test_signup_admin_rejected_before_hashing():
     svc, _, p = build()
     with pytest.raises(ValueError):
-        await svc.signup("a@b.com", "password1", "ADMIN")
+        await svc.signup("a@b.com", "password1", "ADMIN", name="n", phone="010-0000-0000")
     assert p["hasher"].hash_calls == 0
 
 
 async def test_signup_weak_password():
     svc, _, _ = build()
     with pytest.raises(ValueError):
-        await svc.signup("a@b.com", "short", "CUSTOMER")
+        await svc.signup("a@b.com", "short", "CUSTOMER", name="n", phone="010-0000-0000")
 
 
 async def test_signup_duplicate():
     svc, db, _ = build()
-    await svc.signup("a@b.com", "password1", "CUSTOMER")
+    await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     with pytest.raises(EmailDuplicatedError):
-        await svc.signup("A@B.com", "password1", "CUSTOMER")
+        await svc.signup("A@B.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
 
 
 async def test_signup_race_rolls_back():
     svc, db, _ = build(race=True)
     with pytest.raises(EmailDuplicatedError):
-        await svc.signup("a@b.com", "password1", "CUSTOMER")
+        await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     assert db.rollbacks == 1 and db.commits == 0
 
 
 async def test_login_paths():
     svc, _, p = build()
-    await svc.signup("a@b.com", "password1", "CUSTOMER")
+    await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     result = await svc.login("  A@b.com", "password1")
     assert result.status == "APPROVED"
     assert (await svc.authenticate(result.token)).user.email == "a@b.com"
@@ -168,7 +168,7 @@ async def test_login_paths():
 
 async def test_authenticate_revoked_and_unknown_user():
     svc, db, p = build()
-    await svc.signup("a@b.com", "password1", "CUSTOMER")
+    await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     token = (await svc.login("a@b.com", "password1")).token
     principal = await svc.authenticate(token)
     await svc.logout(principal.claims)
@@ -181,7 +181,7 @@ async def test_authenticate_revoked_and_unknown_user():
 
 async def test_points_flow_and_logs():
     svc, db, p = build()
-    u = await svc.signup("a@b.com", "password1", "CUSTOMER")
+    u = await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     await svc.earn_points(u.id, 500)
     await svc.use_points(u.id, 200)
     await svc.restore_points(u.id, 100)
@@ -196,7 +196,7 @@ async def test_points_flow_and_logs():
 
 async def test_points_commit_false():
     svc, db, _ = build()
-    u = await svc.signup("a@b.com", "password1", "CUSTOMER")
+    u = await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     before = db.commits
     await svc.earn_points(u.id, 100, commit=False)
     assert db.commits == before
@@ -206,7 +206,7 @@ async def test_points_errors():
     svc, _, _ = build()
     with pytest.raises(LookupError):
         await svc.earn_points(uuid.uuid4(), 100)
-    u = await svc.signup("a@b.com", "password1", "CUSTOMER")
+    u = await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     with pytest.raises(ValueError):
         await svc.use_points(u.id, 100)
     with pytest.raises(LookupError):
