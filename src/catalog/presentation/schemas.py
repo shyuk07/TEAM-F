@@ -4,8 +4,16 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from catalog.application.views import DeactivateOfferResult, OfferDetailView, OfferView, StockAdjustResult
+from catalog.application.views import (
+    DeactivateOfferResult,
+    NearbyOfferView,
+    OfferDetailView,
+    OfferView,
+    StockAdjustResult,
+    StoreSearchHit,
+)
 from catalog.domain.discount_offer import OfferStatus
+from catalog.domain.search import DISTANCE_UNIT, round_distance
 
 
 class PublicOfferStatus(StrEnum):
@@ -236,3 +244,72 @@ class OfferDetailResponse(BaseModel):
                 description=view.cancel_policy.description,
             ),
         )
+
+
+class StoreSummaryResponse(BaseModel):
+    id: uuid.UUID = Field(..., description="상점 ID")
+    name: str = Field(..., description="상점명")
+    pickup_address: str = Field(..., description="픽업 주소")
+    latitude: float | None = Field(None, description="위도")
+    longitude: float | None = Field(None, description="경도")
+
+
+class SearchedProductResponse(ProductResponse):
+    has_active_offer: bool = Field(..., description="진행 중인 할인 여부")
+
+
+class StoreSearchItem(BaseModel):
+    store: StoreSummaryResponse
+    distance: float | None = Field(None, description="거리 (위치 없이 검색하면 null)")
+    unit: str = Field(..., description="거리 단위")
+    products: list[SearchedProductResponse]
+
+    @classmethod
+    def from_hit(cls, hit: StoreSearchHit) -> "StoreSearchItem":
+        s = hit.store
+        return cls(
+            store=StoreSummaryResponse(
+                id=s.id,
+                name=s.name,
+                pickup_address=s.pickup_address,
+                latitude=s.latitude,
+                longitude=s.longitude,
+            ),
+            distance=round_distance(hit.distance_km),
+            unit=DISTANCE_UNIT,
+            products=[
+                SearchedProductResponse(
+                    **ProductResponse.model_validate(sp.product).model_dump(),
+                    has_active_offer=sp.has_active_offer,
+                )
+                for sp in hit.products
+            ],
+        )
+
+
+class ProductSearchResponse(BaseModel):
+    items: list[StoreSearchItem]
+    page: int
+    size: int
+    total: int = Field(..., description="전체 상점 수")
+
+
+class NearbyOfferItem(BaseModel):
+    offer: OfferResponse
+    distance: float | None = Field(None, description="거리 (위치 없이 조회하면 null)")
+    unit: str = Field(..., description="거리 단위")
+
+    @classmethod
+    def from_view(cls, view: NearbyOfferView) -> "NearbyOfferItem":
+        return cls(
+            offer=OfferResponse.from_view(view.view),
+            distance=round_distance(view.distance_km),
+            unit=DISTANCE_UNIT,
+        )
+
+
+class NearbyOfferListResponse(BaseModel):
+    items: list[NearbyOfferItem]
+    page: int
+    size: int
+    total: int

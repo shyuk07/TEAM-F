@@ -76,6 +76,11 @@ class FakeStoreRepository(StoreRepository):
         self.events.append("exists_by_name_and_address")
         return any(s.name == name and s.pickup_address == pickup_address for s in self.items.values())
 
+    async def find_visible_near(self, *, latitude, longitude, radius_km):
+        self.visible_calls = getattr(self, "visible_calls", [])
+        self.visible_calls.append((latitude, longitude, radius_km))
+        return [(s, None) for s in sorted(self.items.values(), key=lambda s: (s.name, s.id))]
+
     async def save(self, store):
         if self.race_on_save:
             raise (StoreAlreadyExistsError if self.race_on_save is True else self.race_on_save)()
@@ -382,3 +387,14 @@ def test_service_requires_geocoder():
             open_offers=FakeOpenOffers(),
             pickup_pending=FakePickupPending(),
         )
+
+
+async def test_find_visible_stores_wraps_repository_rows():
+    service, _, repo = build()
+    a = await service.open_store(uuid.uuid4(), "A", "주소")
+    query, _ = build_query(repo)
+    result = await query.find_visible_stores(latitude=37.0, longitude=127.0, radius_km=3.0)
+    assert [(r.store, r.distance_km) for r in result] == [(a, None)]
+    assert repo.visible_calls == [(37.0, 127.0, 3.0)]
+    with pytest.raises(Exception):
+        result[0].distance_km = 1.0  # frozen

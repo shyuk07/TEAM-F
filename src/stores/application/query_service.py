@@ -1,8 +1,15 @@
 import uuid
+from dataclasses import dataclass
 from collections.abc import Sequence
 
 from stores.domain.repository import StoreRepository
 from stores.domain.store import Store
+
+
+@dataclass(frozen=True)
+class StoreWithDistance:
+    store: Store
+    distance_km: float | None  # 위치 미지정이면 None
 
 
 class StoreQueryService:
@@ -16,3 +23,15 @@ class StoreQueryService:
 
     async def find_stores_by_ids(self, ids: Sequence[uuid.UUID]) -> list[Store]:
         return await self.stores.find_by_ids(ids)
+
+    async def find_visible_stores(
+        self,
+        *,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        radius_km: float | None = None,
+    ) -> list[StoreWithDistance]:
+        rows = await self.stores.find_visible_near(
+            latitude=latitude, longitude=longitude, radius_km=radius_km
+        )
+        return [StoreWithDistance(store=s, distance_km=d) for s, d in rows]

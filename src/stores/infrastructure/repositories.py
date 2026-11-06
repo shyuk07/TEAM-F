@@ -1,7 +1,8 @@
+import math
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,8 @@ _UNIQUE_VIOLATIONS = {
     "uq_stores_owner_id": StoreAlreadyExistsError,
     "uq_stores_name_address": StoreDuplicatedError,
 }
+
+_EARTH_RADIUS_KM = 6371.0
 
 
 class SqlAlchemyStoreRepository(StoreRepository):
@@ -56,6 +59,51 @@ class SqlAlchemyStoreRepository(StoreRepository):
             )
         )
         return bool(await self.session.scalar(stmt))
+
+    async def find_visible_near(
+        self,
+        *,
+        latitude: float | None,
+        longitude: float | None,
+        radius_km: float | None,
+    ) -> list[tuple[Store, float | None]]:
+        if (latitude is None) != (longitude is None):
+            raise ValueError("위도와 경도는 함께 지정해야 합니다.")
+        visible = (
+            StoreModel.approval_at.is_not(None),
+            StoreModel.closed_at.is_(None),
+            StoreModel.suspended_at.is_(None),
+        )
+        if latitude is None:
+            stmt = select(StoreModel).where(*visible).order_by(StoreModel.name, StoreModel.id)
+            models = (await self.session.execute(stmt)).scalars().all()
+            return [(self._to_domain(m), None) for m in models]
+
+        if radius_km is None or not radius_km >= 0:
+            raise ValueError("검색 반경이 올바르지 않습니다.")
+        lat1, lng1 = float(latitude), float(longitude)
+        a = func.power(
+            func.sin(func.radians(StoreModel.latitude - lat1) / 2), 2
+        ) + math.cos(math.radians(lat1)) * func.cos(
+            func.radians(StoreModel.latitude)
+        ) * func.power(func.sin(func.radians(StoreModel.longitude - lng1) / 2), 2)
+        distance = (2 * _EARTH_RADIUS_KM * func.asin(func.sqrt(func.least(1.0, a)))).label(
+            "distance_km"
+        )
+        lat_delta = radius_km / 111.0
+        stmt = (
+            select(StoreModel, distance)
+            .where(
+                *visible,
+                StoreModel.latitude.is_not(None),
+                StoreModel.longitude.is_not(None),
+                StoreModel.latitude.between(lat1 - lat_delta, lat1 + lat_delta),
+            )
+            .where(distance <= radius_km)
+            .order_by(distance, StoreModel.id)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [(self._to_domain(m), float(d)) for m, d in rows]
 
     async def save(self, store: Store) -> Store:
         if store.id is None:
