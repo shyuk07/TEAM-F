@@ -11,7 +11,7 @@ class PasswordResetCode:
     CODE_LENGTH = 6
     TTL = timedelta(minutes=15)
     MAX_FAILED_ATTEMPTS = 5
-    REQUEST_COOLDOWN = timedelta(seconds=60)  # 임시값: 재요청 최소 간격, 사용자 확정 전 (D-재설정제한)
+    REQUEST_COOLDOWN = timedelta(seconds=60)  # 재요청 최소 간격 (REQ-28-1, D-재설정제한, 2026-11-06 확정)
 
     def __init__(
         self,
