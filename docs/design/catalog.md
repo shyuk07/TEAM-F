@@ -2,7 +2,7 @@
 
 - 대상: `src/catalog` (products, discount_offers, stock_log)
 - 기준 문서: `docs/reference/catalog.md`, `.claude/skills/db-schema/schema.sql`, `.claude/skills/backend-invariants`(R1~R16), `.claude/skills/layer-architecture`(§3.4, §5~§8), `.claude/skills/layer-implementation`
-- 범위 EP 14개: #1 상품 등록, #2 상점 상품 목록, #3 상품 검색(`GET /v1/products`, 14절), #4 상품 상세, #5 상품 수정, #6 상품 노출 중단, #7 할인 등록, #8 주변 할인 목록(`GET /v1/offers`, 14절), #9 상점 할인 목록, #10 할인 상세, #11 할인 수정, #12 할인 판매 중단, #13 할인 재등록, #14 재고 수동 조정. #3·#8의 설계는 14절에 모았고, 결정은 D59~D77, 열린 질문은 Q30~Q44(Q30은 닫힘), 정합 이슈는 CI-12~CI-15·C15이다
+- 범위 EP 14개: #1 상품 등록, #2 상점 상품 목록, #3 상품 검색(`GET /v1/products`, 14절), #4 상품 상세, #5 상품 수정, #6 상품 노출 중단, #7 할인 등록, #8 주변 할인 목록(`GET /v1/offers`, 14절), #9 상점 할인 목록, #10 할인 상세, #11 할인 수정, #12 할인 판매 중단, #13 할인 재등록, #14 재고 수동 조정. #3·#8의 설계는 14절에 모았고, 결정은 D59~D77, 열린 질문은 Q30~Q44(Q30은 닫힘), 정합 이슈는 CI-12~CI-15·C15이다. 2026-11-06 확정된 할인 요구 조건(`docs/requirements/catalog-offers.md`) 반영분은 D81~D87, Q45~Q47(Q45·Q46은 닫힘), CI-16~CI-17이다(REQ-17 예약 판정 범위, #9·#10 공개 범위, 상태 판정 순서, 정지 상점의 할인 재개, 정지 사유 상한). 커밋 e133e13 반영분은 D86·D87·Q47
 - 번호는 `docs/reference/catalog.md`의 절 번호이고, `docs/reference/README.md` 표에서는 #10(할인 상세)이 17번 행, #12(할인 판매 중단)가 19번 행이다.
 - "임시"로 표시한 결정은 확정이 아니라 제안이며 12절 표에 모았다. 단 D59~D77·Q30~Q44는 2026-11-06 사용자가 확정했다("그대로 진행").
 
@@ -146,8 +146,9 @@ fastapi, sqlalchemy, pydantic, `database`, 다른 모듈을 import하지 않는�
 - `StoreRef.from_info(info)`: `latitude`·`longitude`는 값을 그대로 복사, `approved = info.approval_at is not None`, `closed = info.closed_at is not None`
 - `is_owned_by(user_id)`: `user_id`가 None이 아니고 `owner_id`와 같으면 True
 - `ensure_owner(user_id, message)`: 다르면 `NotStoreOwnerError(message)`
-- `ensure_can_register(what: str)`: 폐점이면 `StoreClosedError("폐점된 상점에서는 {what}을 등록할 수 없습니다.")`, 미승인이면 `StoreNotApprovedError("승인되지 않은 상점에는 {what}을 등록할 수 없습니다.")` (`what`은 "상품" 또는 "할인"). 검사 순서는 폐점 → 미승인(D9).
-- `ensure_not_closed(action)`: 이미 등록된 대상에 대한 동작용. 폐점이면 `StoreClosedError("폐점된 상점에서는 {action}할 수 없습니다.")`. 미승인은 검사하지 않는다(할인 재개에서 `"할인을 재개"`를 넘긴다).
+- `ensure_can_register(what: str)`: 폐점이면 `StoreClosedError("폐점된 상점에서는 {what}을 등록할 수 없습니다.")`, 정지(`suspended`)면 `StoreSuspendedError("관리자에 의해 정지된 상점입니다.")`(400 `STORE_SUSPENDED`), 미승인이면 `StoreNotApprovedError("승인되지 않은 상점에는 {what}을 등록할 수 없습니다.")` (`what`은 "상품" 또는 "할인"). 검사 순서는 폐점 → 정지 → 미승인(D9, admin D17, D86). 할인 등록(#7)·재등록(#13)이 정지 상점에서 막히는 것은 코드(`store_ref.py:81-88`)가 이미 한다.
+- `ensure_not_closed(action)`: 이미 등록된 대상에 대한 동작용. 폐점이면 `StoreClosedError("폐점된 상점에서는 {action}할 수 없습니다.")`. 미승인은 검사하지 않는다. 정지는 보지 않는다(D86 이후 할인 재개는 이 메서드를 쓰지 않고 아래 `ensure_can_resume`를 쓴다).
+- `ensure_can_resume()` (신규, D86): 폐점이면 `StoreClosedError("폐점된 상점에서는 할인을 재개할 수 없습니다.")`(400 `STORE_CLOSED`, 현재와 같은 문구), 정지면 `StoreSuspendedError("관리자에 의해 정지된 상점입니다.")`(400 `STORE_SUSPENDED`, 기존 예외 재사용). 순서는 폐점 → 정지. 미승인은 검사하지 않는다.
 
 ### 3.3 Product
 | 속성 | 타입 | 규칙 |
@@ -172,7 +173,7 @@ fastapi, sqlalchemy, pydantic, `database`, 다른 모듈을 import하지 않는�
 상태 전이: `is_active` true → false (`deactivate`)만 있다. 상품 재노출 API는 없어 메서드도 만들지 않는다(D13). #12 할인 판매 중단은 상품이 아니라 **할인**을 바꾼다.
 
 ### 3.4 DiscountOffer
-`OfferStatus(StrEnum)`: `SCHEDULED, ON_SALE, SOLD_OUT, CLOSED`.
+`OfferStatus(StrEnum)`: `SCHEDULED, ON_SALE, SOLD_OUT, CLOSED, SUSPENDED`(`SUSPENDED`는 admin.md 3.3 추가분, 코드에 이미 있음).
 
 | 속성 | 타입 |
 | --- | --- |
@@ -207,12 +208,15 @@ fastapi, sqlalchemy, pydantic, `database`, 다른 모듈을 import하지 않는�
 
 도메인 메서드는 `now`를 인자로 받는다. 현재 시각은 application이 `Clock`에서 얻어 넘기므로 도메인은 시계를 직접 부르지 않는다. 포트도 모르고 `has_reservations`, `product_active`, `has_other_open_offer`를 인자로 받는다(R1, R3).
 
-`effective_status(now)` 우선순위:
-1. `not is_active` → `CLOSED`
-2. `now >= sales_end` → `CLOSED`
-3. `now < sales_start` → `SCHEDULED`
-4. `remaining_stock == 0` → `SOLD_OUT`
-5. 그 외 `ON_SALE`
+`effective_status(now)` 우선순위 (요구 조건 "상태와 전이" 판정 순서 중단 → 정지 → 마감 → 시작 전 → 품절 → 판매 중, admin.md 3.3·C6과 같다, D85):
+1. `not is_active` → `CLOSED` (중단. 정지된 할인이 상점 강제 폐점 등으로 `is_active=false`가 되어도 `CLOSED`)
+2. `is_suspended` → `SUSPENDED`
+3. `now >= sales_end` → `CLOSED`
+4. `now < sales_start` → `SCHEDULED`
+5. `remaining_stock == 0` → `SOLD_OUT`
+6. 그 외 `ON_SALE`
+
+`OPEN_OFFER_STATUSES`(= SCHEDULED, ON_SALE, SOLD_OUT)는 **공개 목록의 기본 집합**이며 SUSPENDED를 넣지 않는다(admin D20). 정지 할인도 "진행 중"(`is_open`)이지만 이 상수와 `is_open`이 참인 유효 상태 집합은 SUSPENDED 만큼 다르다. 상수를 하나 더 둔다(D84): `OWNER_DEFAULT_OFFER_STATUSES = OPEN_OFFER_STATUSES + (SUSPENDED,)` — 상점주의 #9 기본 집합. 도메인 테스트는 "`is_open` 참 집합 == `OWNER_DEFAULT_OFFER_STATUSES`, `OPEN_OFFER_STATUSES` == 그 집합 − {SUSPENDED}"로 쓴다(admin C6).
 
 `apply_changes`(D26~D29): 허용 키 `sale_price, initial_stock, sales_start, sales_end, pickup_start, pickup_end`. 검사 순서는 ① 키 검사 ② 닫힘 ③ 예약 ④ 병합값 검증이다. 모두 검증한 뒤 한꺼번에 반영하고 `_sync_status(now)`를 부른다.
 - ① 빈 dict → `ValueError("수정할 항목이 없습니다.")`; 값이 None → `ValueError("{항목}은(는) null일 수 없습니다.")`; 허용 외 키 → `ValueError`
@@ -260,7 +264,7 @@ fastapi, sqlalchemy, pydantic, `database`, 다른 모듈을 import하지 않는�
 | 추상 | 파일 | 메서드 |
 | --- | --- | --- |
 | `ProductRepository(ABC)` | `product_repository.py` | `find_by_id(product_id, for_update=False) -> Product \| None`; `find_by_store(store_id, *, category, is_active, page, size) -> tuple[list[Product], int]`; `save(product) -> Product` |
-| `DiscountOfferRepository(ABC)` | `discount_offer_repository.py` | `find_by_id(offer_id, for_update=False) -> DiscountOffer \| None`; `find_with_product(offer_id) -> tuple[DiscountOffer, Product] \| None`; `find_open_by_product(product_id, now) -> DiscountOffer \| None`; `exists_open_by_store(store_id, now) -> bool`; `find_by_store(store_id, *, statuses, now, page, size) -> tuple[list[tuple[DiscountOffer, Product]], int]`; `save(offer) -> DiscountOffer` |
+| `DiscountOfferRepository(ABC)` | `discount_offer_repository.py` | `find_by_id(offer_id, for_update=False) -> DiscountOffer \| None`; `find_with_product(offer_id) -> tuple[DiscountOffer, Product] \| None`; `find_open_by_product(product_id, now) -> DiscountOffer \| None`; `exists_open_by_store(store_id, now) -> bool`; `find_by_store(store_id, *, statuses, now, exposed_only, page, size) -> tuple[list[tuple[DiscountOffer, Product]], int]` (`exposed_only`는 **필수 키워드 인자**, D83); `save(offer) -> DiscountOffer` |
 | `StockLogRepository(ABC)` | `stock_log_repository.py` | `add(log) -> StockLog` |
 
 #3·#8용 추상 메서드(`ProductRepository.search_store_ids`·`find_matching_in_stores`, `DiscountOfferRepository.search_in_stores`)의 시그니처는 14.4절이다. 위 표는 현재 구현의 일부이며 14.4의 세 메서드를 더하면 기존 fake 레포지토리(ABC)도 구현해야 인스턴스를 만들 수 있다(CI-12).
@@ -318,7 +322,11 @@ class Clock(ABC):
 - `find_with_product(offer_id) -> tuple[DiscountOffer, Product] | None` (#10. `discount_offers` JOIN `products` 한 번의 SELECT, 잠금 없음, 활성·상태 조건 없음)
 - `find_open_by_product(product_id, now) -> DiscountOffer | None` (`is_active AND sales_end > now`, `LIMIT 1`)
 - `exists_open_by_store(store_id, now) -> bool` (products 조인, 같은 모듈이라 허용)
-- `find_by_store(store_id, *, statuses, now, page, size) -> tuple[list[tuple[DiscountOffer, Product]], int]` (products 조인, `or_(*[_status_clause(s, now) for s in statuses])`, 정렬 `sales_end ASC, id ASC`)
+- `find_by_store(store_id, *, statuses, now, exposed_only, page, size) -> tuple[list[tuple[DiscountOffer, Product]], int]` (products 조인, 정렬 `sales_end ASC, id ASC`). 조건(목록 쿼리와 `COUNT(*)` 쿼리가 같은 `conditions` 리스트를 쓴다, D83):
+  - 항상: `ProductModel.store_id == store_id`, `or_(*[_status_clause(s, now) for s in statuses])`
+  - `exposed_only=True`(비소유자)일 때 추가: `ProductModel.is_active.is_(True)`(D62와 같은 기준), `not_(_status_clause(OfferStatus.SUSPENDED, now))`(정지 할인 제외, 새 SQL을 만들지 않고 기존 절을 부정)
+  - `exposed_only=False`(소유자): 위 두 조건 없음. 상품 노출 여부와 무관하게 본인 상점 할인 전부
+  - 상점 폐점·정지 판정은 SQL이 아니라 서비스가 `StoreRef`로 한다(R11, 쿼리는 `stores`를 조인하지 않는다). 이 메서드를 부르는 서비스는 상점 숨김 판정을 먼저 통과해야 한다
 - `save(offer) -> DiscountOffer`: 신규는 insert. 갱신 경로는 `sale_price`, `sales_start`, `sales_end`, `pickup_start`, `pickup_end`, `initial_stock`, `remaining_stock`, `status`, `is_active`를 모두 쓴다(CI-7)
 - 상태 필터 SQL은 `_status_clause(status, now)` 한 곳에서 만들고 3.4의 `effective_status` 우선순위와 같은 조건을 쓴다. 두 구현이 어긋나지 않게 "같은 데이터로 두 방식 결과 비교" 테스트를 둔다(CI-5).
 
@@ -410,7 +418,7 @@ class CatalogApplicationService:
 5. `store = _load_store(product.store_id)`; `store.ensure_owner(user_id, "본인 상점의 할인만 수정할 수 있습니다.")` (403)
 6. 분기(요청 본문 형태는 `OfferUpdateRequest`가 이미 보장: `is_active`가 있으면 다른 키가 없다):
    - `changes == {"is_active": False}`: `offer.pause(now)`
-   - `changes == {"is_active": True}`: `store.ensure_not_closed("할인을 재개")`; `has_other = offers.find_open_by_product(product.id, now) is not None`(자기 자신은 `is_active=false`라 걸리지 않음); `offer.resume(now, product_active=product.is_active, has_other_open_offer=has_other)`
+   - `changes == {"is_active": True}`: `store.ensure_can_resume()`(폐점 → 정지, D86; 이전에는 `ensure_not_closed("할인을 재개")`); `has_other = offers.find_open_by_product(product.id, now) is not None`(자기 자신은 `is_active=false`라 걸리지 않음); `offer.resume(now, product_active=product.is_active, has_other_open_offer=has_other)`
    - 그 외: `has_res = reservations.has_reservations_for_offer(offer.id)`; `delta = offer.apply_changes(changes, original_price=product.original_price, has_reservations=has_res, now=now)`
    - 이 분기는 어느 도메인 메서드를 부를지만 고른다. 규칙 판단은 모두 도메인 메서드 안에 있다.
 7. `offers.save(offer)`; `delta != 0`이면 `stock_logs.add(StockLog.offer_edit(offer.id, user_id, delta))`
@@ -465,16 +473,20 @@ class CatalogApplicationService:
 2. `product.is_active`가 False이고 `viewer_id`가 소유자가 아니면 `ProductNotFoundError` (D7)
 3. `ProductDetailView(product, store.name, store.pickup_address)`
 
-**#9 `list_offers_by_store(store_id, statuses: Sequence[OfferStatus] | None, page, size) -> Page[OfferView]`**
-1. `store = _load_store(store_id)` (404)
-2. `statuses`가 None이거나 비어 있으면 `OPEN_OFFER_STATUSES`, 아니면 중복 제거(`dict.fromkeys`) 후 사용(D25)
-3. `offers.find_by_store(store_id, statuses=..., now=now, ...)` → 각 항목을 `OfferView`로 변환 (`store_name`은 한 번만 조회한 값 사용)
+**#9 `list_offers_by_store(viewer_id: UUID | None, store_id, statuses: Sequence[OfferStatus] | None, page, size) -> Page[OfferView]`** (서명은 현재 코드와 같다. 동작이 바뀐다, D83·D84)
+1. `now = clock.now()`; `store = _load_store(store_id)` (404)
+2. `store.ensure_products_visible_to(viewer_id)` — 폐점 또는 정지 상점이면 소유자 외 `StoreNotFoundError`(404, #2·#4와 같은 응답). 기존 `ensure_visible_to`(정지만)를 이 호출로 **교체**한다(D83). `StoreRef.ensure_products_visible_to`·`are_products_visible_to`의 docstring("할인 조회(#9·#10)는 is_visible_to를 그대로 쓴다")은 "#10만 `is_visible_to`"로 고친다. 메서드 이름은 유지한다(이름 변경은 호출처 #2·#4·테스트에 번지므로 하지 않는다)
+3. `is_owner = store.is_owned_by(viewer_id)`
+4. 허용 값 검사: `statuses`에 `SUSPENDED`가 있고 `not is_owner`이면 `OfferStatusNotAllowedError`(400 `VALIDATION_ERROR`, D84)
+5. 선택 집합: `statuses`가 None이거나 비어 있으면 소유자는 `OWNER_DEFAULT_OFFER_STATUSES`, 비소유자는 `OPEN_OFFER_STATUSES`. 값을 주면 중복 제거(`dict.fromkeys`)한 그 값들(D25, D84)
+6. `offers.find_by_store(store_id, statuses=selected, now=now, exposed_only=not is_owner, page=page, size=size)` → 각 항목을 `OfferView`로 변환 (`store_name`은 한 번만 조회한 값 사용)
+- 소유자가 폐점·정지 상점 목록을 읽는 것은 허용이다(본인 상점은 전부 본다, 정책 표 "상점 할인 목록"). 비소유자는 4단계의 `exposed_only=True`로 노출 중 상품·비정지 할인만 SQL에서 걸러 `total`·페이지가 맞다(D65·D74와 같은 이유).
 
 **#10 `get_offer_detail(offer_id) -> OfferDetailView`** (공개, 잠금 없음, commit 없음)
 1. `now = clock.now()`
 2. `found = offers.find_with_product(offer_id)` — 없으면 `OfferNotFoundError()` (404)
 3. `offer, product = found`; `info = stores.find_store_by_id(product.store_id)`, `store = StoreRef.from_info(info)` — 포트가 None이면 `OfferNotFoundError()` (404 "할인 판매를 찾을 수 없습니다.", D56. FK상 정상 데이터에서는 발생하지 않는다). `_load_store`는 쓰지 않는다
-4. 공개 범위(D56): 할인 `is_active`·`status`(중단·마감·품절), 상품 `is_active=false`, 상점 폐점(`closed_at`)을 이유로 숨기지 않는다. 상태는 응답의 `offer.status`·`offer.is_active`로 표시하고 상품·상점 상태 값은 응답에 추가하지 않는다
+4. 공개 범위(D56, admin C7, D82): **정지된 할인과 정지된 상점의 할인만** 비소유자에게 404(`store.is_visible_to(viewer_id)`, `offer.is_visible(now, viewer_is_owner=is_owner)` — 현재 코드 그대로). 할인 `is_active`·`status`(중단·마감·품절), 상품 `is_active=false`(노출 중단), 상점 폐점(`closed_at`)을 이유로 숨기지 않는다. 상태는 응답의 `offer.status`·`offer.is_active`로 표시하고 상품·상점 상태 값은 응답에 추가하지 않는다. 코드 변경 없음(요구 조건 정책 표 "할인 상세 조회"와 일치)
 5. `OfferDetailView(view=_offer_view(offer, product, store.name, now), description=product.description, product_image=product.product_image, pickup_address=store.pickup_address, latitude=store.latitude, longitude=store.longitude, notice=OFFER_NOTICE, cancel_policy=offer.cancel_policy())`
 - 비즈니스 계산(취소 가능 시각, 할인율, 유효 상태)은 도메인 메서드가 하고 서비스는 조합만 한다(R3). 인증을 받지 않으므로 서비스 인자에 `user_id`가 없고 router도 인증 의존성이 없다.
 - 오류: 404 하나(할인 없음). 잘못된 UUID는 전역 핸들러의 400 `VALIDATION_ERROR`.
@@ -482,7 +494,7 @@ class CatalogApplicationService:
 ### 6.4 모듈 간 트랜잭션 경계
 
 - catalog는 stores를 읽기만 한다(같은 요청 세션, container에서 `Depends(get_db)` 공유).
-- 예약 존재 확인(읽기, #11): `ReservationLookupPort.has_reservations_for_offer(offer_id) -> bool` (D28). 임시 구현 `NoReservationLookup`은 항상 False. "예약"은 상태와 관계없이 한 건이라도 있으면 포함한다(취소 건 포함). #11은 할인 행을 `FOR UPDATE`로 잠근 상태에서 포트를 호출하고, 예약 생성도 할인 행을 잠그고 재고를 차감한 뒤 INSERT 해야 직렬화된다(5.3, db-schema §7, CI-10).
+- 예약 존재 확인(읽기, #11): `ReservationLookupPort.has_reservations_for_offer(offer_id) -> bool` (D28). 포트 서명·이름은 유지한다(D81). 반환 의미만 **"취소되지 않은 예약이 한 건이라도 있으면 True"**(REQ-17: `PENDING_PAYMENT`·`RESERVED`·`PICKED_UP`만 센다, `CANCELLED`만 있으면 False)로 좁힌다. 이 판정은 reservations 어댑터가 `ReservationRepository.exists_non_cancelled_by_offer`로 한다(11절, reservations.md 2.2). 임시 구현 `NoReservationLookup`은 항상 False이며 container에서는 이미 어댑터로 교체돼 있어야 한다(C-11). 에러 코드·메시지(`OFFER_HAS_RESERVATIONS`, "예약이 있는 할인은 수정할 수 없습니다. 재등록을 이용하세요.")는 `docs/reference/catalog.md`가 정한 문구라 바꾸지 않는다(R15). #11은 할인 행을 `FOR UPDATE`로 잠근 상태에서 포트를 호출하고, 예약 생성도 할인 행을 잠그고 재고를 차감한 뒤 INSERT 해야 직렬화된다(5.3, db-schema §7, CI-10).
 - 예약 일괄 취소(쓰기, #12): `ReservationCancelPort.cancel_all_for_offer(offer_id, *, reason) -> int` (D42). 임시 구현 `NoReservationCancel`은 항상 0. 계약:
 
 | 항목 | 계약 |
@@ -533,7 +545,7 @@ class CatalogApplicationService:
 | 6-1 | POST (상품 재노출) | `/v1/products/{product_id}/activate` | 없음 | `ProductResponse` | 200 | 400(이미 노출 중 `PRODUCT_ALREADY_ACTIVE`, 폐점 `STORE_CLOSED`), 401, 403, 404 (D79) |
 | 7 | POST | `/v1/products/{product_id}/offers` | `OfferCreateRequest` | `OfferResponse` | 201 | 400(가격·시간·비활성 상품·진행 중 할인·상점), 401, 403, 404 |
 | 8 | GET | `/v1/offers` | 쿼리(14.5절) | `NearbyOfferListResponse` | 200 | 400(`lat`·`lng` 한쪽만, `distance` 정렬에 위치 없음, status·sort 허용 외, 범위·형식). 401·403·404 없음. 인증 없음(공개) |
-| 9 | GET | `/v1/stores/{store_id}/offers` | 쿼리(`status` 반복 가능) | `OfferListResponse` | 200 | 400(status 값 등), 404(상점) |
+| 9 | GET | `/v1/stores/{store_id}/offers` | 쿼리(`status` 반복 가능, 7.4절) | `OfferListResponse` | 200 | 400(status 값 등. 비소유자의 `status=SUSPENDED` 포함, D84), 404(상점 없음, 또는 폐점·정지 상점의 비소유자 조회, D83). 인증은 선택(`OptionalUser`) |
 | 10 | GET | `/v1/offers/{offer_id}` | - | `OfferDetailResponse` | 200 | 400(잘못된 UUID `VALIDATION_ERROR`), 404(할인 없음). 인증 없음(공개) |
 | 11 | PATCH | `/v1/offers/{offer_id}` | `OfferUpdateRequest` | `OfferResponse` | 200 | 400(항목 없음·종료·예약 있음·가격·시간·재개 조건), 401, 403, 404 |
 | 12 | POST (할인 판매 중단) | `/v1/offers/{offer_id}/deactivate` | `OfferDeactivateRequest{reason, cancel_reservations}` | `OfferDeactivateResponse{offer, cancelled_reservation_count}` | 200 | 400(이미 중단, 픽업 완료 예약, `VALIDATION_ERROR`), 401, 403, 404 |
@@ -578,7 +590,9 @@ class CatalogApplicationService:
 | #2 | `is_active` | bool | `true` | `false`는 소유자만(D6) |
 | #2, #9 | `page` | int | 1 | `ge=1` |
 | #2, #9 | `size` | int | 20 | `ge=1, le=100` |
-| #9 | `status` | `list[OfferStatus]` (반복 가능) | 미지정 시 `SCHEDULED`+`ON_SALE`+`SOLD_OUT`(진행 중 전체, D25) | 허용 외 값은 400. 유효 상태 기준 필터(여러 값은 OR). `CLOSED`는 명시할 때만. 정렬 `sales_end` 오름차순. `?status=ON_SALE` 단일 호출도 동작 |
+| #9 | `status` | `list[OfferListStatus]` (반복 가능, 아래) | 비소유자: `SCHEDULED`+`ON_SALE`+`SOLD_OUT`(`OPEN_OFFER_STATUSES`, D25). 소유자: 위 + `SUSPENDED`(`OWNER_DEFAULT_OFFER_STATUSES`, D84) | 허용 외 값은 400. 유효 상태 기준 필터(여러 값은 OR). `CLOSED`는 명시할 때만. 정렬 `sales_end` 오름차순. `?status=ON_SALE` 단일 호출도 동작 |
+
+#9 `status` 허용 값(D84): router의 타입을 `PublicOfferStatus`에서 `presentation/schemas.py`의 새 `OfferListStatus(StrEnum)`(`SCHEDULED, ON_SALE, SOLD_OUT, CLOSED, SUSPENDED`)로 바꾼다. 소유 여부는 서비스만 알 수 있으므로(router는 `OptionalUser`로 `viewer.id`만 넘김) 비소유자의 `SUSPENDED`는 서비스가 막는다: `OfferStatusNotAllowedError(ValueError)`(`catalog/domain/exceptions.py`, `error_code = "VALIDATION_ERROR"`, 메시지 임시 "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다." — 기존 형식 오류 메시지 `필드: 오류`와 같은 모양, Q45) → 전역 핸들러가 400. 비소유자에게는 허용 값이 기존과 같고(`SUSPENDED`만 400) 응답 코드도 같은 400 `VALIDATION_ERROR`다. 비로그인도 비소유자와 같다. `PublicOfferStatus`는 #8이 계속 쓴다(D64).
 
 정렬 옵션은 제공하지 않는다(명세에 #2·#9 정렬 매개변수 없음). 주변 할인 목록(#8)은 구매자 탐색용이라 기본 `ON_SALE`을 유지한다. #3·#8의 쿼리 매개변수는 14.5절.
 
@@ -597,6 +611,9 @@ class CatalogApplicationService:
 | 이미 활성인 할인 재개 | 400 | `OFFER_ALREADY_ACTIVE` | 이미 활성화된 할인입니다. |
 | 비활성 상품의 할인 재개 | 400 | `PRODUCT_INACTIVE` | 비활성화된 상품의 할인은 재개할 수 없습니다. |
 | 다른 진행 중 할인이 있을 때 재개 | 400 | `OFFER_ALREADY_OPEN` | 이미 진행 중인 할인 판매가 있습니다. |
+| 정지된 상점에서 재개 | 400 | `STORE_SUSPENDED` | 관리자에 의해 정지된 상점입니다. (D86, 기존 예외 재사용) |
+
+#11 재개(`is_active:true`) 오류 우선순위(D86, 위에서 아래로 먼저 걸리는 것): 404 할인 없음 → 403 소유자 아님 → 400 `STORE_CLOSED` → 400 `STORE_SUSPENDED` → 400 `OFFER_SUSPENDED`(`resume` 첫 검사, 정지된 할인) → 400 `OFFER_ALREADY_ACTIVE` → 400 `OFFER_ENDED` → 400 `PRODUCT_INACTIVE` → 400 `OFFER_ALREADY_OPEN`. 상점 검사가 `offer.resume` 앞에 있는 현재 순서를 유지하므로 정지된 상점의 정지된 할인은 `STORE_SUSPENDED`가 먼저 나온다(Q47).
 | 폐점 상점에서 재개 | 400 | `STORE_CLOSED` | 폐점된 상점에서는 할인을 재개할 수 없습니다. |
 | 토큰 없음 / 오류 | 401 | `UNAUTHORIZED`(auth 기존 값) + `WWW-Authenticate: Bearer` | 인증이 필요합니다. |
 | 상점주 아님 / 본인 상점 아님 | 403 | `FORBIDDEN` | 본인 상점의 할인만 수정할 수 있습니다. |
@@ -652,7 +669,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 
 - 한 요청 안에서 `Depends(get_db)`가 같은 세션을 돌려주므로 catalog와 stores의 레포·서비스가 한 트랜잭션을 공유한다(R13).
 - `src/main.py`: `wire_dependencies(app)`를 라우터 등록보다 앞에서 부르고, `catalog.infrastructure.models`를 stores models 뒤에 import하고, `catalog_router`를 `include_router`로 등록한다(B1).
-- 예약 포트 교체(CI-10, CI-11): reservations 구현 시 `create_reservation_lookup`은 reservations의 추상 레포지토리(`exists_by_offer`)를 받는 어댑터를, `create_reservation_cancel`은 reservations 서비스를 `commit=False`로 부르는 어댑터를 돌려주게 바꾼다. 어댑터는 reservations 쪽 또는 container가 소유하고 catalog는 import하지 않는다.
+- 예약 포트 교체(CI-10, CI-11): reservations 구현 시 `create_reservation_lookup`은 reservations의 추상 레포지토리(`exists_non_cancelled_by_offer`를 호출하는 `OfferReservationLookup`, D81. 이전 `exists_by_offer`가 아니다)를 받는 어댑터를, `create_reservation_cancel`은 reservations 서비스를 `commit=False`로 부르는 어댑터를 돌려주게 바꾼다. 어댑터는 reservations 쪽 또는 container가 소유하고 catalog는 import하지 않는다.
 
 ### 9.3 stores 폐점이 catalog를 호출할 때의 생성 순환 (후속, D22)
 
@@ -670,19 +687,21 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 
 기준 경로는 `tests/catalog/`의 4개 파일(`test_domain.py`, `test_service.py`, `test_api_db.py`, `test_wiring.py`)이다. DB 테스트는 `@pytest.mark.db`이고 skip은 통과가 아니다(R16).
 
-- **domain**: `Product`(등록·수정 검증, `deactivate` 순서), `DiscountOffer`(등록 검증, 시간 경계, `effective_status` 표, 재고 조정 전 경우, 9999 상한, `close`/`pause`/`resume`, `apply_changes`), `StoreRef`(`ensure_not_closed` 포함), `StockLog.offer_edit`, `discount_rate` 버림, `cancel_policy()`(`pickup_start − CANCEL_LEAD_TIME`, `pickup_start`가 이미 지나 있어도 계산, timezone 유지, 설명 문구는 상수), `StoreRef.from_info`의 좌표 복사(값·None), `OPEN_OFFER_STATUSES`가 `is_open`이 참인 `effective_status` 집합과 같음.
+- **domain**: `Product`(등록·수정 검증, `deactivate` 순서), `DiscountOffer`(등록 검증, 시간 경계, `effective_status` 표, 재고 조정 전 경우, 9999 상한, `close`/`pause`/`resume`, `apply_changes`), `StoreRef`(`ensure_not_closed` 포함), `StockLog.offer_edit`, `discount_rate` 버림, `cancel_policy()`(`pickup_start − CANCEL_LEAD_TIME`, `pickup_start`가 이미 지나 있어도 계산, timezone 유지, 설명 문구는 상수), `StoreRef.from_info`의 좌표 복사(값·None), `OWNER_DEFAULT_OFFER_STATUSES`가 `is_open`이 참인 `effective_status` 집합과 같고 `OPEN_OFFER_STATUSES`는 그 집합에서 `SUSPENDED`를 뺀 것과 같음(admin C6, D84); `effective_status` 우선순위 표(중단 → 정지 → 마감 → 시작 전 → 품절 → 판매 중) 전 조합, 특히 정지+`is_active=false`(→ `CLOSED`)와 정지+마감 지남(→ `SUSPENDED`)(D85).
   - `apply_changes`: 필드별 성공; 빈 dict·허용 외 키·None 거부; 병합 검증(`sale_price`만 바꿔도 `original_price`와 비교, `sales_end`만 바꿔 `pickup_end`보다 늦으면 400, `sales_start`만 바꿔 `sales_end` 이후면 400); `initial_stock` 증감(+/-)과 반환 delta; 수동 차감 후 `initial_stock`을 줄여 `remaining`이 음수가 되는 경우 400; 중단·마감 지난 할인 `OfferClosedError`; `has_reservations=True` `OfferHasReservationsError`; 검사 순서(닫힘이 예약보다 먼저); 실패 시 상태가 일부도 바뀌지 않음.
   - `pause/resume`: 정상, 이미 중단, 이미 활성, 마감 지남(양쪽), 비활성 상품, 다른 진행 중 할인, 재개 후 `effective_status`(재고 0이면 `SOLD_OUT`, 시작 전이면 `SCHEDULED`).
   - `close`: 활성 할인은 `is_active=False`·`CLOSED`, 재호출은 `OfferClosedError("이미 중단된 할인입니다.")`, 마감 지난 활성 할인도 통과(Q24).
 - **application (fake 레포 3종·`StorePort`·두 예약 포트·고정 `Clock`)**:
   - 쓰기 EP마다 `commit` 1회, 실패 시 0회. #13 중간 예외 시 기존 할인이 닫히지 않음. #14의 `StockLog` 부호.
-  - #9: `statuses=None` → 레포에 `OPEN_OFFER_STATUSES` 전달, 중복 제거, 값 지정 시 그대로(D25).
+  - #9(D25·D83·D84): 비소유자 `statuses=None` → 레포에 `OPEN_OFFER_STATUSES`와 `exposed_only=True` 전달; 소유자 `statuses=None` → `OWNER_DEFAULT_OFFER_STATUSES`와 `exposed_only=False`; 중복 제거, 값 지정 시 그대로; 폐점 상점·정지 상점의 비소유자·비로그인 → `StoreNotFoundError`이고 레포 호출 0회; 같은 상점의 소유자는 통과; 비소유자·비로그인의 `statuses=[SUSPENDED]`(다른 값과 섞어도) → `OfferStatusNotAllowedError`·레포 호출 0회; 소유자의 `[SUSPENDED]`는 통과; `commit` 0회. 기존 "정지만 숨김" 단언(폐점 상점 비소유자가 200)은 404 단언으로 **교체**한다.
   - #10: 레포가 None이면 `OfferNotFoundError`; 상점 포트가 None이면 `OfferNotFoundError`(`StoreNotFoundError` 아님, D56); 중단·마감·비활성 상품·폐점 상점 fake 데이터에서도 예외 없이 `OfferDetailView`를 돌려줌(D56); `commit` 0회; 좌표 None 전달; `notice`·`cancel_policy`가 도메인 상수·메서드 값; 기존 fake `StoreInfo`에 `latitude`·`longitude` 속성을 추가해 `StoreRef.from_info`가 깨지지 않게 한다.
   - #11: 잠금 호출 순서(product → offer)를 fake에서 기록해 단언, 403 비소유자, 404, `delta != 0`일 때만 `stock_log` 1건, 예약 포트 True면 400, 재개 시 `find_open_by_product` 호출.
   - #12: `cancel_reservations=false`면 포트 호출 0회·상품 `is_active` 불변·`remaining_stock`/`stock_log` 불변(D40)·`products.save` 호출 없음; `true`이고 포트가 3을 돌려주면 올바른 `offer_id`·`reason`으로 1회 호출되고 `cancelled_reservation_count == 3`; 포트가 `PickedUpReservationExistsError`면 전파되고 `commits == 0`; 이미 중단된 할인은 `OfferClosedError`·포트 호출 0회; 마감 지난 활성 할인 성공(Q24); 404 → 403 순서; 폐점 상점 성공(Q14); 잠금 순서(할인 무잠금 조회 → 상품 `for_update` → 할인 `for_update` → 포트 → `commit`).
-- **infrastructure (DB)**: `_status_clause`와 `effective_status` 결과 일치(상태 4종 × 시간 경계, CI-5), `find_by_store` 페이지·total(다중 상태 포함), `save` 갱신 후 다시 읽어 가격·시간 5개 컬럼과 `status` 반영(CI-7), `for_update` 직렬화(동시 2건 조정), 동시 PATCH vs `adjust_stock`에서 `stock_log` 합 = `remaining_stock`, 동시 #12 vs `adjust_stock`·#12 vs `relist_offer`에서 교착 없음(product → offer 순서).
+- **infrastructure (DB)**: `_status_clause`와 `effective_status` 결과 일치(상태 4종 × 시간 경계, CI-5), `find_by_store` 페이지·total(다중 상태 포함), `find_by_store`의 `exposed_only`(D83): `True`면 노출 중단 상품(`products.is_active=false`)의 할인과 정지 할인이 빠지고 `total`·페이지가 빠진 결과와 맞음(예: 11건 중 3건 제외 → `size=5`에서 `total=8`, 마지막 쪽 3건), `False`면 같은 데이터에서 두 종류 모두 포함, `statuses=OWNER_DEFAULT_OFFER_STATUSES`에서 `exposed_only=False`가 SUSPENDED를 돌려주고 `OPEN_OFFER_STATUSES`로는 안 돌려줌, `save` 갱신 후 다시 읽어 가격·시간 5개 컬럼과 `status` 반영(CI-7), `for_update` 직렬화(동시 2건 조정), 동시 PATCH vs `adjust_stock`에서 `stock_log` 합 = `remaining_stock`, 동시 #12 vs `adjust_stock`·#12 vs `relist_offer`에서 교착 없음(product → offer 순서).
 - **presentation (DB, 실제 임시 포트)**:
-  - #9: 기본 호출에 `SCHEDULED`·`ON_SALE`·`SOLD_OUT`이 나오고 `CLOSED`(중단, 마감 지남)는 안 나옴; `status=CLOSED` 명시 시 나옴; 다중 `status`; 단일 `status=ON_SALE`; 잘못된 값 400 `VALIDATION_ERROR`.
+  - #9: 기본 호출에 `SCHEDULED`·`ON_SALE`·`SOLD_OUT`이 나오고 `CLOSED`(중단, 마감 지남)는 안 나옴; `status=CLOSED` 명시 시 나옴; 다중 `status`; 단일 `status=ON_SALE`; 잘못된 값 400 `VALIDATION_ERROR`. D83·D84 추가: (비로그인·타 상점주) 노출 중단 상품의 할인·정지 할인이 목록과 `total`에서 빠짐, 폐점 상점·정지 상점은 404 `NOT_FOUND`(#2와 같은 응답), 타인의 `status=SUSPENDED` 400 `VALIDATION_ERROR`, 비로그인도 같음; (소유자 토큰) 기본 목록에 정지 할인과 노출 중단 상품의 할인이 포함, `status=SUSPENDED` 단독 200에 정지 할인만, 폐점 상점도 200; 정지 할인의 `status` 값이 `SUSPENDED`.
+  - #11 재개(D86): 정지된 상점에서 `is_active:true` → 400 `STORE_SUSPENDED`(`StoreSuspendedError`), 폐점 상점 → `STORE_CLOSED`(문구 불변), 폐점+정지 → `STORE_CLOSED`(순서), 정지 상점에서도 중단(`is_active:false`)·#12·재고 조정은 성공, 정지된 상점의 #7·#13 → `STORE_SUSPENDED`(기존 동작 회귀 확인). 상점 검사가 `offer.resume`보다 먼저인 순서 단언(Q47).
+  - #11 REQ-17(D81): 예약이 `CANCELLED`뿐인 할인은 PATCH 200, `PENDING_PAYMENT`·`RESERVED`·`PICKED_UP` 중 하나라도 있으면 400 `OFFER_HAS_RESERVATIONS`(예약 상태별 3건 파라미터화). reservations 쪽: `exists_non_cancelled_by_offer`는 예약 없음 False, `CANCELLED`만 False, 취소와 `PENDING_PAYMENT` 혼합 True, 다른 offer의 예약 무시(fake와 실제 DB 양쪽, `tests/reservations`).
   - #6: 본문 없이 호출 → 200 `ProductResponse`(`is_active == false`), 진행 중 할인이 있으면 400 `PRODUCT_HAS_OPEN_OFFER`, 이미 비활성이면 400 `PRODUCT_ALREADY_INACTIVE`, 401, 403, 404.
   - #11: 200(필드별·응답 `status`·`is_active`), 400 각 케이스(7.5 표), 401(`WWW-Authenticate`), 403(고객·타인 상점), 404, 잘못된 UUID 400, `is_active`와 다른 필드 동시 400, `is_active: null` 400, 중단 후 재개 왕복, 재개 후 #7 중복 등록 400, 수량 범위 메시지.
   - #12: 진행 중 할인 중단 → 200, `offer.status == "CLOSED"`, `is_active == false`, 응답 필드 17개가 명세 `Offer`와 일치, `cancelled_reservation_count == 0`; 이후 기본 상점 할인 목록에서 사라지고 `status=CLOSED` 목록에 나타남; 상품 `is_active`와 `discount_offers` 외 행은 변하지 않음; `cancel_reservations=true`/생략; 이미 중단 → 400 `OFFER_CLOSED`; 마감 지난 활성 할인 200; 없는 `offer_id` 404; 중단 후 #11 재개 200(마감 전, Q19), #13 400 `OFFER_CLOSED`, #14 400 `OFFER_CLOSED`; `reason` 누락·빈 문자열·공백만·201자·본문 없음·잘못된 UUID → 400 `VALIDATION_ERROR`(200자는 성공); 401·403(문구 "본인 상점의 할인만 중단할 수 있습니다.")·에러 본문 형식(R7); 폐점 상점의 할인도 성공.
@@ -706,6 +725,17 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 
 - #3·#8(14절) 구현에는 **stores 변경이 필요하다**(C15): `StoreRepository.find_visible_near`, `SqlAlchemyStoreRepository` 구현, `StoreQueryService.find_visible_stores`, `StoreWithDistance`. 설계는 `docs/design/stores.md` 15절에 반영했다(D41~D47, C22·C23). `src/container.py`·`src/main.py`·스키마(`schema.sql`)·`pyproject.toml`·`error_handlers.py`는 변경 없다(새 `provide_*`·테이블·의존성·예외 클래스가 없다). 구현 순서는 stores → catalog.
 - `docs/reference/catalog.md` §3의 `/v1/products/search`와 `docs/reference/README.md` 10번 행·"FastAPI 주의" 문구는 이번에 `/v1/products`로 정정했다(D59).
+
+- 2026-11-06 요구 조건 반영(D81~D85)이 필요로 하는 모듈 밖 변경: reservations 쪽 `exists_non_cancelled_by_offer` 추가와 어댑터 호출 교체, fake 2곳(`tests/reservations/fakes.py`, `tests/payments/test_integration.py`) 갱신(reservations.md D-39·C-21). `docs/reference/catalog.md`는 바꾸지 않는다(에러 코드·문구 유지, 단 "예약이 있는"의 의미가 "취소되지 않은 예약"임을 명세 §11 설명에 한 줄 보강하는 것을 제안한다, 승인 전에는 바꾸지 않는다).
+
+`docs/reference/catalog.md` 갱신 제안(직접 수정 금지, 승인 후 반영, D81·D86):
+| 위치 | 현재 | 제안 |
+| --- | --- | --- |
+| 572행 §11 "재개 조건" 인용문 | "…상품이 활성이고 상점이 폐점이 아니며, 같은 상품에 다른 진행 중 할인이 없어야 합니다." | "…상품이 활성이고 상점이 폐점·정지 상태가 아니며, 같은 상품에 다른 진행 중 할인이 없어야 합니다." |
+| 586행 §11 에러 표 `STORE_CLOSED` 행 바로 아래(새 행) | (없음) | `\| 400 \| STORE_SUSPENDED \| 관리자에 의해 정지된 상점입니다. \|` |
+| 580행 §11 에러 표 `OFFER_HAS_RESERVATIONS` 행 | 메시지만 있음, 의미 설명 없음 | 메시지·코드는 그대로 두고 표 아래 한 줄 추가: "예약이 있는 할인이란 취소되지 않은 예약(결제 대기·예약 완료·픽업 완료)이 한 건이라도 있는 할인을 말합니다. 모두 취소된 할인은 수정할 수 있습니다." |
+| 568~571행 §11 설명문 중 "예약 여부는 예약 기능이 생기기 전까지 항상 '예약 없음'으로 처리됩니다." | 현재 문구 | 예약 기능이 연결돼 있으므로 이 문장을 삭제(또는 위 한 줄로 대체) |
+| §7 할인 등록·§13 재등록 에러 표 | 정지 상점 행이 없으면 | `\| 400 \| STORE_SUSPENDED \| 관리자에 의해 정지된 상점입니다. \|` 추가(코드는 이미 동작, 행 존재 여부는 구현자가 확인) |
 
 남은 제안(명세·타 모듈, 승인 전에는 바꾸지 않는다):
 - `docs/reference/catalog.md` §10: "확인 필요" 인용문을 아래 확정 내용으로 바꾼다. `notice`는 고정 문구, `cancel_policy.cancellable_until = pickup_start − 1시간`, `cancel_policy.description`은 고정 문구(문구는 D54·D55), 중단·마감 할인·비활성 상품의 할인·폐점 상점의 할인도 조회되며 상태는 `offer.status`·`offer.is_active`로 구분, `latitude`·`longitude`는 상점이 좌표 없이 개설되면 null, `description`은 null 가능. 응답 예시를 추가한다(`offer`는 Offer 공통 객체 예시 재사용).
@@ -765,7 +795,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D25 | 상점 할인 목록 기본 `status` (#9) | 사용자 요청, 명세 §9 | `status`를 반복 가능한 다중 값으로 받고, 미지정 시 `SCHEDULED`+`ON_SALE`+`SOLD_OUT`(D4 "진행 중"과 같은 집합). 값을 주면 그 값들만(OR). `CLOSED`는 명시할 때만. 주변 할인 목록(§8) 기본 `ON_SALE`은 바꾸지 않음 | 등록 직후 `SCHEDULED`인 할인이 기본 `ON_SALE` 필터에서 빠져 "등록한 할인이 안 보이는" 문제를 막는다. 단일 `status` 호출과 호환되고 권한 분기가 없다 | `OPEN_OFFER_STATUSES`(`domain/discount_offer.py`), router `status`, `find_by_store(statuses=…)` | 확정 |
 | D26 | 할인 수정 PATCH의 "상태 변경" 의미 (#11) | 사용자 요청 | 계산 상태(SCHEDULED/ON_SALE/SOLD_OUT)는 직접 바꾸지 않는다. 직접 바꾸는 값은 `is_active`뿐이고 PATCH 본문의 `is_active`(false=중단, true=재개)로 받는다. `is_active`는 다른 필드와 함께 보낼 수 없다. 응답은 `OfferResponse`(계산 `status` + `is_active`) | 명세 #11 응답이 Offer라 `status` 확인 가능. README "상태만 바꾸는 동작은 `POST /{id}/동사`" 규칙의 예외로 README에 명시됨 | `OfferUpdateRequest`, `update_offer` | 확정 |
 | D27 | 할인 수정 가능 필드·검증 | 명세 #11 | 수정 필드 `sale_price`, `initial_stock`, `sales_start`, `sales_end`, `pickup_start`, `pickup_end`. null 거부, 빈 요청 400 "수정할 항목이 없습니다.". 중단됐거나 판매 마감이 지난 할인은 400 "종료된 할인은 수정할 수 없습니다.". 시간 일부만 바꿔도 **병합한 전체 값**에 할인 등록과 같은 검증. 이미 시작한 할인의 `sales_start` 변경도 허용 | 명세 #11 확인 필요 문구, D10 일관성 | `DiscountOffer.apply_changes` | 확정 |
-| D28 | "예약 0건일 때만 수정" 판정 | 명세 #11, reservations 미구현 | catalog가 `ReservationLookupPort.has_reservations_for_offer(offer_id)`를 정의하고, 임시 구현 `NoReservationLookup`(항상 False)을 container에 연결. "예약"은 상태와 관계없이 한 건이라도 있으면 포함(취소 건 포함). reservations 구현 때 바인딩 교체 | R11(포트는 쓰는 쪽이 정의), 현재 데이터와 일치(예약 자체가 없음), 가드 위치가 코드에 남음 | `application/ports.py`, `infrastructure/reservation_lookup.py`, container `create_reservation_lookup` | 확정 |
+| D28 | "예약 0건일 때만 수정" 판정 | 명세 #11, reservations 미구현 | catalog가 `ReservationLookupPort.has_reservations_for_offer(offer_id)`를 정의하고, 임시 구현 `NoReservationLookup`(항상 False)을 container에 연결. ~~"예약"은 상태와 관계없이 한 건이라도 있으면 포함(취소 건 포함)~~ → **D81로 변경: 취소되지 않은 예약만 센다.** reservations 구현 때 바인딩 교체 | R11(포트는 쓰는 쪽이 정의), 현재 데이터와 일치(예약 자체가 없음), 가드 위치가 코드에 남음 | `application/ports.py`, `infrastructure/reservation_lookup.py`, container `create_reservation_lookup` | 확정(포트 구조), 판정 범위는 D81 |
 | D29 | `initial_stock` 수정 시 `remaining_stock` | 명세 #11 | `remaining_stock`을 재설정하지 않고 **증감한 만큼** 더한다(`remaining += new_initial - old_initial`). 증감이 0이 아니면 `stock_log`에 그 증감을 기록한다. 결과가 음수가 되면 400 | 수동 차감(포장 파손 등)이 수정으로 되살아나지 않게, `stock_log` 합 = `remaining_stock` 유지 | `apply_changes`, `StockLog.offer_edit` | 확정 |
 | D30 | 중단·재개 규칙, #12·#13과의 관계 | 명세 #11~#13 | 중단(`pause`)은 `is_active=true`이고 마감 전일 때만. 재개(`resume`)는 `is_active=false`이고 마감 전, 상품 활성, 같은 상품에 다른 진행 중 할인 없음, 상점 미폐점일 때만. 중단은 기존 예약을 건드리지 않는다. #13 재등록은 중단된 할인에 불가 | 상태 값이 `is_active` 하나뿐이라 도메인 상태는 공유 | `DiscountOffer.pause/resume`, `StoreRef.ensure_not_closed` | 확정 |
 | D34 | #12의 중단 방식 | 팀 명세 | `DiscountOffer.close(now)`를 재사용한다 | `close`가 `is_active=false`, `CLOSED`를 만들고 #13도 같은 메서드를 쓴다 | `deactivate_offer` | 확정 |
@@ -783,7 +813,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D53 | #11 `is_active:false`와 #12의 공존 | 사용자 결정 | 둘 다 유지한다. #12는 사유·예약 일괄 취소·`{offer, count}`·마감 후 중단 허용, #11 중단은 마감 후 400 `OFFER_ENDED`이고 사유·예약 연계가 없다. 명세 §11이 두 방법을 모두 안내한다 | 사용자 결정. 없애면 D26·`pause()`·테스트가 바뀐다 | `pause`, `close` | 확정 |
 | D54 | #10 `notice` | 사용자 결정 | 고정 문구 상수 `OFFER_NOTICE`(스키마 변경 없음). 문구는 "마감 시간이 가까운 상품으로 수량이 한정되어 있습니다. 픽업 시간 안에 매장을 방문해 예약 확인 코드를 보여주세요. 픽업 시간이 지나면 수령할 수 없습니다." | 저장 컬럼이 없음, 사용자 결정 | `domain/discount_offer.py` 상수 | 확정 |
 | D55 | #10 `cancel_policy` | 사용자 결정 | `cancellable_until = pickup_start − CANCEL_LEAD_TIME(1시간)`을 `DiscountOffer.cancel_policy()`가 계산, `description`은 고정 문구 상수. payments 위약금 규칙이 같은 기준을 따라야 한다(13.3 C14). `description` 문구는 "픽업 시작 1시간 전까지 취소할 수 있습니다. 이후에는 취소가 제한되거나 위약금이 부과될 수 있습니다." | 사용자 결정, 명세 §10 제안 | `DiscountOffer.cancel_policy`, `CANCEL_LEAD_TIME`, `CANCEL_POLICY_DESCRIPTION` | 확정 |
-| D56 | #10 공개 범위·에러 | 사용자 결정 | 인증 없이 누구나 조회. 중단·마감·품절 할인, 비활성 상품의 할인, 폐점 상점의 할인 모두 조회되고 `offer.status`·`offer.is_active`로 상태를 표시한다. 에러는 할인 없음 404 하나(401·403 없음) | 사용자 결정 | `get_offer_detail`, router | 확정 |
+| D56 | #10 공개 범위·에러 | 사용자 결정, admin.md C7·D20, requirements 정책 표 "할인 상세 조회" | 인증 없이 누구나 조회(토큰이 있으면 소유자 판별에만 쓰는 `OptionalUser`). **정지된 할인과 정지된 상점의 할인만** 비소유자에게 404. 폐점 상점의 할인, 노출 중단 상품의 할인, 중단·종료·품절 할인은 모두 조회되고 `offer.status`·`offer.is_active`로 상태를 표시한다. 에러는 할인 없음 404 하나(401·403 없음). 갱신 근거와 코드 확인은 D82 | 사용자 결정, `docs/requirements/catalog-offers.md` 정책 표 | `get_offer_detail`, router | 확정 |
 | D57 | #10 응답 구성 | 명세 §10, 사용자 결정 | `OfferDetailResponse`는 명세 필드 그대로이고 `offer`는 기존 `OfferResponse`를 재사용한다. `latitude`·`longitude`는 catalog `StoreInfo`·`StoreRef`에 추가해 상점에서 받고 null 가능. `cancel_policy`는 중첩 객체 | 명세 필드명 유지(R15), stores가 이미 좌표를 제공 | `schemas.py`, `application/ports.py`, `StoreRef` | 확정 |
 | D58 | #10 조회 방식 | 설계 | 할인+상품을 `find_with_product` 한 번의 JOIN으로 읽고 상점은 `StorePort`로 읽는다. 잠금·commit 없음 | 읽기 전용, 5.3절 | `find_with_product`, `get_offer_detail` | 확정 |
 | D59 | #3 상품 검색 경로 | 사용자 결정 | `GET /v1/products`(공개, 200). 이전 제안 `/v1/products/search`는 폐기. `GET /v1/products/{product_id}`(#4)와 경로가 달라 등록 순서 제약이 없다 | 사용자 확정 | router | 확정 |
@@ -807,7 +837,14 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D77 | #3 응답 구조: 상점 단위 묶음 (D76 대체) | 사용자 결정 | `items[]` 한 건 = 검색 조건(`keyword`·`category`·반경)에 맞는 상품을 1개 이상 가진 **상점 하나**: `{store: {id, name, pickup_address, latitude, longitude}, distance, unit, products: [ProductResponse 필드 + has_active_offer, …]}`. `products[]`에는 그 상점의 조건 일치 상품을 전부 담는다(상한 없음, Q44). **`page`·`size`·`total`은 상점 수 기준.** 조건 일치 상품이 없는 상점은 나오지 않는다. #8 응답은 바뀌지 않는다. `store`는 `StoreWithDistance.store`(`StoreInfo`)로 채워 stores·`StorePort` 추가 변경이 없다 | 사용자 결정, `StoreInfo`가 5개 필드를 이미 가짐 | `schemas.py`, `StoreSearchHit`, 레포 쿼리(14.4) | 확정(사용자 결정) |
 | D78 | 정상 가격 상한 | requirements REQ-3(사용자 결정 "1억 이상 입력 금지") | 1 이상 99,999,999 이하. 상한은 새 입력(`Product.register`, `apply_changes`)에서만 검사하고 생성자(DB 복원)는 검사하지 않는다. 기존 행이 1억 이상이어도 읽기가 깨지지 않게 하기 위함. DB `CHECK`는 추가하지 않는다 | 사용자 결정, 기존 데이터 호환 | `product.py` 모듈 상수 `MAX_PRICE`, `Product._validate_new_price` | 확정(사용자 결정) |
 | D79 | 상품 재노출 EP | requirements 상태와 전이(노출 중단 → 노출 중), 명세 §6 "확인 필요" | `POST /v1/products/{product_id}/activate`. 노출 상태 전환은 #6·#6-1 전용 명령으로만 하고 PATCH(#5)로 받지 않는다. 검사 순서: 상품 존재(404) → 소유자(403) → 폐점(`STORE_CLOSED`) → 이미 노출 중(`PRODUCT_ALREADY_ACTIVE`). 상품 행 `FOR UPDATE` 후 `commit`. 예전 할인은 되살리지 않는다 | 사용자 결정. 전환마다 조건이 달라 PATCH에 섞으면 REQ-10과 함께 원인 파악이 어렵다 | `Product.reactivate`, `reactivate_product`, router | 확정(사용자 결정) |
-| D80 | 폐점 상점의 상품 숨김 (CI-15 해결) | requirements 정책 표(폐점 상점의 상품 조회: 상점주 외 불가) | `StoreRef.are_products_visible_to`: 폐점 또는 정지면 소유자에게만 보인다. #2·#4만 쓰고 #9·#10(할인)은 기존 `is_visible_to`(정지만)를 유지한다. 숨김 응답은 기존과 같은 404 `StoreNotFoundError` | 사용자 결정(상품에만 적용, 할인은 할인 요구 조건에서 결정) | `store_ref.py`, `list_products`, `get_product` | 확정(사용자 결정) |
+| D80 | 폐점 상점의 상품 숨김 (CI-15 해결) | requirements 정책 표(폐점 상점의 상품 조회: 상점주 외 불가) | `StoreRef.are_products_visible_to`: 폐점 또는 정지면 소유자에게만 보인다. #2·#4와 **#9(D83)**가 쓰고, #10(할인 상세)만 기존 `is_visible_to`(정지만)를 유지한다(D82). 숨김 응답은 기존과 같은 404 `StoreNotFoundError` | 사용자 결정(상품에만 적용, 할인은 할인 요구 조건에서 결정 → 2026-11-06 D82·D83으로 닫힘) | `store_ref.py`, `list_products`, `get_product`, `list_offers_by_store` | 확정(사용자 결정) |
+| D81 | #11 수정을 막는 예약 범위 (REQ-17, D28 변경) | `docs/requirements/catalog-offers.md` REQ-17("취소되지 않은 예약이 한 건이라도 있는 할인 상품은 판매 조건을 수정할 수 없다. 예약이 모두 취소됐으면 수정할 수 있다") | 수정을 막는 예약은 `PENDING_PAYMENT`·`RESERVED`·`PICKED_UP`(= `CANCELLED`가 아닌 것). `ReservationLookupPort.has_reservations_for_offer(offer_id) -> bool` 서명·이름·`DiscountOffer.apply_changes(has_reservations=...)`·`OfferHasReservationsError` 코드·메시지는 **유지**하고 reservations 쪽만 좁힌다: 추상 `ReservationRepository`에 `exists_non_cancelled_by_offer(offer_id) -> bool`(`WHERE offer_id = :id AND status <> 'CANCELLED' LIMIT 1`)을 추가하고 `OfferReservationLookup.has_reservations_for_offer`가 이것을 호출한다. 잠금 순서(상품 → 할인 → 예약 insert)는 변하지 않는다 | REQ-17, R11(포트는 쓰는 쪽 정의), R15(에러 코드·문구는 `docs/reference/catalog.md` 그대로) | catalog: 코드 변경 없음(문구·테스트 설명만). reservations: `domain/repository.py`, `infrastructure/repositories.py`, `application/catalog_adapters.py`, fake 2곳(11절) | 확정(요구 조건 확정) |
+| D82 | #10 공개 범위 문구 갱신 | requirements 정책 표 "할인 상세 조회", admin.md C7 | D56 문구를 admin.md C7이 요구한 예외(정지된 할인·정지된 상점의 할인은 비소유자 404)와 요구 조건 정책 표(폐점 상점·노출 중단 상품·중단·종료 할인은 공개)에 맞춰 고쳤다. 코드는 이미 같은 동작이다(`src/catalog/application/service.py` `get_offer_detail`: `store.is_visible_to(viewer_id)`와 `offer.is_visible(now, viewer_is_owner=...)`). 폐점 상점은 `is_visible_to`가 숨기지 않으므로 공개가 유지된다 | requirements 정책 표 | `get_offer_detail`(변경 없음), 6.3절·10절 문구 | 확정(요구 조건 확정) |
+| D83 | #9 상점 할인 목록 공개 범위 | requirements 정책 표 "상점 할인 목록"("상점주 외에는 공개 노출 상점의, 노출 중 상품의, 정지되지 않은 할인 상품만 보인다(주변 할인 목록과 같은 기준). 상점주는 본인 상점 것을 모두 본다") | ① 비소유자: 서비스가 `store.ensure_products_visible_to(viewer_id)`로 폐점·정지 상점을 404(#2·#4와 같은 `StoreNotFoundError`). ② 비소유자 목록은 노출 중 상품(`products.is_active`)의 비정지 할인만 — **SQL 안**에서 거른다(페이지 `total`이 맞도록, D65·D74와 같은 이유). ③ 소유자: 상품 노출 조건 없음·정지 제외 없음, 폐점·정지 상점도 본인 것이면 조회. ④ 레포 서명: `find_by_store(store_id, *, statuses, now, exposed_only, page, size)`, `exposed_only`는 필수 키워드 인자(기본값이 없어 호출처·fake가 모두 컴파일 시점이 아니라 호출 시점에 드러난다, CI-16). `exposed_only=not is_owner` | requirements 정책 표, D62·D65·D74·D80 | `StoreRef`(변경 없음, docstring만), `list_offers_by_store`, `DiscountOfferRepository.find_by_store`(추상·구현), fake 1곳 | 확정(요구 조건 확정) |
+| D84 | #9 소유자 기본 목록에 정지 할인 포함·`status` 허용 값 | 사용자 결정(2026-11-06, 이 설계 발주): 소유자의 기본 목록(status 미지정)에 정지된 할인을 포함한다. 요구 조건 용어 "진행 중인 할인 상품(관리자가 정지한 할인 상품도 포함)", 정책 표 "상점주는 본인 상점 것을 모두 본다" | 상수 `OWNER_DEFAULT_OFFER_STATUSES = OPEN_OFFER_STATUSES + (SUSPENDED,)`(`discount_offer.py`, `OPEN_OFFER_STATUSES` 바로 아래). `OPEN_OFFER_STATUSES`는 공개 기본 집합이라 바꾸지 않는다(admin D20). 소유자는 `status`로 `SUSPENDED`를 지정할 수 있다. router 타입을 `OfferListStatus`(`SCHEDULED, ON_SALE, SOLD_OUT, CLOSED, SUSPENDED`)로 바꾸고, 비소유자·비로그인의 `SUSPENDED`는 서비스가 `OfferStatusNotAllowedError(ValueError, error_code="VALIDATION_ERROR")`로 400 처리해 기존 비소유자 허용 값과 응답 코드를 유지한다. #8은 `PublicOfferStatus`를 그대로 쓴다(D64) | 사용자 결정. 소유 여부는 서비스만 알 수 있어 router의 Pydantic 열거로는 소유자 전용 값을 구분할 수 없다 | `discount_offer.py` 상수, `schemas.py` `OfferListStatus`, `router.py`(#9 `status` 타입), `exceptions.py`, `list_offers_by_store` 4~5단계 | 확정(사용자 결정). 400 메시지 문구는 Q45 |
+| D85 | 상태 판정 순서 문서 정합 | requirements "상태와 전이"(중단 → 정지 → 마감 → 시작 전 → 품절 → 판매 중), admin.md 3.3·C6 | 3.4절 `effective_status` 우선순위 설명이 `SUSPENDED` 없이 5단계였던 것을 6단계로 고쳤다(`is_suspended`는 중단 다음, 마감 앞). 코드(`discount_offer.py` `effective_status`, `repositories.py` `_status_clause`)는 이미 이 순서이며 변경 없음 | 요구 조건 순서와 코드가 같음 | 3.4절 | 확정 |
+| D86 | 정지된 상점의 할인 등록·재등록·재개 | requirements(커밋 e133e13) 정책 표 "할인 등록·재개·재등록"("상점이 폐점·정지(·미승인)가 아님"), 상태와 전이 표, admin.md D17 | ① 등록(#7)·재등록(#13): `StoreRef.ensure_can_register("할인")`(폐점 → 정지 → 미승인)이 이미 정지를 막는다(400 `STORE_SUSPENDED`). 코드 변경 없음. ② 재개(#11 `is_active:true`): `update_offer`가 `store.ensure_not_closed("할인을 재개")`를 부르던 곳(`service.py:359`)을 `store.ensure_can_resume()`로 교체한다. 검사 위치는 소유자 확인(403) 뒤, `offer.resume` 앞(현재와 같은 자리). 신규 `StoreRef.ensure_can_resume()`: 폐점 → `StoreClosedError`(문구 불변) → 정지 → `StoreSuspendedError`(400 `STORE_SUSPENDED`, 기존 예외 재사용, 새 에러 코드 없음). 오류 우선순위는 7.5절(Q47). 미승인은 검사하지 않는다(이미 열린 할인 재개, D30). ③ 중단(#12·#11 중단)·재고 조정은 정지 상점에서도 허용(요구 조건이 상점 정지를 조건으로 두지 않음) | requirements 정책 표·상태 전이 표 | `store_ref.py`(`ensure_can_resume` 추가), `service.py` `update_offer` | 확정(요구 조건 확정) |
+| D87 | 관리자 정지 사유 상한 | requirements 경계값 표(커밋 e133e13: 1~500자) | catalog.md에는 정지 사유 200자 문구가 없음(정지 사유는 admin.md가 다룸). 200은 판매 중단 사유(#12)·재고 조정 사유 전용이며 바뀌지 않는다. 정지 사유 500은 admin 설계·코드가 정본 | requirements, admin.md | catalog 변경 없음 | 확정 |
 | Q12 | 종료되는 할인의 남은 재고를 `stock_log`로 기록하거나 복구하는가 | 재고 영향 | 기록·복구하지 않고 `remaining_stock` 유지 (D40) | #13 재등록의 기존 할인 종료와 같은 방식 | `close` | 확정 |
 | Q14 | 폐점된 상점의 할인도 중단 허용 | 현재 코드 | 허용(#12는 `ensure_not_closed`를 호출하지 않음). #11 재개는 폐점이면 막는다 | 이미 열려 있던 할인을 닫는 동작은 폐점과 모순되지 않는다 | `deactivate_offer` | 확정 |
 | Q16 | #12 `reason` 검증 범위 | 명세(필수·최대 200자) | `min_length=1`, 공백만이면 거부 | "필수"를 빈 값 거부로 해석 | `OfferDeactivateRequest` | 확정 |
@@ -837,6 +874,9 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | Q42 | #3 상점 정렬 기준. 위치가 있으면 거리순이지만 없을 때 기준이 없다 | 사용자 결정 후속 | 위치 없으면 상점명 `name ASC`, 같으면 `id ASC`. 이를 위해 stores의 `find_visible_stores`가 위치 미지정일 때 `name ASC, id ASC`로 돌려주도록 계약을 바꿨다(14.3). 대안: 조건 일치 상품 수 내림차순, `has_active_offer` 있는 상점 우선 | 상점명은 사용자가 예측 가능하고 stores만으로 정렬 가능 | stores `find_visible_near`의 `ORDER BY`, D68 | 확정(사용자 결정) |
 | Q43 | 한 상점 안 `products[]` 정렬 | 사용자 결정 후속 | `name ASC, id ASC`(#2와 같음). 대안: `has_active_offer=true` 우선 후 `name` | #2 상점 상품 목록 기본 정렬(D15) | `find_matching_in_stores`의 `ORDER BY` | 확정(사용자 결정) |
 | Q44 | 한 상점의 `products[]` 개수 상한 필요 여부 | 사용자 결정 후속 | 상한 없음. 한 요청은 상점 최대 100개(`size le=100`)의 일치 상품 전체를 한 번에 읽는다. 대안: 상점당 상위 N개만 담고 `product_total` 필드를 더하는 안(응답 필드 추가라 별도 확인) | 상점당 상품 수가 많지 않다는 전제(요구 조건에 상점당 상품 상한 없음, requirements "상점당 상품 개수 상한 없음") | `find_matching_in_stores`, 스키마 | 확정(사용자 결정) |
+| Q45 | #9에서 비소유자가 `status=SUSPENDED`를 보냈을 때 400 메시지 문구(코드는 `VALIDATION_ERROR` 고정) | D84, 요구 조건에 문구 없음 | "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다." | 기존 Pydantic 오류의 `필드: 오류` 형식과 맞춤 | `OfferStatusNotAllowedError` 한 곳 | 닫힘(사용자 결정, 2026-11-06: 임시안 문구 그대로 확정) |
+| Q46 | 상점 강제 폐점으로 `is_active=false`가 된 정지 할인(유효 상태 `CLOSED`, 정지 이력 있음)이 비소유자에게 보이는가 | D83, requirements "정지 → 상점 강제 폐점 → 종료(중단됨)" | 유효 상태 기준이라 `CLOSED`로 취급: #10은 공개, #9는 폐점 상점 자체가 404라 목록에 나오지 않음(결과적으로 문제없음) | #10 `is_visible`·`_status_clause`가 유효 상태 기준 | `DiscountOffer.is_visible` | 닫힘(사용자 결정, 2026-11-06: 제안대로 공개 확정) |
+| Q47 | 정지된 상점의 정지된 할인을 #11로 재개할 때 어느 에러가 먼저인가 | D86, 요구 조건에 순서 없음 | `STORE_SUSPENDED`가 먼저(현재 코드 순서 유지: 상점 검사 → `offer.resume`) | 코드 변경 최소 | `update_offer` 재개 분기 | 닫힘(사용자 결정, 2026-11-06: 그대로 진행) |
 | - | 스키마 S3(`discount_offers.price` 삭제), S6(`products.created_at`) | 4절, db-schema §5 | S3 삭제 보류(모델은 매핑 안 함), S6 보류 | 4절 | `schema.sql`, `db-schema/SKILL.md` | 팀 확인 |
 | - | 명세 #14의 403 문구와 422 표기 | 11절 | D8, D14 | 전역 핸들러 동작 | `docs/reference/catalog.md` | 팀 확인 |
 
@@ -867,8 +907,9 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | CI-12 | 14.3·14.4 ↔ 기존 fake/구현 | `StorePort`에 메서드가 늘고 `ProductRepository`·`DiscountOfferRepository`(ABC)에 추상 메서드가 늘면 `tests/catalog/test_service.py`의 `FakeStores`·`FakeProducts`·`FakeOffers`가 구현하지 않아 인스턴스 생성(ABC) 또는 호출(Protocol)에서 깨진다. `StorePort`는 Protocol이라 stores 구현이 없어도 import·조립은 성공하고 호출할 때 `AttributeError`가 난다 | 구현 PR이 fake 3종을 함께 갱신하고 `test_wiring.py`가 `create_store_port()` 결과에 `find_visible_stores`가 있는지 확인한다 |
 | CI-13 | 14.4 `has_active_offer` ↔ #9 기본 목록 | 같은 "진행 중 할인" 집합을 두 곳이 쓴다 | `OPEN_OFFER_STATUSES`·`_status_clause`만 쓰고 별도 조건을 만들지 않는다. CI-5의 비교 테스트를 `has_active_offer`까지 넓힌다 |
 | CI-14 | 14.4 SQL `rate` ↔ 도메인 `discount_rate` | 도메인은 파이썬 정수 연산(버림, D1), SQL 정렬은 두 번째 구현이다. `int4 * 100`은 원가가 21억 근처에서 오버플로하고 DB `CHECK`는 원가 0을 허용해 0으로 나눌 수 있다 | `::bigint` 캐스트와 `NULLIF(original_price, 0)`를 쓰고 도메인 값과 비교하는 테스트를 둔다 |
-| CI-15 | 기존 #2·#4·#9 ↔ requirements 정책 표 | requirements는 "폐점 상점의 상품은 상점주 외에는 존재하지 않는 것처럼 다룬다"인데 현재 `StoreRef.is_visible_to`는 정지만 숨기고 폐점은 숨기지 않는다(`src/catalog/domain/store_ref.py:64-66`). 이번 검색은 폐점 상점을 숨기므로 단건·목록 조회와 규칙이 어긋난다 | **닫힘(D80).** 상품(#2·#4)만 폐점 상점을 숨긴다. 할인(#9·#10)은 할인 요구 조건에서 다시 정한다 |
-
+| CI-15 | 기존 #2·#4·#9 ↔ requirements 정책 표 | requirements는 "폐점 상점의 상품은 상점주 외에는 존재하지 않는 것처럼 다룬다"인데 현재 `StoreRef.is_visible_to`는 정지만 숨기고 폐점은 숨기지 않는다(`src/catalog/domain/store_ref.py:64-66`). 이번 검색은 폐점 상점을 숨기므로 단건·목록 조회와 규칙이 어긋난다 | **닫힘(D80, D82, D83).** 상품(#2·#4)과 상점 할인 목록(#9)이 폐점·정지 상점을 비소유자에게 숨긴다. 할인 상세(#10)는 정지만 숨기고 폐점 상점의 할인은 공개한다(요구 조건 정책 표) |
+| CI-16 | `find_by_store` 서명 변경 ↔ 기존 fake·테스트 | `DiscountOfferRepository.find_by_store`에 필수 키워드 `exposed_only`가 늘면 `tests/catalog/test_service.py:192` `FakeOffers.find_by_store(self, store_id, *, statuses, now, page, size)`가 `TypeError`로 깨지고, 직접 부르는 `tests/catalog/test_api_db.py:815,819`·`tests/catalog/test_admin_api_db.py:125,131`도 인자 누락으로 깨진다. 구현 `repositories.py:290-320`·서비스 `service.py:414`도 함께 바뀐다. `tests/admin/test_service.py:194` `FakeOffers`는 별도 클래스(admin 포트용)라 `find_by_store`가 없으면 영향 없음 | 구현 PR이 fake 1곳과 직접 호출 4곳을 `exposed_only`(소유자 검증은 `False`, 공개 검증은 `True`)로 함께 고치고, 새 인자의 두 값에 대한 테스트를 추가한다(CI-12와 같은 유형). `exposed_only`는 **필수 키워드 인자로 확정**(사용자 확인 완료, 2026-11-06). 기본값을 두면 잘못 호출해도 드러나지 않기 때문이다 |
+| CI-17 | `exists_by_offer` 사용처 축소 ↔ reservations | D81 이후 `ReservationRepository.exists_by_offer`는 `OfferReservationLookup`에서 더 쓰이지 않는다(`src/reservations/application/catalog_adapters.py:19`가 새 메서드를 호출). 추상 메서드가 남으면 fake 두 곳(`tests/reservations/fakes.py:79`, `tests/payments/test_integration.py:120`)도 계속 구현해야 한다 | 이번 변경은 **추가만** 한다(삭제는 별도 결정). 다른 호출처가 없음을 구현자가 `Grep exists_by_offer\b src`로 확인한 뒤, 사용자가 승인하면 추상·구현·fake에서 삭제한다. 새 추상 메서드 때문에 fake 2곳은 어차피 `exists_non_cancelled_by_offer`를 추가해야 한다. **사용자 결정 대기**: `exists_by_offer` 삭제 여부, `tests/payments/test_integration.py` fake 수정(payments 소유 파일) 승인. 결정 전에는 삭제하지 않고 추가만 한다 |
 ### 13.3 예약·결제 연계 이슈
 
 | # | 내용 | 영향·해결 |

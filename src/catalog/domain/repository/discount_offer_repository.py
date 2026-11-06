@@ -42,9 +42,11 @@ class DiscountOfferRepository(ABC):
         *,
         statuses: Sequence[OfferStatus],
         now: datetime,
+        exposed_only: bool,
         page: int,
         size: int,
-    ) -> tuple[list[tuple[DiscountOffer, Product]], int]: ...
+    ) -> tuple[list[tuple[DiscountOffer, Product]], int]:
+        """exposed_only=True(비소유자)면 노출 중 상품의 비정지 할인만 조회한다. 기본값 없음 (D83, CI-16)."""
 
     @abstractmethod
     async def search_in_stores(

@@ -5,10 +5,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import (
+    OPEN_OFFER_STATUSES,
+    OWNER_DEFAULT_OFFER_STATUSES,
+    DiscountOffer,
+    OfferStatus,
+    resolve_store_list_statuses,
+)
 from catalog.domain.exceptions import (
     OfferAlreadySuspendedError,
     OfferSalesEndedError,
+    OfferStatusNotAllowedError,
     OfferSuspendedError,
     StoreClosedError,
     StoreNotApprovedError,
@@ -291,3 +298,23 @@ def test_store_ref_register_order_closed_suspended_not_approved():
     with pytest.raises(StoreNotApprovedError):
         StoreRef.from_info(info(approval_at=None)).ensure_can_register("상품")
     StoreRef.from_info(info()).ensure_can_register("상품")
+
+
+def test_resolve_store_list_statuses_defaults():
+    assert resolve_store_list_statuses(None, is_owner=True) == OWNER_DEFAULT_OFFER_STATUSES
+    assert resolve_store_list_statuses([], is_owner=True) == OWNER_DEFAULT_OFFER_STATUSES
+    assert resolve_store_list_statuses(None, is_owner=False) == OPEN_OFFER_STATUSES
+    assert OfferStatus.SUSPENDED not in resolve_store_list_statuses(None, is_owner=False)
+
+
+def test_resolve_store_list_statuses_dedupes_keeping_order():
+    given = [OfferStatus.SOLD_OUT, OfferStatus.ON_SALE, OfferStatus.SOLD_OUT]
+    assert resolve_store_list_statuses(given, is_owner=False) == (OfferStatus.SOLD_OUT, OfferStatus.ON_SALE)
+    assert resolve_store_list_statuses([OfferStatus.SUSPENDED, OfferStatus.SUSPENDED], is_owner=True) == (
+        OfferStatus.SUSPENDED,
+    )
+
+
+def test_resolve_store_list_statuses_non_owner_suspended_rejected():
+    with pytest.raises(OfferStatusNotAllowedError):
+        resolve_store_list_statuses([OfferStatus.ON_SALE, OfferStatus.SUSPENDED], is_owner=False)

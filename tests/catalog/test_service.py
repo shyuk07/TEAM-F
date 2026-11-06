@@ -4,7 +4,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from catalog.application.service import CatalogApplicationService
-from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import (
+    OPEN_OFFER_STATUSES,
+    OWNER_DEFAULT_OFFER_STATUSES,
+    DiscountOffer,
+    OfferStatus,
+)
 from catalog.domain.exceptions import (
     NotStoreOwnerError,
     OfferAlreadyActiveError,
@@ -18,7 +23,9 @@ from catalog.domain.exceptions import (
     ProductHasOpenOfferError,
     ProductInactiveError,
     ProductNotFoundError,
+    OfferStatusNotAllowedError,
     StoreClosedError,
+    StoreSuspendedError,
     StoreNotApprovedError,
     StoreNotFoundError,
 )
@@ -189,8 +196,10 @@ class FakeOffers(DiscountOfferRepository):
         pids = {p.id for p in self.products.items.values() if p.store_id == store_id}
         return sorted(o.id for o in self.items.values() if o.product_id in pids)
 
-    async def find_by_store(self, store_id, *, statuses, now, page, size):
+    async def find_by_store(self, store_id, *, statuses, now, exposed_only, page, size):
         self.last_statuses = tuple(statuses)
+        self.last_exposed_only = exposed_only
+        self.find_by_store_calls = getattr(self, "find_by_store_calls", 0) + 1
         return [], 0
 
     async def save(self, offer):
@@ -761,3 +770,68 @@ async def test_create_product_price_upper_bound(ctx):
         await ctx.service.create_product(
             ctx.owner, ctx.store.id, {"name": "x", "original_price": 100_000_000}
         )
+
+
+# ── #9 공개 범위·소유자 기본 집합 (D83, D84) ──
+async def test_list_offers_exposed_only_and_default_set_by_viewer(ctx):
+    await ctx.service.list_offers_by_store(None, ctx.store.id, None, 1, 20)
+    assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES and ctx.offers.last_exposed_only is True
+    await ctx.service.list_offers_by_store(uuid.uuid4(), ctx.store.id, [], 1, 20)
+    assert ctx.offers.last_statuses == OPEN_OFFER_STATUSES and ctx.offers.last_exposed_only is True
+    await ctx.service.list_offers_by_store(ctx.owner, ctx.store.id, None, 1, 20)
+    assert ctx.offers.last_statuses == OWNER_DEFAULT_OFFER_STATUSES and ctx.offers.last_exposed_only is False
+    S = OfferStatus
+    await ctx.service.list_offers_by_store(ctx.owner, ctx.store.id, [S.CLOSED, S.CLOSED], 1, 20)
+    assert ctx.offers.last_statuses == (S.CLOSED,) and ctx.offers.last_exposed_only is False
+    assert ctx.session.commits == 0
+
+
+async def test_list_offers_hidden_store_for_non_owner_no_repo_call(ctx):
+    for attr in ("closed_at", "suspended_at"):
+        setattr(ctx.store, attr, NOW)
+        before = getattr(ctx.offers, "find_by_store_calls", 0)
+        for viewer in (None, uuid.uuid4()):
+            with pytest.raises(StoreNotFoundError):
+                await ctx.service.list_offers_by_store(viewer, ctx.store.id, None, 1, 20)
+        assert getattr(ctx.offers, "find_by_store_calls", 0) == before
+        await ctx.service.list_offers_by_store(ctx.owner, ctx.store.id, None, 1, 20)  # 소유자는 통과
+        assert getattr(ctx.offers, "find_by_store_calls", 0) == before + 1
+        setattr(ctx.store, attr, None)
+
+
+async def test_list_offers_suspended_status_only_for_owner(ctx):
+    S = OfferStatus
+    for viewer in (None, uuid.uuid4()):
+        before = getattr(ctx.offers, "find_by_store_calls", 0)
+        for statuses in ([S.SUSPENDED], [S.ON_SALE, S.SUSPENDED]):
+            with pytest.raises(OfferStatusNotAllowedError, match="status: SUSPENDED은\\(는\\) 상점주만 지정할 수 있습니다."):
+                await ctx.service.list_offers_by_store(viewer, ctx.store.id, statuses, 1, 20)
+        assert getattr(ctx.offers, "find_by_store_calls", 0) == before
+    await ctx.service.list_offers_by_store(ctx.owner, ctx.store.id, [S.SUSPENDED], 1, 20)
+    assert ctx.offers.last_statuses == (S.SUSPENDED,)
+
+
+# ── #11 재개 시 상점 정지 (D86, Q47) ──
+async def test_resume_blocked_by_suspended_store_and_order(ctx):
+    p, o = await _open_offer(ctx)
+    await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    ctx.store.suspended_at = NOW
+    with pytest.raises(StoreSuspendedError, match="관리자에 의해 정지된 상점입니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+    ctx.store.closed_at = NOW  # 폐점 + 정지 -> 폐점이 먼저
+    with pytest.raises(StoreClosedError, match="폐점된 상점에서는 할인을 재개할 수 없습니다."):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+    # 정지된 상점의 정지된 할인: 상점 검사가 먼저 (Q47)
+    ctx.store.closed_at = None
+    o.suspended_at = NOW
+    o.suspended_reason = "x"
+    with pytest.raises(StoreSuspendedError):
+        await ctx.service.update_offer(ctx.owner, o.id, {"is_active": True})
+
+
+async def test_pause_and_adjust_allowed_in_suspended_store(ctx):
+    p, o = await _open_offer(ctx)
+    ctx.store.suspended_at = NOW
+    await ctx.service.adjust_stock(ctx.owner, o.id, 1, "보충")
+    view = await ctx.service.update_offer(ctx.owner, o.id, {"is_active": False})
+    assert not o.is_active and view.status == OfferStatus.CLOSED

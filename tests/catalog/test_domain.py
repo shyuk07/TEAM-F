@@ -3,7 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import (
+    OPEN_OFFER_STATUSES,
+    OWNER_DEFAULT_OFFER_STATUSES,
+    DiscountOffer,
+    OfferStatus,
+)
 from catalog.domain.exceptions import (
     InsufficientStockError,
     NotStoreOwnerError,
@@ -17,6 +22,7 @@ from catalog.domain.exceptions import (
     ProductHasOpenOfferError,
     ProductInactiveError,
     StoreClosedError,
+    StoreSuspendedError,
     StoreNotApprovedError,
 )
 from catalog.domain.product import Product
@@ -662,3 +668,32 @@ def test_product_reactivate():
     p.deactivate(False)
     p.reactivate()
     assert p.is_active
+
+
+def test_store_ref_ensure_can_resume_order_and_messages():  # D86
+    s = StoreRef(uuid.uuid4(), uuid.uuid4(), "상점", "주소", approved=False, closed=False)
+    s.ensure_can_resume()  # 미승인은 검사하지 않음
+    s.suspended = True
+    with pytest.raises(StoreSuspendedError, match="관리자에 의해 정지된 상점입니다."):
+        s.ensure_can_resume()
+    s.closed = True  # 폐점 + 정지 -> 폐점이 먼저
+    with pytest.raises(StoreClosedError, match="폐점된 상점에서는 할인을 재개할 수 없습니다."):
+        s.ensure_can_resume()
+    # 생성자는 폐점 상점을 정지로 보지 않는다
+    c = StoreRef(uuid.uuid4(), uuid.uuid4(), "상점", "주소", approved=True, closed=True, suspended=True)
+    with pytest.raises(StoreClosedError):
+        c.ensure_can_resume()
+
+
+def test_owner_default_statuses_equal_is_open_set():  # D84, admin C6
+    assert OWNER_DEFAULT_OFFER_STATUSES == OPEN_OFFER_STATUSES + (OfferStatus.SUSPENDED,)
+    assert set(OPEN_OFFER_STATUSES) == set(OWNER_DEFAULT_OFFER_STATUSES) - {OfferStatus.SUSPENDED}
+    sold = offer()
+    sold.adjust_stock(-10, NOW)
+    closed = offer()
+    closed.close(NOW)
+    susp = offer()
+    susp.suspend("사유", NOW)
+    cases = [offer(), offer(sales_start=NOW + H // 2), sold, closed, susp]
+    open_states = {o.effective_status(NOW) for o in cases if o.is_open(NOW)}
+    assert open_states == set(OWNER_DEFAULT_OFFER_STATUSES)

@@ -16,6 +16,16 @@ from catalog.domain.discount_offer import OfferStatus
 from catalog.domain.search import DISTANCE_UNIT, round_distance
 
 
+class OfferListStatus(StrEnum):
+    """#9 status 필터 허용 값. SUSPENDED는 상점주만 지정할 수 있다(서비스가 검사, D84)."""
+
+    SCHEDULED = "SCHEDULED"
+    ON_SALE = "ON_SALE"
+    SOLD_OUT = "SOLD_OUT"
+    CLOSED = "CLOSED"
+    SUSPENDED = "SUSPENDED"
+
+
 class PublicOfferStatus(StrEnum):
     """공개 목록 status 필터 허용 값. SUSPENDED는 허용하지 않는다 (admin.md D20)."""
 
