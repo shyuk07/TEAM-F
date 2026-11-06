@@ -45,9 +45,17 @@ class ReservationApplicationService:
         self, user_id: uuid.UUID, offer_id: uuid.UUID, quantity: int
     ) -> PickupReservation:
         now = self.clock.now()
+        PickupReservation.validate_new_quantity(quantity)  # 잠금·재고 차감 전에 거절(R-REQ1, R-REQ29)
+        # 할인 행을 잠그고 차감한다. 같은 할인의 예약 생성은 이 잠금에서 차례로 진행된다.
         terms = await self.stock.reserve(offer_id, quantity, user_id=user_id, now=now)
         offer = OfferRef.from_info(terms)
         offer.ensure_reservable_by(user_id)
+        # 잠금 안에서 확인하므로 동시 요청이 함께 통과하지 못한다(R-REQ28, R-REQ29).
+        # 거절되면 commit하지 않아 차감·재고 기록도 남지 않는다.
+        pending = await self.reservations.find_by_user_and_statuses(
+            user_id, [ReservationStatus.PENDING_PAYMENT]
+        )
+        PickupReservation.ensure_no_pending_for_offer(pending, offer_id)
         reservation = PickupReservation.create(
             user_id, offer, quantity, self.code_generator.generate(), now
         )

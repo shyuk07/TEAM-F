@@ -58,8 +58,9 @@ async def test_create_errors_do_not_commit():
     service, _, session, repo, stock, *_ = env
     with pytest.raises(OfferNotFoundError):
         await service.create_reservation(uuid.uuid4(), uuid.uuid4(), 1)
+    stock.stock = 2  # 수량 상한(5) 안에서 재고 부족을 만든다(R-REQ1 이후 99는 수량 검증에서 먼저 막힘)
     with pytest.raises(OutOfStockError):
-        await service.create_reservation(uuid.uuid4(), stock.offer_id, 99)
+        await service.create_reservation(uuid.uuid4(), stock.offer_id, 3)
     with pytest.raises(ValueError):
         await service.create_reservation(uuid.uuid4(), stock.offer_id, 0)
     assert session.commits == 0 and repo.items == {}
@@ -70,8 +71,10 @@ async def test_list_only_own_with_filter_and_paging():
     env = build()
     service, _, session, repo, *_ = env
     me = uuid.uuid4()
-    for _ in range(3):
-        await created(env, me, 1)
+    for i in range(3):
+        r, _ = await created(env, me, 1)
+        if i < 2:  # 같은 할인 결제 대기는 1건뿐(R-REQ28): 앞 예약을 취소 상태로 두고 다시 예약
+            set_status(r, S.CANCELLED)
     await created(env, uuid.uuid4(), 1)
     commits = session.commits
     page = await service.list_my_reservations(me, None, 1, 2)

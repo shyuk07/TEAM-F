@@ -94,6 +94,13 @@ class OfferNotReservableError(ReservationConflictError):
     default_message = "예약할 수 없는 상품입니다."
 
 
+class PendingReservationExistsError(ReservationConflictError):
+    """409 PENDING_RESERVATION_EXISTS (R-REQ28: 같은 할인 상품의 결제 대기 예약은 회원당 1건)"""
+
+    error_code = "PENDING_RESERVATION_EXISTS"
+    default_message = "같은 할인 상품에 결제하지 않은 예약이 이미 있습니다."
+
+
 class OutOfStockError(ReservationConflictError):
     """409 OUT_OF_STOCK"""
 

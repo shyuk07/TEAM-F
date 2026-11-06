@@ -122,7 +122,7 @@ async def test_create_is_201_deducts_stock_and_writes_stock_log(client):
 
 
 async def test_create_errors(client):
-    _, offer_id, _ = await seed_offer(client)
+    _, offer_id, _ = await seed_offer(client, stock=4)  # 수량 상한(5) 안에서 재고 부족을 만든다(R-REQ1)
     cust = await token_for(client, "c@test.com")
     for bad in (0, "x", True, 1.5):
         r = await client.post(
@@ -133,8 +133,10 @@ async def test_create_errors(client):
     assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
     r = await reserve(client, cust, str(uuid.uuid4()), 1)
     assert r.status_code == 404 and r.json() == err("NOT_FOUND", "할인 상품을 찾을 수 없습니다.")
-    r = await reserve(client, cust, offer_id, 11)
+    r = await reserve(client, cust, offer_id, 5)
     assert r.status_code == 409 and r.json() == err("OUT_OF_STOCK", "재고가 부족합니다.")
+    r = await reserve(client, cust, offer_id, 6)
+    assert r.status_code == 400 and r.json() == err("VALIDATION_ERROR", "수량은 5개 이하여야 합니다.")
     assert await count_rows(client) == 0
 
 

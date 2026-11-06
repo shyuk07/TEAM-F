@@ -6,6 +6,7 @@ from enum import StrEnum
 from reservations.domain import rules
 from reservations.domain.exceptions import (
     NotReservationOwnerError,
+    PendingReservationExistsError,
     PickupCodeMismatchError,
     ReservationAlreadyCancelledError,
     ReservationAlreadyPickedUpError,
@@ -92,6 +93,23 @@ class PickupReservation:
         if (self.picked_up_at is not None) != (self.status == ReservationStatus.PICKED_UP):
             raise ValueError("픽업 시각은 픽업 완료된 예약에만 있어야 합니다.")
 
+    @staticmethod
+    def validate_new_quantity(quantity: int) -> int:
+        """새 예약의 수량 규칙(R-REQ1): 정수 1~MAX_RESERVATION_QUANTITY. 이미 저장된 예약에는 적용하지 않는다."""
+        quantity = _int(quantity, "수량", 1)
+        if quantity > rules.MAX_RESERVATION_QUANTITY:
+            raise ValueError(f"수량은 {rules.MAX_RESERVATION_QUANTITY}개 이하여야 합니다.")
+        return quantity
+
+    @staticmethod
+    def ensure_no_pending_for_offer(existing_pending: "list[PickupReservation]", offer_id: uuid.UUID) -> None:
+        """같은 할인 상품의 결제 대기 예약은 회원당 1건(R-REQ28)."""
+        if any(
+            r.offer_id == offer_id and r.status == ReservationStatus.PENDING_PAYMENT
+            for r in existing_pending
+        ):
+            raise PendingReservationExistsError()
+
     @classmethod
     def create(
         cls,
@@ -103,7 +121,7 @@ class PickupReservation:
     ) -> "PickupReservation":
         if _aware(now, "현재 시각") is None:
             raise ValueError("현재 시각에는 시간대 정보가 필요합니다.")
-        quantity = _int(quantity, "수량", 1)
+        quantity = cls.validate_new_quantity(quantity)
         return cls(
             user_id=user_id,
             offer_id=offer.offer_id,
