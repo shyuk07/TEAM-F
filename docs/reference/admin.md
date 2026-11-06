@@ -152,6 +152,7 @@
 회원을 `WITHDRAWN`으로 바꾼다(soft delete, 행은 남는다). 탈퇴한 회원의 로그인과 기존 토큰은 401이다.
 
 - 상점주이면 소유 상점의 판매 중 할인을 모두 종료하고 상점을 폐점한다. 전부 한 트랜잭션이며, 하나라도 실패하면 탈퇴도 취소된다.
+- 예약 취소(환불·포인트 복구)가 끝난 뒤 **남은 포인트가 모두 소멸**하고 `EXPIRE` 내역(음수, `balance_after` 0)이 남는다. 잔액이 0이면 내역은 없다. 자진 탈퇴([auth.md 12](auth.md#12-회원-탈퇴-자진))도 같은 규칙이다.
 - **DELETE에 JSON 본문이 있다.** httpx 테스트는 `client.delete(..., json=)`가 아니라 `client.request("DELETE", url, json=...)`를 쓴다.
 
 > **미연계 (reservations):** 명세는 탈퇴 회원의 `RESERVED` 예약을 취소하고, 처리되지 않은 예약이 있는 상점은 폐점을 거부한다. 현재는 예약 연동이 자리표시자(`NoReservationAdmin`)라 예약을 취소하지 않고 `cancelled_reservation_count`는 항상 `0`이며, 예약 검사는 항상 통과한다. reservations 연동 후 container 바인딩만 바꾼다.
@@ -371,10 +372,10 @@
 
 ---
 
-## auth 라우터의 관리자 API
+## 기존 관리자 API (auth)
 
-다음 두 API는 같은 `/v1/admin` 접두사를 쓰지만 auth 라우터에 있다(설계 D42). main `7594d43`에서 한때 삭제됐다가 `a343f05`(PR #27)에서 복원됐다. 문서는 auth.md에 있다.
-- `GET /v1/admin/users/{user_id}`: [관리자 회원 조회](auth.md#6-관리자-회원-조회). 같은 경로의 DELETE는 이 문서 4번(회원 강제 탈퇴)이며, 메서드가 달라 충돌하지 않는다.
+다음 두 API는 같은 `/v1/admin` 접두사를 쓰지만 auth 라우터에 있다(D42). 7594d43에서 삭제됐다가 PR #27로 복원됐다. 문서는 auth.md에 있다.
+- `GET /v1/admin/users/{user_id}`: [관리자 회원 조회](auth.md#6-관리자-회원-조회)
 - `POST /v1/admin/token-blacklist/purge`: [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리)
 
 ## 개발 DB 반영

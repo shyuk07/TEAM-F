@@ -1,7 +1,7 @@
 # stores 도메인 요구 조건 — 상점
 
 상태: 초안
-입력: `docs/design/stores.md`(전체, 특히 §13 D15~D25, §14 D26~D40·C17~C21, §15 D41~D46. 결정 표의 "확정"만 근거로 씀), `docs/reference/stores.md`, `docs/reference/README.md`, `src/stores/domain/{store,coordinates,exceptions}.py`, `src/stores/application/{service,query_service,ports}.py`, `src/stores/infrastructure/repositories.py`, `src/container.py`(stores·reservations 구역, `wire_dependencies`), `src/reservations/application/store_query.py`, `.claude/skills/db-schema/schema.sql`(stores), `docs/design/admin.md` §3.2·11절(D10·D11·D13·D16·D17), `docs/requirements/catalog.md`(범위 밖으로 옮긴 항목), `docs/requirements/catalog.md`의 확정 직전 버전(git `83f2ef3`, RQ-9 사용자 답변), `docs/requirements/auth.md`(REQ-6·22·33~36, 경계 B-1·B-2), 사용자 범위 결정(재개점 제외, 2026-11-06 전달)
+입력: `docs/design/stores.md`(전체, 특히 §13 D15~D25, §14 D26~D40·C17~C21, §16 D48~D53. 결정 표의 "확정"만 근거로 씀), `docs/reference/stores.md`, `docs/reference/README.md`, `src/stores/domain/{store,coordinates,exceptions}.py`, `src/stores/application/{service,query_service,ports}.py`, `src/stores/infrastructure/repositories.py`, `src/container.py`(stores·reservations 구역, `wire_dependencies`), `src/reservations/application/store_query.py`, `.claude/skills/db-schema/schema.sql`(stores), `docs/design/admin.md` §3.2·11절(D10·D11·D13·D16·D17), `docs/requirements/catalog.md`(범위 밖으로 옮긴 항목), `docs/requirements/catalog.md`의 확정 직전 버전(git `83f2ef3`, RQ-9 사용자 답변), `docs/requirements/auth.md`(REQ-6·22·33~36, 경계 B-1·B-2), 사용자 범위 결정(재개점 제외, 2026-11-06 전달)
 표시: [입력] 근거 있음 / [판단] 작성자 판단, 판단 메모 참조 / [제안] 작성자 제안, 확인 필요 / [기입 필요] 사용자 기입
 
 > 기입 방법: 맨 아래 "검토 요청"의 각 `사용자:` 아래에 자유롭게 답을 쓴 뒤 재검토를 요청한다. 뒤집고 싶은 판단 메모가 있으면 그 메모 아래에 적는다. 본문을 직접 고쳐도 된다.
@@ -54,8 +54,8 @@
 - REQ-6. 정규화는 ① 유니코드 NFC로 맞추고 ② 앞뒤 공백을 빼고 ③ 안쪽의 연속 공백(전각 공백 포함)을 한 칸으로 줄이는 것이다. 대소문자는 바꾸지 않는다. 상점명과 픽업 주소는 정규화한 값으로 보관한다. [입력] store.py:32-34·67-68, reference/stores.md:64
 - REQ-7. 상점명과 픽업 주소가 둘 다 같은 상점은 둘 이상 있을 수 없다. "같다"는 정규화한 값이 대소문자까지 정확히 일치하는 것이다. 폐점·정지 상점도 비교 대상이다. 표기가 다른 같은 장소(도로명 주소와 지번 주소 등)는 다른 주소로 본다. [입력] reference/stores.md:64, design D32(stores.md:1103), D33(확정, stores.md:1104)
 - REQ-8. 개설하려면 픽업 주소를 좌표로 바꿀 수 있어야 한다. 주소에 해당하는 위치가 없으면 입력 오류로 개설을 거절한다. 주소 변환을 할 수 없는 상황(변환 서비스 장애·미설정 등)이면 개설을 거절하고 일시적인 불가이므로 나중에 다시 시도하라고 알린다. 어떤 경우에도 임의의 좌표로 대신 개설하지 않는다. [입력] reference/stores.md:18·65, design D28·D29(확정, stores.md:1099-1100)
-- REQ-9. 주소 변환 결과가 여럿이면 첫 번째 결과의 좌표를 쓴다. 주소가 아닌 이름형 입력(가게 이름·역 이름 등)은 위치가 없는 것으로 판정될 수 있다. [입력] reference/stores.md:65, design D44·D46(stores.md:1249·1251)
-- REQ-10. 보관하는 픽업 주소는 상점주가 입력한 주소를 정규화한 값이다. 주소 변환 결과로 얻은 다른 표기로 바꾸지 않는다. [입력] reference/stores.md:64, design D35·D44(stores.md:1106·1249)
+- REQ-9. 주소 변환 결과가 여럿이면 첫 번째 결과의 좌표를 쓴다. 주소가 아닌 이름형 입력(가게 이름·역 이름 등)은 위치가 없는 것으로 판정될 수 있다. [입력] reference/stores.md:65, design D51·D53(stores.md:1364·1366)
+- REQ-10. 보관하는 픽업 주소는 상점주가 입력한 주소를 정규화한 값이다. 주소 변환 결과로 얻은 다른 표기로 바꾸지 않는다. [입력] reference/stores.md:64, design D35·D51(stores.md:1106·1364)
 - REQ-11. 위도는 -90 이상 90 이하, 경도는 -180 이상 180 이하의 유한한 수이다. 위도와 경도는 둘 다 있거나 둘 다 없다. [입력] coordinates.py:10-20, store.py:69-72
 - REQ-12. 새로 개설하는 상점은 반드시 좌표를 가진다. 좌표가 없는 상점은 이 규칙 이전에 개설된 상점뿐이다(처리는 RQ-5). [입력] store.py:119-138, design D34(stores.md:1105), C20(stores.md:1120), reference/stores.md:70
 - REQ-13. 개설하면 상점은 곧바로 영업 중이 되고 개설 시각이 남는다. 상점 자체를 따로 승인하는 절차는 없다. 승인 대상은 상점주 계정뿐이다. [입력] reference/stores.md:15·21, store.py:137, auth.md B-1. 승인 전 상점 상태를 두지 않는 판단은 [판단] JD-2

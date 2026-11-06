@@ -8,6 +8,7 @@ from auth.domain.exceptions import AuthenticationError
 from auth.presentation.dependencies import OwnerUser
 from catalog.application.service import CatalogApplicationService
 from catalog.domain.discount_offer import OfferStatus
+from catalog.domain.search import OfferSort
 from catalog.domain.exceptions import ReservationDataInconsistentError
 from catalog.presentation.dependencies import OptionalUser, provide_catalog_service
 from catalog.presentation.schemas import (
@@ -16,11 +17,15 @@ from catalog.presentation.schemas import (
     OfferDeactivateResponse,
     OfferDetailResponse,
     OfferListResponse,
+    NearbyOfferItem,
+    NearbyOfferListResponse,
     OfferResponse,
     OfferUpdateRequest,
     ProductCreateRequest,
     ProductDetailResponse,
     ProductListResponse,
+    ProductSearchResponse,
+    StoreSearchItem,
     ProductResponse,
     ProductUpdateRequest,
     PublicOfferStatus,
@@ -93,6 +98,58 @@ async def list_store_offers(
     )
     return OfferListResponse(
         items=[OfferResponse.from_view(v) for v in result.items],
+        page=result.page,
+        size=result.size,
+        total=result.total,
+    )
+
+
+LatParam = Annotated[float | None, Query(ge=-90, le=90, description="위도 (lng와 함께)")]
+LngParam = Annotated[float | None, Query(ge=-180, le=180, description="경도 (lat과 함께)")]
+RadiusParam = Annotated[float | None, Query(ge=0.1, le=20, description="검색 반경 km (기본 3)")]
+
+
+@router.get("/products", response_model=ProductSearchResponse, summary="상품 검색")
+async def search_products(
+    service: Service,
+    keyword: Annotated[str | None, Query(max_length=100, description="상품명·설명 검색어")] = None,
+    category: Annotated[str | None, Query(max_length=80)] = None,
+    lat: LatParam = None,
+    lng: LngParam = None,
+    radius_km: RadiusParam = None,
+    page: PageParam = 1,
+    size: SizeParam = 20,
+):
+    result = await service.search_products(
+        keyword=keyword, category=category, lat=lat, lng=lng, radius_km=radius_km, page=page, size=size
+    )
+    return ProductSearchResponse(
+        items=[StoreSearchItem.from_hit(h) for h in result.items],
+        page=result.page,
+        size=result.size,
+        total=result.total,
+    )
+
+
+@router.get("/offers", response_model=NearbyOfferListResponse, summary="주변 할인 목록")
+async def list_nearby_offers(
+    service: Service,
+    lat: LatParam = None,
+    lng: LngParam = None,
+    radius_km: RadiusParam = None,
+    category: Annotated[str | None, Query(max_length=80)] = None,
+    keyword: Annotated[str | None, Query(max_length=100, description="상품명 검색어")] = None,
+    status: PublicOfferStatus = PublicOfferStatus.ON_SALE,
+    sort: OfferSort = OfferSort.SALES_END,
+    page: PageParam = 1,
+    size: SizeParam = 20,
+):
+    result = await service.list_nearby_offers(
+        lat=lat, lng=lng, radius_km=radius_km, category=category, keyword=keyword,
+        status=OfferStatus(status), sort=sort, page=page, size=size,
+    )
+    return NearbyOfferListResponse(
+        items=[NearbyOfferItem.from_view(v) for v in result.items],
         page=result.page,
         size=result.size,
         total=result.total,

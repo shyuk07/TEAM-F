@@ -119,16 +119,16 @@ async def test_invalid_uuid_400(client, method, url, body):
 
 
 async def test_old_prefix_is_gone_and_auth_admin_endpoints_coexist(client):
-    # auth 관리자 EP 2개는 main a343f05(PR #27)에서 복원됐다 (D42: auth 라우터에 둔다)
+    # auth 관리자 EP 2개(회원 조회, 블랙리스트 정리)는 PR #27로 auth 라우터에 복원됐다 (D42)
     h = await admin_headers(client)
     cid = await customer(client)
     assert (await client.patch(f"/admin/owners/{RANDOM}/approve", headers=h)).status_code == 404
-    r = await client.get(f"/v1/admin/users/{cid}", headers=h)  # auth 라우터의 GET
+    r = await client.get(f"/v1/admin/users/{cid}", headers=h)  # auth 라우터의 EP (D42)
     assert r.status_code == 200 and r.json()["id"] == cid
     r = await client.post("/v1/admin/token-blacklist/purge", headers=h)
     assert r.status_code == 200
     r = await client.request("DELETE", f"/v1/admin/users/{cid}", json={"reason": "탈퇴"}, headers=h)
-    assert r.status_code == 200  # 같은 경로, 다른 메서드 (admin 라우터)
+    assert r.status_code == 200  # 같은 경로, 다른 메서드
 
 
 # ── EP 1 ──

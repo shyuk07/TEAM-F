@@ -18,10 +18,23 @@ class StoreInfo(Protocol):
     suspended_at: datetime | None
 
 
+class StoreWithDistance(Protocol):
+    store: StoreInfo
+    distance_km: float | None  # 위치 미지정이면 None
+
+
 class StorePort(Protocol):
     async def find_store_by_id(self, store_id: uuid.UUID) -> StoreInfo | None: ...
 
     async def find_stores_by_ids(self, ids: Sequence[uuid.UUID]) -> list[StoreInfo]: ...
+
+    async def find_visible_stores(
+        self,
+        *,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        radius_km: float | None = None,
+    ) -> list[StoreWithDistance]: ...
 
 
 class ReservationLookupPort(Protocol):

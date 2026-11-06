@@ -6,7 +6,7 @@ from sqlalchemy import text
 async def signup(c, email="user@test.com", role="CUSTOMER", password="password123", **extra):
     return await c.post(
         "/v1/auth/signup",
-        json={"email": email, "password": password, "role": role, "name": "홍길동", **extra},
+        json={"email": email, "password": password, "role": role, "name": "홍길동", "phone": "010-0000-0000", **extra},
     )
 
 

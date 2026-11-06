@@ -25,6 +25,9 @@ CREATE TABLE users (
     suspended_until  TIMESTAMPTZ,                          -- NULL이면 무기한 정지
     deleted_at       TIMESTAMPTZ,                          -- 강제 탈퇴(soft delete)
     deleted_reason   VARCHAR(500),
+    -- 토큰 세대 (비밀번호 변경·재설정 시 기존 토큰 무효화, auth D-토큰무효화, S-A2)
+    token_version    INTEGER      NOT NULL DEFAULT 0,
+    token_keep_jti   TEXT,                                 -- 비밀번호 변경에 쓴 토큰 하나만 유지
     CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN'))
 );
 
@@ -37,7 +40,7 @@ CREATE TABLE point_log (
     reason         VARCHAR(500),                           -- 관리자 지급 사유. 시스템 이벤트는 NULL (admin.md S7)
     balance_after  INTEGER,                                -- 기록 직후 잔액. 이 컬럼 도입 전 행은 NULL (S8)
     created_by     UUID        REFERENCES users (id),      -- 지급한 관리자. 시스템 이벤트는 NULL (S9)
-    CONSTRAINT ck_point_log_type CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT'))  -- GRANT: 관리자 지급 (S6)
+    CONSTRAINT ck_point_log_type CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT', 'EXPIRE'))  -- GRANT: 관리자 지급 (S6), EXPIRE: 탈퇴 소멸 (S-A1)
 );
 CREATE INDEX ix_point_log_user_id ON point_log (user_id);
 
@@ -46,6 +49,15 @@ CREATE TABLE token_blacklist (
     expires_at  TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ix_token_blacklist_expires_at ON token_blacklist (expires_at);
+
+-- 비밀번호 재설정 코드: 회원당 1행, 원문 대신 해시 저장 (auth D-재설정코드, S-A3)
+CREATE TABLE password_reset_codes (
+    user_id          UUID         PRIMARY KEY REFERENCES users (id),
+    code_hash        VARCHAR(255) NOT NULL,
+    expires_at       TIMESTAMPTZ  NOT NULL,
+    failed_attempts  INTEGER      NOT NULL DEFAULT 0 CONSTRAINT ck_password_reset_attempts_nonneg CHECK (failed_attempts >= 0),
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
 
 -- ── stores ────────────────────────────────────────────
 CREATE TABLE stores (

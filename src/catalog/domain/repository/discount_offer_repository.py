@@ -5,6 +5,7 @@ from datetime import datetime
 
 from catalog.domain.discount_offer import DiscountOffer, OfferStatus
 from catalog.domain.product import Product
+from catalog.domain.search import OfferSort
 
 
 class DiscountOfferRepository(ABC):
@@ -44,6 +45,21 @@ class DiscountOfferRepository(ABC):
         page: int,
         size: int,
     ) -> tuple[list[tuple[DiscountOffer, Product]], int]: ...
+
+    @abstractmethod
+    async def search_in_stores(
+        self,
+        *,
+        store_ids: Sequence[uuid.UUID],
+        status: OfferStatus,
+        keyword: str | None,
+        category: str | None,
+        sort: OfferSort,
+        now: datetime,
+        page: int,
+        size: int,
+    ) -> tuple[list[tuple[DiscountOffer, Product]], int]:
+        """노출 상점(store_ids)의 활성 상품 할인을 상태·정렬 조건으로 페이지 조회한다. 읽기 전용."""
 
     @abstractmethod
     async def save(self, offer: DiscountOffer) -> DiscountOffer: ...

@@ -13,7 +13,7 @@ CONNECT_TIMEOUT_SECONDS = 3.0
 
 
 class KakaoGeocoder(Geocoder):
-    """카카오 로컬 API 주소 검색. 엔드포인트·헤더·응답 필드는 stores.md D42 기준."""
+    """카카오 로컬 API 주소 검색. 엔드포인트·헤더·응답 필드는 stores.md D49 기준."""
 
     def __init__(
         self,

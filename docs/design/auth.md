@@ -87,7 +87,7 @@
 | D-사업자번호 | 가입 시 `business_number` 미수집(컬럼은 NULL 허용으로 존재) | **임시** | 명세 "확인 필요", 건드리지 않음 |
 | D-상점주승인 | 상점주 승인 대기 상태 미구현(`users`에 컬럼 없음) | **임시/미해결** | `db-schema` §5 항목 7, 건드리지 않음 |
 | D-형식오류400 | 형식 오류는 400 `VALIDATION_ERROR`로 통일 | **임시** | 명세는 400, 건드리지 않음 |
-| D-로그인제한 | 로그인 시도 횟수 제한 없음 | **임시/미해결** | 건드리지 않음 |
+| D-로그인제한 | ~~로그인 시도 횟수 제한 없음~~ **(2026-11-06 대체: §16 D-로그인잠금, REQ-13 연속 5회 실패 10분 잠금)** | **대체됨** | §16 |
 | D-블랙리스트정리 | **(2026-11-05 갱신, 복원)** 정리 기능 `purge_expired_tokens()`와 이를 호출하는 관리자 API `POST /v1/admin/token-blacklist/purge`가 **auth에 다시 있다**(admin.md D42와 일치, C-20. 같은 날 먼저 철회했다가 복원). 서버 시작 시 자동 정리 없음은 유지. 관리자 API `POST /v1/admin/token-blacklist/purge`(200, `{"deleted_count": n}`, `AdminUser`)로 `purge_expired_tokens()`를 호출한다. 서버 시작 시 자동 실행은 하지 않는다. 이전 값 "자동 정리 없음, 수동 호출용만"은 호출처가 없다는 점이 바뀐 것 | **확정** (사용자, 2026-11-04, 질문 18 = (A) 관리자 API, 서버 시작 시 자동 정리 없음) | §7.5.3 비교. 정리는 정확성이 아니라 저장 공간 문제(만료 토큰은 `decode`에서 이미 거부) |
 | D-관리자생성 | **(2026-11-05 유지)** auth에 남는다. `docs/design/admin.md` B-7·D29의 "관리자 만들 방법 없음"은 이 결정으로 해소된다. ADMIN 계정은 서버 시작(lifespan) 시 `.env`의 `ADMIN_EMAIL`·`ADMIN_PASSWORD`로 **없으면 생성(멱등)**한다. 두 값이 모두 없으면 건너뜀, 하나만 있으면 시작 실패, 비밀번호가 예시값(`change-me` 접두사)이면 시작 실패. 도메인은 `User.register_admin`, 서비스는 `ensure_admin`. 회원가입으로 ADMIN 생성 불가(`Role.for_signup`)는 **그대로 확정 유지** | **확정** (사용자, 2026-11-04, 질문 14~16 = (A)) | §7.5.1 비교. 후보 (B) 관리 스크립트는 `check_layers.py` 루트 파일 제약(B-22) 때문에 `.claude/**` 수정이 필요해 탈락 |
 | D-관리자조회 | **복원** (사용자, 2026-11-05): `docs/design/admin.md` D42("두 EP는 auth 라우터에 유지")와 일치하도록 auth 라우터에 다시 둠. 응답 `UserResponse`(태환 님 PR #25로 `status` 포함). (같은 날 먼저 철회했다가 복원함, C-20.) `GET /v1/admin/users/{user_id}` (`AdminUser`). 응답은 기존 `UserResponse` 재사용(id, email, name, phone, role, users_point, status, created_at). `password_hash`·`business_number` 제외. 없는 회원 404 `NOT_FOUND`, 비로그인 401, 관리자 아님 403, 잘못된 UUID 400 `VALIDATION_ERROR`. 서비스는 기존 `get_user` 재사용 | **확정** (사용자, 2026-11-04, 질문 17. 명세 반영은 C-16) | §7.5.2. R15: 명세 반영은 C-16 |
@@ -1009,7 +1009,7 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | 2 | 상점주 가입 시 `business_number` 입력 여부 | `docs/reference/auth.md` §1 | 미수집(NULL) | `SignupRequest`에 필드 없음 | `presentation/schemas.py`, `User.register` |
 | 3 | 상점주 승인 대기 상태 저장 위치 | `db-schema` §5-7, 명세 | 미구현(승인 검사 없음) | 컬럼 없음 | 스키마 변경 필요(stores 설계와 함께 결정) |
 | 4 | 잘못된 형식 요청의 상태 코드 | `docs/operations/orchestration.md` §6 | 400 `VALIDATION_ERROR` 통일 | 명세 | `error_handlers.py` |
-| 5 | 로그인 시도 제한 | - | 없음 | 명세에 없음 | `AuthApplicationService.login` |
+| 5 | 로그인 시도 제한 | - | ~~없음~~ **(2026-11-06 대체: §16, 5회·10분 잠금)** | REQ-13 | `User.LOGIN_MAX_FAILURES`, `AuthApplicationService.login` |
 | 6 | 블랙리스트 만료 행 정리 방식 | `db-schema` §2 "만료가 지난 행은 지워도 됨" | 수동 호출(`purge_expired_tokens`)만 -> **2026-11-04 갱신 제안: 질문 18** | 현 구현 | 스케줄러·lifespan 도입 시 결정 |
 | 7 | 추상 메서드 이름 정리(`add/exists/count_by_user/delete_expired` vs `find_*/save/delete`) | `layer-architecture` §5.1 | 현재 이름 유지 | D-추상메서드명, 변경 범위 최소화 | `domain/repository/*.py`와 구현체·fake 동시 변경 필요 |
 | 8 | (신규, C-11) 역할 불일치 403 메시지를 역할별로 낼지 | `docs/design/stores.md` C-S1, `docs/reference/stores.md` | 현재 `접근 권한이 없습니다.` 유지(미변경) | 현재 코드값 `user.py:111` | `User.require_role`, C-6 정리와 함께 |
@@ -1064,3 +1064,568 @@ R1~R16 중 **잔존 위반은 R3(경미)와 R6** 두 가지다. 둘 다 이전�
 | GET `/v1/users/me/points` `type`, `page`(0부터, 기본 0), `size`(기본 20, 최대 100), 응답 `users_point, logs[id,amount,point_type,created_at], page, size, total_elements` | `router.py:64-77`, `schemas.py:37-51` | 일치. 범위 오류는 `Query(ge=0)`/`ge=1, le=100` -> 400 `VALIDATION_ERROR`(`error_handlers.py:33-43`) |
 | 에러 400/401/409 코드 | `error_handlers.py:25-60`, 도메인 예외의 `error_code` | 일치(테스트로 확인: `pytest` 89 passed) |
 | 로그인·가입 요청 `password` 길이 | 명세는 "비밀번호"만 명시, 스키마 설명은 "8자 이상". 8자 검사는 `User.validate_raw_password`(도메인) | 명세에 길이 규칙 없음. 차이는 아니지만 명세에 길이가 없다는 점만 기록 |
+
+---
+
+## 15. 확정 요구조건 정합 작업 (2026-11-05, 정본 `docs/requirements/auth.md`, #20)
+
+- 상태: **설계(코드 변경 없음).** 요구조건의 "현재 코드와 다름" 항목 전부가 대상이다. 사용자가 부재 중이라 결정이 필요한 항목은 추천안을 **"임시 확정(추천)"**으로 올렸고, 2026-11-06 사용자가 모두 확정했다.
+- 기준: worktree `wt-auth3`(브랜치 `claude/auth-remaining-requirements`, HEAD `09bdf50`). 이 절은 §1~§14와 충돌하면 우선한다. 기존 확정 결정(D-타모듈주입, D-포인트트랜잭션 등)은 유지한다.
+- 규칙 번호는 요구조건 `REQ-n`, 불변 규칙은 `R1~R16`으로 가리킨다. 결정 ID는 이 문서 규칙대로 `D-이름`, 정합 이슈는 `C-21`부터, 질문은 `질문 20`부터다.
+
+### 15.0 차단 이슈 (실행 결과)
+
+| # | 확인 명령 | 결과 | 판정 |
+| --- | --- | --- | --- |
+| B-26 | `(cd src && uv run python -c "import main")` | `import main ok` | 차단 아님 |
+| B-27 | `python3 .claude/skills/layer-check/check_layers.py` | 위반 없음, 경고 3건(`[넓은예외]` error_handlers.py). 133개 검사 | 기준선. 구현 후 위반 0 유지 |
+| B-28 | `uv run python -c "import jwt, passlib, secrets"` | `ok` | 새 의존성 없음(`secrets`는 표준 라이브러리). `pyproject.toml` 변경 없음 |
+| B-29 | `.env.example` 확인 | 새 키 필요 없음(개발용 코드 전달은 로그, D-재설정전달) | 변경 없음 |
+| B-30 | `uv run pytest -q -x tests/auth tests/admin` (DB 미기동 환경) | DB 의존 테스트 1건 실패 후 중단. 이후 `test_signup_duplicate_case_insensitive` 단독 실행은 `1 passed` | 실패 원인(연결 오류 여부)을 끝까지 확인하지 못했다. 전체 기준선은 측정하지 못함. **구현 단계에서 오케스트레이터가 DB를 켜고 skip 0을 확인(R16)** |
+| B-31 | `Grep "^from (reservations\|payments\|stores\|catalog)" src/auth` | 0건(§15.4 근거) | auth는 다른 모듈을 import하지 않는다. R12 현상 유지 |
+| B-32 | `Grep "tests/ + auth/signup"`, `\.signup(`, `User.register(` | `tests/helpers.py`(phone 없음), `.signup(` 22곳, `User.register(` 9곳 | REQ-2 때문에 기존 테스트 수정 필요(§15.9) |
+| B-33 | `src/container.py` 열람 | `create_reservation_admin`(`ReservationAdminAdapter`), `create_stores_service`, `create_catalog_service`가 있음. `create_reservation_admin`이 파일 아래쪽(admin 구역)에 정의됨 | 탈퇴 조정 서비스 팩토리는 그 **뒤**에 둬야 함(`Depends` 기본값은 정의 시점에 평가) |
+
+차단 이슈 없음.
+
+### 15.1 요구조건 대 코드 대조
+
+> 아래 표는 **구현 전(2026-11-05 설계 시점) 스냅샷**이다. "다름" 항목은 PR #30(2026-11-05 머지)과 후속 정리로 모두 구현되었다. 현재 상태는 `docs/requirements/auth.md`를 본다.
+
+| REQ | 현재 코드 | 상태 | 설계 |
+| --- | --- | --- | --- |
+| REQ-2·6·7 | `SignupRequest.name/phone` 선택(`schemas.py:10-11`), `User.register`가 None 허용 | 다름 | D-가입필수 |
+| REQ-22·23 | 프로필 변경 EP·메서드 없음 | 다름 | D-프로필변경 |
+| REQ-24 | 비밀번호 변경 없음 | 다름 | D-비밀번호변경, D-토큰무효화 |
+| REQ-25~32 | 재설정 없음 | 다름 | D-재설정* |
+| REQ-33~36, 34-1, B-3 | 자진 탈퇴 없음. `withdraw_user`는 포인트를 그대로 둠(`service.py:269-276`) | 다름 | D-자진탈퇴조정, D-탈퇴포인트소멸 |
+| REQ-37 | 상한은 `grant_points`만(`user.py:318`). `earn/restore_points`는 상한 없음 | 다름 | D-포인트상한 |
+| REQ-53·55 | `GRANT`·`balance_after`·`reason`·`created_by`는 **이미 있음**(`point_log.py`). `EXPIRE` 없음, 유형별 사유·처리자 불변식 없음, API에 `balance_after` 미노출 | 일부 다름 | D-포인트유형소멸 |
+| B-2(로그아웃) | `logout`이 `CurrentPrincipal`(`router.py:57`)이라 정지 회원 403. `get_current_principal_allow_suspended`는 이미 있음(`dependencies.py:48`) | 다름 | D-로그아웃정지허용 |
+| 주석 | `dependencies.py:97` "아직 어떤 router에도 연결하지 않았다"가 거짓(`reservations/presentation/router.py:7,87`이 사용) | 낡음 | D-주석정리 |
+| REQ-19·35 | `authenticate`가 탈퇴 401 처리(`user.py:330`) | 이미 일치 | 변경 없음 |
+
+### 15.2 결정 표 (D-이름, 2026-11-06 사용자 확정)
+
+| ID | 결정 | 상태 | 근거 |
+| --- | --- | --- | --- |
+| D-가입필수 | `User.register`가 이름·전화번호를 필수로 검사(None·공백만·100자 초과면 `ValueError`). `User.__init__`(DB 복원)은 기존대로 None·빈 값 허용(기존 회원 보존). `SignupRequest.name/phone`은 `str`(필수, `min_length=1`, `max_length=100`). `register_admin`은 변경 없음. `signup()` 시그니처 불변 | 확정(2026-11-06) | REQ-2·6·7, B-5. 생성자를 엄격하게 하면 기존 행 로딩이 깨져 로그인 불가 |
+| D-프로필변경 | `PATCH /v1/users/me`, 본문 `name?`·`phone?`(둘 중 하나 이상). 도메인 `User.update_profile`: 넘긴 값은 공백만·100자 초과 금지, **적용 뒤 이름·전화번호가 둘 다 채워져야 함**(기존 회원이 하나만 보내면 400). ADMIN은 비어 있어도 허용. 탈퇴 회원 `UserWithdrawnError`. 이메일·역할은 요청 필드에 없음(보내도 무시: Pydantic 기본 extra 무시). 값 trim 안 함(기존 가입과 동일) | 확정(2026-11-06) | REQ-22·23, REQ-2 관리자 예외 |
+| D-비밀번호변경 | `POST /v1/users/me/password` `{current_password, new_password}` → 204. 도메인 `User.change_password(current, new, hasher, *, keep_jti)`: 현재 비밀번호 불일치 `CurrentPasswordMismatchError`(400 `CURRENT_PASSWORD_MISMATCH`), 새 값은 `validate_raw_password`, 새 값이 현재와 같아도 허용. 성공 시 `invalidate_tokens(keep_jti)` | 확정(2026-11-06) | REQ-24, REQ-5. 현재 비밀번호 오류를 401로 하면 클라이언트가 토큰 만료로 오해하므로 400(README "도메인 규칙 위반 400") |
+| D-토큰무효화 | 토큰이 무상태 JWT이고 발급 토큰 목록이 없으므로 **회원별 토큰 세대**로 무효화한다. `users.token_version INTEGER NOT NULL DEFAULT 0`, `users.token_keep_jti TEXT NULL`. JWT에 `ver` 클레임. `TokenClaims.token_version: int = 0`(기본값, 클레임 없는 기존 토큰은 0). 유효 조건: `claims.version == user.token_version` 또는 `claims.jti == user.token_keep_jti`. 재설정: version+1, keep None(모든 토큰 무효). 변경: version+1, keep = 변경에 쓴 토큰의 jti(그 토큰만 유지). 무효면 `TokenRevokedError("비밀번호가 변경되어 무효가 된 토큰입니다.")`(401 `TOKEN_REVOKED`, 새 코드 없음). `TokenProvider.issue(user_id, role, now=None, *, token_version=0)`(선택 인자 추가, 기존 호출 호환) | 확정(2026-11-06) | REQ-24·32. `iat` 비교안은 초 단위 정밀도 때문에 재설정 직후 로그인 토큰이 무효가 되거나 직전 토큰이 살아남는 경계 오류가 있어 기각. 블랙리스트에 일괄 추가는 jti 목록이 없어 불가 |
+| D-재설정코드 | 새 도메인 엔티티 `PasswordResetCode(user_id, code_hash, expires_at, failed_attempts, created_at)`. 상수 `CODE_LENGTH=6`, `TTL=15분`, `MAX_FAILED_ATTEMPTS=5`. 회원당 1행(`user_id` PK): 재요청은 같은 행을 덮어써 이전 코드 무효(REQ-28). 코드는 해시로 저장(`PasswordHasher` 재사용, 새 의존성 없음). `is_usable(now)`: `now < expires_at` 그리고 `failed_attempts < 5`(15분 정각은 만료). `check(raw, hasher, now) -> bool`: 사용 불가면 `InvalidResetCodeError`, 불일치면 `failed_attempts += 1` 후 False, 일치면 True. 5번째 실패 뒤에는 맞는 코드도 거부 | 확정(2026-11-06) | REQ-28·29, 경계값 표 |
+| D-재설정흐름 | 새 서비스 `PasswordResetService`(별도 클래스, `AuthApplicationService` 생성자 불변). `request_reset(email)`: 회원 조회 → 없음·탈퇴면 `hasher.dummy_verify`로 시간만 맞추고 **아무것도 안 하고 정상 반환**(REQ-27) → 있으면 코드 생성·해시·저장·`commit()` → 그 뒤 `notifier.send_code`(실패는 로그만 남기고 삼킴: 실패를 응답에 드러내면 가입 여부가 노출됨). `confirm_reset(email, code, new_password)`: ① 새 비밀번호 규칙 검사(위반이면 400, **코드 조회·횟수 변경 없음**, REQ-29) ② 회원 없음·탈퇴·코드 행 없음은 모두 `InvalidResetCodeError`(더미 검증 포함) ③ 코드 행 `FOR UPDATE` → `check` ④ 불일치면 횟수 저장 후 **`commit()`하고** `InvalidResetCodeError`(예외로 롤백되면 횟수가 안 올라가므로) ⑤ 일치면 회원 `FOR UPDATE` → `reset_password` → 코드 행 삭제(1회용) → `commit()`. 에러는 사유를 구분하지 않는 한 가지: 400 `INVALID_RESET_CODE` "재설정 코드가 올바르지 않거나 만료되었습니다." 코드 형식은 `^\d{6}$`(어긋나면 Pydantic 400, 횟수에 안 셈) | 확정(2026-11-06) | REQ-26~32. 잠금 순서는 코드 행 → 회원 행이며 다른 흐름이 코드 행을 잡지 않아 교착 없음 |
+| D-재설정전달 | 코드 전달은 추상 포트: `auth.domain.service.PasswordResetNotifier(ABC)` `async send_code(email, code, expires_at) -> None`. 개발용 구현 `auth.infrastructure.reset_notifier.LoggingPasswordResetNotifier`가 `logging.getLogger("auth.password_reset").warning(...)`로 코드를 로그에 남김(REQ-26 "운영 기록에서 확인"). 코드 생성도 추상 `ResetCodeGenerator(ABC).generate() -> str`, 구현 `SecretsResetCodeGenerator`(`secrets.randbelow(10**6)`, 6자리 0 채움). 둘 다 container 싱글턴. **로그에 원문 코드가 남으므로 개발·시연 전용이며 실제 메일 구현으로 교체(container 한 곳)한 뒤에만 배포한다** | 확정(2026-11-06): 포트 구조 확정, 로그 출력 구현은 배포 전 교체 대상(REQ-26) | REQ-26, R8·R9 |
+| D-재설정제한 | 이메일별 요청 횟수 제한은 두지 않는다(요구조건에 없음, REQ-13과 같은 정책). 대신 무차별 대입 완화로 **재요청 최소 간격 `REQUEST_COOLDOWN` = 60초**를 둔다. 직전 코드 발급(`created_at`) 후 60초 안에 같은 회원이 다시 요청하면 새 코드를 만들지 않고 기존 코드를 그대로 두며 알림도 보내지 않는다(`PasswordResetCode.is_request_throttled`, 현재 시각은 서비스의 `clock.now()`). 60초 이후의 재요청은 새 코드를 항상 `failed_attempts` 0으로 발급하고 이전 코드는 덮어써 무효가 된다(REQ-28·REQ-29, 실패 횟수 이어받기 없음). 응답은 항상 204 | 확정(2026-11-06), 질문 22 | 요구조건 범위 밖(REQ-29 위반이던 실패 횟수 이어받기를 대체) |
+| D-자진탈퇴조정 | **조정 위치는 `AuthApplicationService` 밖**: 새 `auth/application/withdrawal_service.py`의 `AccountWithdrawalService`. `auth/application/ports.py`에 auth가 정의하는 포트 3개(`WithdrawalStorePort`, `WithdrawalOfferPort`, `WithdrawalReservationPort`, 모두 `Protocol`)를 두고 container가 기존 구현을 연결한다: stores=`StoresApplicationService`, offers=`CatalogApplicationService`, reservations=`ReservationAdminAdapter`(이미 있음, `cancel_all_for_user`를 부름). 흐름은 reservations.md 15.4.6의 ①~⑧과 같고(§15.4), 포인트 소멸은 ⑦ `accounts.withdraw_user`가 도메인 `User.withdraw`로 한다. 자진 탈퇴 사유 문자열은 도메인 상수 `SELF_WITHDRAWAL_REASON = "회원 본인 탈퇴"`. EP `POST /v1/users/me/withdraw`(DELETE는 본문 비표준이라 기각), 본문 `{password}`, 응답 200 `{id, status, deleted_at, cancelled_reservation_count}`. 정지 회원은 `CurrentUser`라 403(정지 회원은 로그아웃 외 불가, B-2) | 확정(2026-11-06) | REQ-33~36, 34-1, reservations.md C-18, D-32. 상점주 폐점은 admin D13과 같게 맞춤(REQ-36 "강제 탈퇴 규칙과 같음") |
+| D-탈퇴포인트소멸 | `User.withdraw(reason, now) -> int`: 상태 전이와 함께 잔액을 0으로 만들고 **소멸량을 반환**(기존 호출자는 반환값을 무시해도 호환). `AuthApplicationService.withdraw_user`(시그니처 불변)가 소멸량 > 0이면 `PointLog.record(user_id, EXPIRE, -소멸량, 0)`을 추가(0이면 내역 없음, REQ-34 ④·53). **admin 강제 탈퇴는 `accounts.withdraw_user`를 이미 호출하므로 admin 파일 수정 없이 같은 규칙이 적용된다.** 순서는 호출자가 보장: 환불의 포인트 복구(⑤)가 소멸(⑦)보다 먼저 | 확정(2026-11-06) | REQ-34-1, B-3. 규칙은 도메인 한 곳이라 두 경로가 갈라질 수 없음(R3) |
+| D-포인트상한 | `User._add_points`(공용)가 `users_point + amount > POINT_MAX_BALANCE`면 `ValueError("포인트 잔액이 한도를 넘습니다.")`. `earn_points`·`restore_points`·`grant_points`가 공유(문구는 기존 grant와 동일해 admin 테스트 불변). 한도 초과 시 **적립·복구를 거부**(400 `VALIDATION_ERROR`, 잘라서 일부만 올리는 방식은 포기 규칙이 요구조건에 없어 기각). `earn/restore`는 탈퇴 회원이면 `UserWithdrawnError`(방어. `use`·`revoke`는 잔액 0이라 자연히 무해) | 확정(2026-11-06), 질문 21 | REQ-37, 35 |
+| D-포인트유형소멸 | `PointType.EXPIRE = "EXPIRE"`(탈퇴 소멸. 시간 경과가 아님, REQ-39). `_NEGATIVE_TYPES`에 추가. `PointLog` 불변식 추가: EXPIRE는 음수·`balance_after == 0`, GRANT는 `reason`·`created_by` 필수, 그 외 유형은 둘 다 None(REQ-53·55, 기존 NULL 행과 호환). `PointLogResponse`에 `balance_after: int \| None` 추가(기존 행 NULL), 조회 `type` 필터에 `EXPIRE` 자동 포함. 이름 변경은 enum과 CHECK 두 곳 | 확정(2026-11-06), 질문 20 | REQ-53·55. 용어 "소멸"의 코드 이름은 요구조건에 없음 |
+| D-로그아웃정지허용 | `POST /v1/auth/logout`이 `get_current_principal_allow_suspended`를 쓴다. 별칭 `PrincipalAllowSuspended = Annotated[AuthenticatedPrincipal, Depends(get_current_principal_allow_suspended)]` 추가. 탈퇴·폐기·위조·세대 불일치 토큰은 그대로 401 | 확정(2026-11-06) | B-2, 주체와 정책 표. admin.md:374는 정지 회원 로그아웃을 막으므로 C-24로 전달 |
+| D-주석정리 | `dependencies.py:97`의 "아직 어떤 router에도 연결하지 않았다."를 "reservations 픽업 EP(`reservations/presentation/router.py`)가 사용한다."로 교체. 동작 변경 없음 | 확정(2026-11-06) | B-2, 15.1 |
+| D-서비스분리 | 재설정과 탈퇴 조정은 **새 서비스 2개**로 두고 `AuthApplicationService` 생성자는 바꾸지 않는다(`tests/auth/test_service.py build()`, `test_container.py`, payments·admin 연결 지점 보호). 프로필·비밀번호 변경·`check_self_withdrawable`은 기존 의존성(users, hasher)만 쓰므로 `AuthApplicationService`에 메서드로 추가 | 확정(2026-11-06) | 병행 중인 payments 구현에 영향 최소화 |
+
+### 15.3 도메인·인프라·스키마
+
+#### 15.3.1 도메인 (`src/auth/domain/`)
+
+| 파일 | 변경 |
+| --- | --- |
+| `user.py` | 필드 `token_version: int = 0`, `token_keep_jti: str \| None = None`(생성자 선택 인자, 음수면 `ValueError`). `register`: 이름·전화번호 필수 검사(`_require_profile_text`). 신규 메서드: `update_profile(name, phone)`, `ensure_current_password(raw, hasher)`, `change_password(current, new, hasher, *, keep_jti)`, `reset_password(new, hasher)`, `invalidate_tokens(keep_jti=None)`, `ensure_token_current(version, jti)`, 프로퍼티 `can_reset_password`(탈퇴가 아니면 True). `_add_points`(상한·탈퇴 검사) 도입, `earn/restore/grant`가 사용. `withdraw`가 소멸량(int)을 반환하고 잔액을 0으로. 상수 `SELF_WITHDRAWAL_REASON` |
+| `point_log.py` | `PointType.EXPIRE`, 불변식(§15.2 D-포인트유형소멸), 오류 문구 갱신 |
+| `password_reset_code.py` (신규) | `PasswordResetCode`(D-재설정코드) |
+| `token_claims.py` | `token_version: int = 0` 필드 추가(기본값, 위치 인자 호환) |
+| `exceptions.py` | `CurrentPasswordMismatchError(_CodedValueError)` `CURRENT_PASSWORD_MISMATCH`, `InvalidResetCodeError(_CodedValueError)` `INVALID_RESET_CODE`. 둘 다 `ValueError` 하위라 전역 핸들러가 400 + 해당 코드로 변환(`error_handlers.py` 수정 불필요, R6) |
+| `service.py` | `ResetCodeGenerator(ABC)`, `PasswordResetNotifier(ABC)` 추가. `TokenProvider.issue`에 `*, token_version: int = 0` 추가 |
+| `repository/password_reset_code_repository.py` (신규) | `PasswordResetCodeRepository(ABC)`: `find_by_user_id(user_id, for_update=False)`, `save(code)`(없으면 INSERT, 있으면 덮어쓰기: 새 코드는 `failed_attempts=0`), `delete(user_id)` |
+
+상태 전이(재설정 코드): (없음) → 유효(요청) → 사용됨(삭제, 일치) / 만료(15분) / 무효(5회 실패) / 덮어써짐(재요청). 사용됨·만료·무효는 되살아나지 않는다.
+
+`User` 새 메서드의 `ValueError` 조건:
+
+| 메서드 | 오류 |
+| --- | --- |
+| `register` | 이름·전화번호 None·공백만·100자 초과 → `ValueError` |
+| `update_profile` | 둘 다 None → `ValueError("변경할 항목이 없습니다.")`, 넘긴 값 공백만·100자 초과, 적용 뒤 이름·전화번호 중 비어 있는 것(ADMIN 제외), 탈퇴 → `UserWithdrawnError` |
+| `change_password` | 탈퇴 → `UserWithdrawnError`, 현재 불일치 → `CurrentPasswordMismatchError`, 새 값 규칙 위반 → `ValueError` |
+| `reset_password` | 새 값 규칙 위반 → `ValueError`, 탈퇴 → `UserWithdrawnError` |
+| `ensure_token_current` | 세대 불일치이면서 jti도 keep이 아님 → `TokenRevokedError` |
+| `earn/restore/grant_points` | 한도 초과 → `ValueError`, earn/restore 탈퇴 → `UserWithdrawnError` |
+| `withdraw` | 기존 `ensure_withdrawable` 오류(관리자 `AdminAccountProtectedError`, 이미 탈퇴 `UserAlreadyWithdrawnError`, 사유 공백) 그대로 |
+
+#### 15.3.2 인프라 (`src/auth/infrastructure/`)
+
+- `models.py`: `UserModel.token_version`(`server_default="0"`), `token_keep_jti`(Text NULL). `PointLogModel` CHECK에 `'EXPIRE'`. 신규 `PasswordResetCodeModel`(`__tablename__ = "password_reset_codes"`).
+- `repositories.py`: `SqlAlchemyUserRepository.save/_to_domain`에 두 컬럼 매핑. `SqlAlchemyPasswordResetCodeRepository`: `find_by_user_id`(`with_for_update().execution_options(populate_existing=True)`), `save`(`pg_insert ... on_conflict_do_update(index_elements=["user_id"])`, flush까지만, R5), `delete`.
+- `security.py`: `JwtTokenProvider.issue`가 `ver` 클레임을 넣고 `decode`가 `payload.get("ver", 0)`을 `TokenClaims.token_version`으로 돌려줌(정수가 아니면 `AuthenticationError`). `SecretsResetCodeGenerator` 추가.
+- `reset_notifier.py` (신규): `LoggingPasswordResetNotifier`.
+- 동시성: 재설정 확인은 코드 행 → 회원 행 순 `FOR UPDATE`(D-재설정흐름). 비밀번호 변경·프로필 변경·탈퇴는 `_locked_user`(기존). 포인트 메서드는 기존 `_locked_user` 그대로.
+
+#### 15.3.3 스키마 변경 제안 (직접 `schema.sql`을 고치지 않았다. R14: 구현 시 `schema.sql`, `db-schema/SKILL.md`, `models.py`를 함께 고친다)
+
+```sql
+-- S-A1 point_log 유형에 EXPIRE (탈퇴 소멸)
+ALTER TABLE point_log DROP CONSTRAINT ck_point_log_type;
+ALTER TABLE point_log ADD CONSTRAINT ck_point_log_type
+    CHECK (point_type IN ('EARN', 'USE', 'RESTORE', 'REVOKE', 'GRANT', 'EXPIRE'));  -- EXPIRE: 탈퇴 소멸 (auth D-포인트유형소멸)
+
+-- S-A2 토큰 세대 (비밀번호 변경·재설정 시 기존 토큰 무효화, auth D-토큰무효화)
+ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN token_keep_jti TEXT;   -- 비밀번호 변경에 쓴 토큰 하나만 유지
+
+-- S-A3 비밀번호 재설정 코드 (회원당 1행, auth D-재설정코드)
+CREATE TABLE password_reset_codes (
+    user_id          UUID         PRIMARY KEY REFERENCES users (id),
+    code_hash        VARCHAR(255) NOT NULL,
+    expires_at       TIMESTAMPTZ  NOT NULL,
+    failed_attempts  INTEGER      NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+```
+- S-A4(변경 없음): 잔액 상한은 `INTEGER` 타입이 이미 2,147,483,647이라 별도 CHECK를 두지 않는다. 앱이 먼저 막는다.
+- 개발 DB: `create_all`은 새 테이블(S-A3)만 만들고 컬럼 추가·CHECK 변경(S-A1·S-A2)은 하지 않는다. 서버 재시작 전에 위 `ALTER`를 수동 실행해야 한다(reservations RD-32와 같은 방식, 실행은 사용자). 기존 행은 `DEFAULT 0`.
+- `db-schema/SKILL.md` §1 ERD, §3 모듈 배치(auth에 `password_reset_codes`), §4 CHECK 설명 갱신 필요.
+
+### 15.4 응용 (application/)
+
+#### 15.4.1 `AuthApplicationService` 추가·변경 (생성자 불변, 포인트 4개 시그니처 불변)
+
+| 메서드 | 시나리오 | commit |
+| --- | --- | --- |
+| `update_profile(user_id, name, phone) -> User` | `_locked_user` → `user.update_profile` → `users.save` | 1회 |
+| `change_password(user_id, current_password, new_password, *, keep_jti) -> None` | `_locked_user` → `user.change_password(..., self.hasher, keep_jti=...)` → `users.save` | 1회 |
+| `check_self_withdrawable(user_id, password) -> User` | `get_user` → `user.ensure_current_password` → `user.ensure_withdrawable(SELF_WITHDRAWAL_REASON)`. 읽기 전용 | 없음 |
+| `withdraw_user(user_id, reason, *, now, commit=True) -> User` (변경) | `_locked_user` → `expired = user.withdraw(...)` → `users.save` → `expired > 0`이면 `point_logs.add(EXPIRE, -expired, 0)` | 호출자 선택 |
+| `login` (변경) | `tokens.issue(user.id, user.role, token_version=user.token_version)` | 없음 |
+| `authenticate` (변경) | 기존 상태 검사 뒤 `user.ensure_token_current(claims.token_version, claims.jti)` | 없음 |
+| `use/earn/restore/revoke_points` | **시그니처·commit 규약 불변**(C-22) | 호출자 선택 |
+
+#### 15.4.2 `PasswordResetService` (`application/password_reset_service.py`)
+생성자(전부 필수, R8): `session, users: UserRepository, codes: PasswordResetCodeRepository, hasher: PasswordHasher, generator: ResetCodeGenerator, notifier: PasswordResetNotifier, clock: Clock`. 시나리오는 D-재설정흐름. 트랜잭션 경계: 코드 발급 `commit` 1회 → 전달. 확인은 실패 시(횟수 증가) `commit` 1회 후 예외, 성공 시 `commit` 1회.
+
+#### 15.4.3 `AccountWithdrawalService` (`application/withdrawal_service.py`) — R12 순환 방지
+
+```python
+class AccountWithdrawalService:
+    def __init__(self, session, accounts: AuthApplicationService,
+                 stores: WithdrawalStorePort, offers: WithdrawalOfferPort,
+                 reservations: WithdrawalReservationPort, clock: Clock): ...
+
+    async def withdraw_self(self, user_id, password) -> WithdrawalResult:
+        now = self.clock.now()
+        user = await self.accounts.check_self_withdrawable(user_id, password)       # ① 읽기
+        store = await self.stores.lock_store_of_owner(user_id) if user.is_owner else None   # ②
+        open_store = store is not None and not store.is_closed
+        if open_store:
+            await self.offers.end_all_sales_of_store(store.id, now=now, commit=False)       # ③
+            reserved = await self.reservations.has_reserved_for_store(store.id, excluding_user_id=user_id)  # ④
+        cancelled = await self.reservations.cancel_active_for_user(user_id, reason=SELF_WITHDRAWAL_REASON)  # ⑤
+        if open_store:
+            await self.stores.close_store_by_admin(store.id, SELF_WITHDRAWAL_REASON,
+                has_reserved_reservations=reserved, now=now, commit=False)                  # ⑥
+        done = await self.accounts.withdraw_user(user_id, SELF_WITHDRAWAL_REASON, now=now, commit=False)  # ⑦ 소멸
+        await self.session.commit()                                                          # ⑧ 한 번 (R5, R13)
+        return WithdrawalResult(done.id, done.status.value, done.deleted_at, cancelled)
+```
+- 잠금 순서는 reservations.md 15.4.6 표와 같다(offers → reservations → payments → refunds → users). 예외(상점에 타 고객 RESERVED → `STORE_HAS_RESERVED_RESERVATIONS`, 불일치 → 500 `DATA_INCONSISTENT` 등)가 나면 커밋 전이라 전체 롤백(세션 종료).
+- `ReservationAdminAdapter`가 내는 `admin.domain.exceptions.ReservationDataInconsistentError`는 전역 핸들러가 이미 500으로 변환한다(`error_handlers.py:40`). auth는 그 예외를 import하지 않는다.
+- **R12 근거**: auth의 `AuthApplicationService`·모든 auth 모듈 파일은 reservations·payments·stores·catalog를 import하지 않는다(B-31). `AccountWithdrawalService`는 자기 모듈의 `ports.py` Protocol만 알고, 구현 연결은 `container.py`뿐이다. 생성 그래프는 `AccountWithdrawalService → {AuthApplicationService, ReservationAdminAdapter → ReservationApplicationService → PaymentApplicationService → AuthApplicationService}`이며 `AuthApplicationService`는 이 서비스에 의존하지 않으므로 순환이 없다(`auth → reservations → payments → auth`가 서비스 내부에서 생기지 않음). 서비스 생성자 안에서 다른 서비스를 만들지 않는다.
+- 포트(`application/ports.py`, auth가 정의, R11): `WithdrawalStorePort.lock_store_of_owner(owner_id)`, `close_store_by_admin(store_id, reason, *, has_reserved_reservations, now, commit)`, `WithdrawalOfferPort.end_all_sales_of_store(store_id, *, now, commit)`, `WithdrawalReservationPort.cancel_active_for_user(user_id, *, reason) -> int`, `has_reserved_for_store(store_id, *, excluding_user_id=None) -> bool`. 시그니처는 admin 포트와 같아 기존 서비스·어댑터가 구조적으로 만족한다. 반환 객체는 `id`, `is_closed`만 선언한 Protocol.
+- **중복 인정**: ①~⑧ 순서가 `AdminApplicationService.withdraw_user`(`admin/application/service.py:82-110`)와 같다. 이번에는 admin 파일을 고치지 않고 병행 둔다. 합치려면 admin이 이 조정 서비스를 쓰도록 바꾸는 후속 작업(C-25).
+
+#### 15.4.4 container (`src/container.py`) — 범위 확장(C-26)
+- 자기 구역(auth): `create_password_reset_code_repository`, `create_password_reset_service`, 싱글턴 `_reset_code_generator`, `_reset_notifier`, `wire_dependencies`에 `provide_password_reset_service` 매핑.
+- **모듈 간 연결(오케스트레이터 몫, 발주서에 명시)**: `create_account_withdrawal_service(session, accounts=Depends(create_auth_service), stores=Depends(create_stores_service), offers=Depends(create_catalog_service), reservations=Depends(create_reservation_admin))`와 `provide_withdrawal_service` 매핑. `create_reservation_admin`이 아래쪽에 정의돼 있으므로 admin 구역 뒤(`wire_dependencies` 앞)에 둔다(B-33).
+- `tests/test_container.py`의 `provide_*` 수집 검사가 새 두 개를 매핑해야 통과한다.
+
+### 15.5 표현 (presentation/) — 엔드포인트 (명세 변경은 §15.7)
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/v1/auth/signup` (변경) | `SignupRequest`(name·phone 필수) | `UserResponse` | 201 | 400, 409 |
+| POST | `/v1/auth/logout` (변경) | Bearer | - | 204 | 401(`UNAUTHORIZED`, `TOKEN_REVOKED`). **정지 회원도 허용** |
+| PATCH | `/v1/users/me` | `ProfileUpdateRequest` `{name?, phone?}` | `UserResponse` | 200 | 400, 401, 403 |
+| POST | `/v1/users/me/password` | `PasswordChangeRequest` `{current_password, new_password}` | 본문 없음 | 204 | 400(`VALIDATION_ERROR`, `CURRENT_PASSWORD_MISMATCH`), 401, 403 |
+| POST | `/v1/users/me/withdraw` | `WithdrawRequest` `{password}` | `WithdrawalResponse` | 200 | 400(`CURRENT_PASSWORD_MISMATCH`, `ADMIN_ACCOUNT_PROTECTED`, `STORE_HAS_RESERVED_RESERVATIONS`, `VALIDATION_ERROR`), 401, 403, 500(`DATA_INCONSISTENT`) |
+| POST | `/v1/auth/password-reset/request` | `PasswordResetRequest` `{email}` | 본문 없음 | 204(가입 여부와 무관) | 400(필드 누락) |
+| POST | `/v1/auth/password-reset/confirm` | `PasswordResetConfirmRequest` `{email, code, new_password}` | 본문 없음 | 204 | 400(`VALIDATION_ERROR`, `INVALID_RESET_CODE`) |
+| GET | `/v1/users/me/points` (변경) | 동일 | `logs[]`에 `balance_after`, `type`에 `EXPIRE` | 200 | 400, 401 |
+
+- 스키마: `PasswordChangeRequest.new_password`·`PasswordResetConfirmRequest.new_password`는 `min_length=1, max_length=128`(규칙 검사는 도메인, 기존 `SignupRequest.password`와 동일). `code`는 `pattern=r"^\d{6}$"`. `WithdrawalResponse(id, status, deleted_at, cancelled_reservation_count)`. 응답에 비밀번호 해시·토큰 세대·재설정 코드 해시는 없다(R15).
+- 의존성(`dependencies.py`): `PrincipalAllowSuspended` 별칭, `provide_password_reset_service`, `provide_withdrawal_service` 플레이스홀더, 주석 정리(D-주석정리). 비밀번호 변경은 `CurrentPrincipal`(jti 필요, 정지 회원 403), 프로필·탈퇴는 `CurrentUser`.
+- 목록 API 쿼리 매개변수는 기존 `GET /v1/users/me/points`(`type/page/size`)뿐이며 변경 없음.
+
+### 15.6 R1~R16 영향 (설계 판정, 공식 판정은 `layer-checker`)
+R1 도메인은 `secrets`·`logging`을 쓰지 않는다(`secrets`는 infrastructure). R2·R8 서비스는 추상만 받음. R3 비밀번호·프로필·세대·소멸·상한 규칙은 `User` 메서드. R4 레포는 도메인 객체만. R5 레포 flush까지, commit은 서비스. R6 전용 예외, 핸들러 수정 없음. R7 에러 형식 불변. R9 `provide_*` 2개를 `wire_dependencies`에 매핑. R10 추상에 선언한 메서드만 호출. R11 포트는 auth 정의, 상대는 구조적 만족. R12 §15.4.3. R13 탈퇴 조정은 같은 세션·`commit=False`·마지막 한 번. R14 §15.3.3(스키마 4개 파일 동시). R15 §15.7. R16 비밀번호·코드를 로그에 남기는 것은 재설정 코드(개발용, D-재설정전달)뿐이고 비밀번호는 남기지 않는다.
+
+### 15.7 명세 변경 목록 (오케스트레이터 소유, 설계자는 수정하지 않음)
+1. `docs/reference/auth.md` §1: `name`·`phone` 필수(O)로 변경, 400 사유에 "이름·전화번호 누락" 추가.
+2. §3 로그아웃: 정지된 회원도 호출 가능, 에러 표 유지.
+3. §5 포인트 내역: `type`에 `EXPIRE`, 응답 `logs[].balance_after`(nullable) 추가, `point_type` 설명 `EARN/USE/RESTORE/REVOKE/GRANT/EXPIRE`.
+4. 새 절: 프로필 변경(PATCH), 비밀번호 변경, 비밀번호 재설정 요청, 재설정 확인, 자진 탈퇴(요청·응답·에러 표, 재설정 요청은 가입 여부와 무관하게 204).
+5. 새 에러 코드 표기: `CURRENT_PASSWORD_MISMATCH`, `INVALID_RESET_CODE`. 비밀번호 변경 뒤 이전 토큰은 `TOKEN_REVOKED`.
+6. 파일 머리말·"포인트 변경 (API 없음)" 절: 소멸은 탈퇴 처리에서만 발생한다는 문장 추가.
+7. `docs/reference/README.md`: auth 목록 7개 → 12개 행 추가, "포인트 `point_log.point_type`" 상태 값 표와 "포인트 정책" 표에 `EXPIRE` 행, `ver` 클레임은 내부라 명세 제외, 노션에 나온 error_code 목록에 새 코드 2개.
+8. `docs/reference/admin.md` 강제 탈퇴 EP: 남은 포인트가 소멸되고 `EXPIRE` 내역이 남는다는 문장(C-24).
+9. `db-schema/SKILL.md`·`schema.sql`: §15.3.3.
+
+### 15.8 구현 쓰기 범위 (`layer-implementer` 발주용)
+
+| 파일 | 내용 |
+| --- | --- |
+| `src/auth/domain/{user,point_log,token_claims,exceptions,service}.py` | §15.3.1 |
+| `src/auth/domain/password_reset_code.py` (신규) | 엔티티 |
+| `src/auth/domain/repository/password_reset_code_repository.py` (신규) | 추상 |
+| `src/auth/infrastructure/{models,repositories,security}.py` | §15.3.2 |
+| `src/auth/infrastructure/reset_notifier.py` (신규) | 개발용 전달 |
+| `src/auth/application/service.py` | §15.4.1 |
+| `src/auth/application/{password_reset_service,withdrawal_service,ports}.py` (신규) | §15.4.2~3 |
+| `src/auth/presentation/{schemas,router,dependencies}.py` | §15.5, 주석 정리 |
+| `tests/auth/**` | §15.9 |
+| **범위 확장 (표시, 발주서에 명시 필요)** | |
+| `src/container.py` | 자기 구역 외 모듈 간 연결(§15.4.4, C-26). 다른 모듈 팩토리는 수정하지 않고 `Depends`로 참조만 |
+| `tests/helpers.py`, `tests/test_container.py` | 가입 헬퍼에 `phone` 추가, `provide_*` 매핑 검사 확장(공용 테스트 파일) |
+| `.claude/skills/db-schema/{SKILL.md,schema.sql}`, `docs/reference/**`, `.env.example`(변경 없음) | §15.3.3·§15.7, 오케스트레이터 |
+| **하지 않음(확정)** | `src/admin/**`(C-25는 후속), `src/reservations/**`, `src/payments/**`, `src/stores/**`, `src/catalog/**`, `src/error_handlers.py`, `src/main.py`(모델 import는 이미 `auth_models`), `.claude/**` |
+
+완료 게이트는 `backend-invariants` §7(위반 0, `import main`, `pytest -rs` skip 0).
+
+### 15.9 테스트 계획
+- **기존 테스트 수정**: `tests/helpers.py` `signup()`에 `phone`; `.signup(` 22곳과 `User.register(` 9곳(`tests/auth/**`)에 이름·전화번호 추가; 재설정 후 토큰·포인트 내역 단언에 영향 있는 기존 단언 점검(`tests/auth/test_status_api_db.py` 강제 탈퇴 테스트는 잔액 0·EXPIRE 내역 단언 추가). `PointLogResponse` 정확 일치 단언이 있으면 `balance_after` 추가.
+- **도메인(DB 없음)**: register 필수·경계(100자·공백), `update_profile` 표(일부만·둘 다·none·기존 빈 회원·ADMIN), `change_password`(불일치·약함·성공 시 세대·keep), `ensure_token_current` 표(현재 세대, 이전 세대, keep jti, 두 번째 변경 뒤 이전 keep 무효), `reset_password`, 상한(최대값 OK, +1 거부, 실패 시 잔액 불변, grant 문구 동일), 탈퇴 회원 earn/restore 거부, `withdraw` 소멸량(0·양수·관리자 거부 시 잔액 불변), `PointLog` EXPIRE·GRANT·기타 불변식, `PasswordResetCode`(6자리 검증, 15분 정각 만료, 4회 실패 뒤 일치 OK, 5회 실패 뒤 일치도 거부, 성공 시 횟수 불변).
+- **서비스(fake, DB 없음)**: `PasswordResetService` 요청(가입자: 저장·해시 저장·전달 1회·commit 1, 미가입·탈퇴: 저장 0·전달 0·`dummy_verify` 호출·예외 없음, 전달 예외를 삼켜도 commit 유지, 재요청이 횟수 초기화·이전 코드 무효), 확인(성공: 비밀번호·세대 변경·코드 삭제·commit 1·이전 토큰이 `authenticate`에서 `TOKEN_REVOKED`, 오답: 횟수 1 저장+commit 1+예외, 5번째 실패 뒤 잠김, 약한 새 비밀번호: 횟수 불변·commit 0·코드 계속 유효, 만료, 미가입·탈퇴가 같은 오류, 재사용 거부). `AuthApplicationService`: 프로필, 비밀번호 변경 후 `authenticate`(현재 토큰 유효·다른 토큰 무효·변경 후 새 로그인 토큰 유효), `login`이 세대를 넣음, `withdraw_user` 소멸 내역(`EXPIRE`, 음수, `balance_after 0`, 잔액 0이면 내역 없음), earn 상한. `AccountWithdrawalService`(포트 fake 기록기): 호출 순서(고객: check → cancel → withdraw → commit, 상점주 열린 상점: lock → end_sales → has_reserved(excluding) → cancel → close → withdraw → commit), commit 정확히 1회, 비밀번호 오류·관리자는 포트 호출 0, 타 고객 RESERVED로 `close` 예외 시 commit 0, 취소 사유가 상수.
+- **API/DB(`db` 마커)**: 가입 필수 400, PATCH, 비밀번호 변경(현재 토큰 `/me` 200·다른 토큰 401), 재설정(알림을 fake로 바꿔 코드 수집, 5회 실패, 재설정 뒤 모든 토큰 401, 미가입 이메일도 204), 정지 회원 로그아웃 204(정지 회원 `/me`는 403), 자진 탈퇴(포인트 있는 고객: `WITHDRAWN`·로그인 401·`EXPIRE` 내역·예약 취소, 상점주+타 고객 RESERVED: 400 전체 롤백, 관리자 400), 포인트 내역의 `EXPIRE`·`balance_after`.
+- **구조**: `tests/test_container.py`에 `provide_*` 매핑 확장, `AuthApplicationService` 생성자 인자 불변 확인, `src/auth/**`가 reservations·payments·stores·catalog를 import하지 않는 정적 검사(R12 방어).
+- 병행 payments 보호: `use/earn/restore/revoke_points` 시그니처·`commit` 인자 불변을 `inspect.signature` 단언으로 고정.
+
+### 15.10 정합 이슈 (C-21~C-26)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-21 | `docs/design/auth.md` D-포인트비공개(2026-11-05 갱신 제안 문구), D-블랙리스트정리 | D-포인트비공개의 "관리자 수동 조정 없음"은 이미 지급만 허용으로 바뀜(B-4). 이 절의 소멸은 탈퇴 처리 내부에서만 발생(공개 EP 없음)이라 D-포인트비공개의 "공개 포인트 EP 없음"은 유지 | 구현 후 해당 행의 "제안" 표기를 확정 문구로 정리(설계 담당) |
+| C-22 | payments `docs/design/payments.md` §10 | 이 설계는 `use/earn/restore/revoke_points` **시그니처·commit 규약을 바꾸지 않는다.** 동작 변화 두 가지: (a) `earn`·`restore`가 잔액 상한 초과 시 `ValueError`(400)로 거부 — 결제 적립·환불 복구가 이 경우 롤백되며 현실적으로는 잔액 ~21억에서만 발생 (b) 탈퇴 회원에 `earn/restore`는 `UserWithdrawnError`(400 `USER_WITHDRAWN`), 정상 흐름(복구 ⑤가 소멸 ⑦보다 먼저)에서는 발생하지 않음 | payments 담당에게 전달. payments 변경 불필요. 질문 21 |
+| C-23 | `tests/**` 기존 가입 호출 | REQ-2로 이름·전화번호 없는 가입이 400이 된다. 다른 모듈 테스트(stores 등)는 `tests/helpers.py`를 쓰므로 헬퍼 한 곳 수정으로 해소(B-32) | 구현 범위에 포함(§15.8) |
+| C-24 | admin 담당자, `docs/design/admin.md` D12·D24·`:374`, `docs/reference/admin.md` EP 4 | 요구조건 B-2·B-3: (1) 정지 회원 로그아웃 허용 — `:374`는 막음 (2) 강제 탈퇴도 잔액을 소멸하고 `EXPIRE` 내역을 남김(D24와 다름) (3) 결제 대기 예약도 취소(D12와 다름, reservations.md D-31에서 이미 반영). (2)는 auth `withdraw_user` 변경만으로 자동 적용되고 admin 코드 수정은 없음 | admin 설계·명세 문구 갱신 전달 |
+| C-25 | `src/admin/application/service.py:82-110`와 §15.4.3 | 탈퇴 조정 순서가 두 곳에 중복. 이번 범위에서는 admin 파일을 수정하지 않음 | 후속: admin이 `AccountWithdrawalService`를 쓰도록 통합(admin 담당 승인 필요, 범위 확장) |
+| C-26 | `src/container.py` | 탈퇴 조정 서비스는 auth·stores·catalog·reservations 팩토리를 모두 참조해 `layer-implementer`의 기본 범위(자기 모듈 구역)를 넘는다(orchestration §4) | 발주서에 container 범위 확장을 명시 |
+
+### 15.11 질문 목록과 확정값 (2026-11-06 사용자 확정)
+
+| # | 항목 | 출처 | 확정값 | 근거 | 바꾸기 쉬운 곳 |
+| --- | --- | --- | --- | --- | --- |
+| 20 | "소멸" 포인트 유형의 코드 이름 | REQ-53 | `EXPIRE` | 포인트 소멸의 통상 용어 | `PointType` enum + `ck_point_log_type` |
+| 21 | 적립·복구가 잔액 상한을 넘을 때 거부할지, 상한까지만 올리고 나머지를 포기할지 | REQ-37 | 거부(400) | grant와 동일 규칙, 포기 규칙이 요구조건에 없음 | `User._add_points` |
+| 22 | 재설정 요청 최소 간격·횟수 제한 | REQ-27~29(제한 언급 없음) | 횟수 제한 없음. 재요청 최소 간격 60초: 간격 안 재요청은 기존 코드 유지·알림 없음·204, 간격 뒤 재요청은 이전 코드 무효·새 코드는 실패 0회로 시작 | REQ-28·29 충족 + 무차별 대입 완화 | `PasswordResetCode.is_request_throttled`, `PasswordResetService.request_reset` |
+| 23 | 재설정 코드 전달 수단 | REQ-26 | 메일 기능이 생기기 전 시연·개발은 로그 출력(`LoggingPasswordResetNotifier`), 배포 전 실제 발송 구현으로 교체 | REQ-26 | container `_reset_notifier` 한 곳 |
+| 24 | 현재 비밀번호 불일치의 상태 코드 | REQ-24·36 | 400 `CURRENT_PASSWORD_MISMATCH` | README "규칙 위반 400" | 새 예외 클래스 한 곳 |
+| 25 | 자진 탈퇴 EP 모양·응답 | REQ-33 | `POST /v1/users/me/withdraw` + 비밀번호 본문, 200 + 취소 건수 | DELETE 본문 비표준, admin EP 4와 같은 응답 | router·schemas |
+| 26 | 정지된 회원의 자진 탈퇴 | B-2(정지 회원은 로그아웃 외 불가) | 403(불가) | 요구조건 문구 | 탈퇴 EP 의존성 `CurrentUser` |
+| 27 | 상점주 자진 탈퇴 시 열린 상점 폐점 여부 | REQ-36 | 폐점(admin D13과 같음) | "강제 탈퇴 규칙과 같음" | `AccountWithdrawalService` ⑥ |
+| 28 | 새 비밀번호가 현재와 같아도 허용 | REQ-24(언급 없음) | 허용 | 제한 근거 없음 | `User.change_password` |
+| 29 | 프로필 변경에서 ADMIN의 이름·전화번호 | REQ-2·23 | 비어 있어도 허용 | REQ-2 관리자 예외 | `User.update_profile` |
+| 30 | `GET /v1/users/me/points`에 `balance_after` 노출 | REQ-55 | 노출(null 허용, 추가 필드) | 저장만 하면 회원이 볼 수 없음 | `PointLogResponse` |
+
+---
+
+## 16. 2026-11-06 요구조건 변경 3건 (REQ-13 로그인 잠금, REQ-35 탈퇴 시 재설정 코드 삭제, REQ-27 응답 시간)
+
+- 상태: **설계(코드 변경 없음).** 정본은 `docs/requirements/auth.md`(작업 트리 변경, `git diff`로 확인). 기준: worktree 브랜치 `claude/auth-login-lockout`, HEAD `733ae97`(PR #33 브랜치). 이 절은 §1~§15와 충돌하면 우선한다(§1 `D-로그인제한`, §13 질문 5는 이 절로 대체됨).
+- 결정이 필요했던 항목은 사용자 위임(2026-11-06)에 따라 추천안으로 정했고 **"확정(위임, 2026-11-06)"**으로 표시한다. 요구조건 문장과 해석 차이가 생기는 곳은 C-32에 따로 올린다.
+- 이번에 추가하는 ID: 결정 `D-로그인잠금`~`D-재설정전달분리`(§16.2), 차단 확인 `B-34`~`B-38`, 정합 이슈 `C-27`~`C-33`(§16.11), 질문 `31`~`38`(§16.12).
+
+### 16.0 차단 이슈 (실행 결과)
+
+| # | 확인 명령 | 결과 | 판정 |
+| --- | --- | --- | --- |
+| B-34 | `(cd src && uv run python -c "import main; print('import main ok')")` | `import main ok` | 차단 아님 |
+| B-35 | `python3 .claude/skills/layer-check/check_layers.py` | `위반 없음`, 경고 3건(`[넓은예외]` error_handlers.py) | 기준선. 구현 후 위반 0 유지 |
+| B-36 | `uv run pytest -q tests/auth/test_service.py tests/auth/test_user_status.py tests/auth/test_requirements_service.py tests/test_error_handlers.py` | `100 passed` (DB 마커 없는 테스트) | 기준선 |
+| B-37 | 의존성: 새로 쓰는 것은 표준 라이브러리(`math`, `datetime.timedelta`, `dataclasses`)와 FastAPI `BackgroundTasks`(설치된 `fastapi 0.162.0`). `.env.example` 키 `JWT_SECRET_KEY`·`JWT_ALGORITHM` 확인 | 새 패키지·새 환경변수 없음 | `pyproject.toml`·`.env.example` 변경 없음 |
+| B-38 | `Grep "AuthApplicationService("` (src, tests) | 생성 지점 4곳: `src/container.py:149`, `tests/auth/test_service.py:119`·`:232`, `tests/auth/test_api_db.py:28`. 다른 모듈(admin·payments·reservations)은 생성하지 않고 주입만 받음 | §16.5 생성자 변경의 영향 범위가 이 4곳으로 닫힘. 또 `container.py`에서 `create_password_reset_code_repository`가 `create_auth_service`(`:143`)보다 **아래**(`:160`)에 정의돼 있어, `Depends(...)` 기본값이 정의 시점에 평가되므로 그대로 쓰면 `NameError` (C-28) |
+
+참고 측정(이 환경, 1회): passlib bcrypt `hash` 0.327초, `verify` 0.280초. 같은 자릿수지만 같지는 않다. 그래서 §16.7은 가짜 경로에서도 `verify`가 아니라 같은 연산인 `hash`를 쓴다.
+
+차단 이슈 없음.
+
+### 16.1 요구조건 대 코드 대조
+
+| 요구 | 현재 코드 | 차이 |
+| --- | --- | --- |
+| REQ-13 연속 5회 실패 → 10분 잠금 | `AuthApplicationService.login`(`service.py:111-120`): 실패해도 상태를 저장하지 않음. `users`에 횟수·잠금 컬럼 없음 | 컬럼·도메인 규칙·새 예외·429 핸들러 필요 |
+| REQ-35 탈퇴 시 재설정 코드 삭제 | `withdraw_user`(`service.py:~280`)는 `users`·`point_log`만 건드림. 코드 행은 남음(`confirm_reset`은 `can_reset_password`로 막을 뿐) | `AuthApplicationService`가 코드 레포지토리를 모름 |
+| REQ-27 응답 시간 | `request_reset`(`password_reset_service.py:40-60`): 미가입·탈퇴 = `dummy_verify` 1회, 가입 = (간격 안이면 bcrypt 0회 / 아니면 hash 1회 + upsert + commit + `await notifier`) | 간격 안 요청이 가장 빠르고, 알림 지연이 응답에 그대로 반영됨 |
+
+### 16.2 결정 표 (D-이름, 모두 "확정(위임, 2026-11-06)")
+
+| ID | 결정 | 근거 |
+| --- | --- | --- |
+| D-로그인잠금 | **규칙은 `User` 엔티티**(R3). 상수 `User.LOGIN_MAX_FAILURES = 5`, `User.LOGIN_LOCK_DURATION = timedelta(minutes=10)` 한 곳. 필드 `failed_login_count: int = 0`, `login_locked_until: datetime \| None = None`. 잠금 중 판정은 `now < login_locked_until`(정각은 잠금 끝, 정지·코드 만료와 같은 경계). **5번째 실패에서 `login_locked_until = now + 10분`을 정하고 `failed_login_count`를 0으로 되돌린다.** 그래서 "잠금이 끝나면 0부터"가 별도 만료 처리 없이 성립하고, 횟수는 항상 0~4다. 5번째 실패 자체의 응답은 보통의 401이다 | REQ-13, R3 |
+| D-잠금판정순서 | 로그인 순서: ① 이메일로 회원 조회, 없으면 `dummy_verify` 후 401(잠금·저장 없음) ② **행 잠금 밖에서** 비밀번호 검증(bcrypt가 행 잠금을 오래 쥐지 않게) ③ `SELECT ... FOR UPDATE`로 같은 행을 다시 읽음 ④ 틀렸으면 `record_login_failure(now)` → 바뀌었으면 저장·**commit** → 401 `INVALID_CREDENTIALS` ⑤ 맞았으면 `ensure_can_login(now)`: **탈퇴(401) → 잠금(429) → 정지(403)** 순서 ⑥ 통과하면 `clear_login_failures()` → 바뀌었으면 저장·commit → 토큰 발급. 잠김 사실은 ⑤에서만 드러나므로 "비밀번호가 맞을 때만 알림"이 성립한다. 잠금이 정지보다 앞인 이유: 잠금은 인증 이전 관문이고, 정지 사실도 비밀번호가 맞을 때만 알리는 기존 D8과 같은 층위이기 때문이다 | REQ-12·13, D8 |
+| D-잠금상태변화 | 도메인 메서드 반환값으로 "저장할 변화가 있었는지"를 알려, 변화가 없으면 `save`·`commit`을 하지 않는다. `record_login_failure`는 탈퇴 회원이면 변화 없음(False), 잠금 중이면 변화 없음(False, **횟수 제외·연장 없음**). `clear_login_failures`는 횟수가 0이 아니거나 `login_locked_until`이 남아 있으면 True. **정지(403)·탈퇴(401)·잠금(429)은 로그인 성공이 아니므로 횟수를 바꾸지 않는다** | REQ-13, REQ-35(탈퇴=없는 계정) |
+| D-잠금저장커밋 | 실패 횟수가 저장돼야 하므로 **commit 후에 예외를 낸다**(`confirm_reset` ④와 같은 방식). commit은 `login`(application)에서만 한다(R5, 레포지토리는 `flush`까지). 한 모듈·한 애그리거트(`User`)만 바꾸므로 R13 해당 없음. 예외 경로(429·403·401)는 변경이 없어 commit하지 않고 세션 종료로 잠금이 풀린다 | R5, R13 |
+| D-잠금경합 | **행 잠금 `for_update` 필요**(`find_by_id(..., for_update=True)`, 기존 `populate_existing`으로 최신 행 반영). 이유: 잠금 없이는 병렬 요청 N개가 모두 `count=0`을 읽고 모두 1로 써서 5회 제한을 무력화한다(읽기-수정-쓰기 경합). 잠금은 비밀번호 검증(②) **뒤에만** 잡아 보유 시간은 쿼리 수 ms다. 병렬로 5번째를 넘는 시도는 잠금 대기 뒤 이미 잠긴 상태를 읽어 횟수에서 빠진다. ②~③ 사이 비밀번호 해시가 바뀐 경우(재설정과 겹침)는 검증 결과를 버리고 횟수 없이 401(드문 구간, 재시도하면 됨) | REQ-13 |
+| D-잠금에러 | 새 도메인 예외 `AccountLockedError(Exception)` (`auth/domain/exceptions.py`), `error_code = "ACCOUNT_LOCKED"`, 속성 `retry_after_seconds: int`(올림, 잠금 중이면 1 이상). `ValueError`·`PermissionError`·`AuthenticationError`를 상속하지 않는다(각각 400·403·401로 바뀌므로). **HTTP 429**, 헤더 `Retry-After: <초>`(RFC 9110 delay-seconds). 본문은 공통 형식 3키만(R7, 추가 필드 없음): `{"success": false, "error_code": "ACCOUNT_LOCKED", "message": "로그인 시도가 너무 많아 계정이 잠겼습니다. N분 뒤에 다시 시도해 주세요."}`, N = 남은 시간 분 단위 올림(최소 1). 429에는 `WWW-Authenticate`를 붙이지 않는다(R7은 401만 요구). 남은 시간은 메시지와 `Retry-After`에 둔다 | R6, R7, R15 |
+| D-재설정잠금해제 | `User.reset_password`가 `clear_login_failures()`도 호출한다. 요구조건 문장은 "실패 횟수가 0이 된다"뿐이라 **잠금도 풀지**는 정해져 있지 않다. 잠금을 남기면 "재설정을 마쳤는데 최대 10분 로그인 불가"가 되고, 코드는 가입 이메일 수신자만 쓸 수 있어 해제가 악용되지 않는다 → 함께 푼다(C-32에서 요구조건 문구 확인 요청) | REQ-13 해석 |
+| D-탈퇴코드삭제 | `AuthApplicationService.withdraw_user`가 포인트 소멸 내역 저장 뒤 `codes.delete(user_id)`를 부른다(레포지토리 `delete`는 이미 있고 행이 없어도 안전). **자진 탈퇴(`AccountWithdrawalService` ⑦)와 강제 탈퇴(`admin/application/service.py:103`)가 모두 이 메서드를 거치므로 admin 파일 수정은 필요 없다.** 이를 위해 `AuthApplicationService` 생성자에 `codes: PasswordResetCodeRepository`를 **필수 인자(마지막)**로 추가한다(R8: 기본 생성 없음). `withdraw_user` 시그니처·`commit` 규약은 불변. 대안(`UserRepository`에 코드 삭제 메서드 추가: 다른 애그리거트를 섞음 / 서비스마다 따로 삭제: admin 수정 필요)은 채택하지 않음 | REQ-35, R3, R8 |
+| D-잠금순서 | REQ-35 삭제를 넣으면 `withdraw_user`가 **회원 행 → 코드 행** 순으로 잠그는데, `confirm_reset`은 지금 **코드 행 → 회원 행**이라 교차 대기(교착)가 생긴다. 그래서 auth 안의 잠금 순서를 **항상 회원 행 → 코드 행**으로 통일한다: `confirm_reset`은 이메일로 조회 뒤 `find_by_id(for_update=True)`를 코드 조회보다 먼저, `request_reset`은 발급 직전에 회원 행을 먼저 잠그고 탈퇴 여부를 다시 확인한다. 이렇게 하면 `request_reset`이 탈퇴와 겹쳐 탈퇴 뒤에 코드 행을 만드는 경우도 막힌다(REQ-35 "지운다"가 깨지지 않음). 전체 순서(탈퇴 조정, 기존): `offers → reservations → payments → refunds → users → password_reset_codes` | REQ-35 |
+| D-재설정시간균등 | `request_reset`의 모든 분기가 **bcrypt `hash`를 정확히 1회** 한다. 미가입·탈퇴·재요청 간격 안: 코드를 `generator.generate()`로 만들어 `hasher.hash`만 하고 버린다(`dummy_verify`는 쓰지 않음: `hash`와 `verify` 비용이 다름). 발급: 원래대로 `PasswordResetCode.issue`의 hash 1회 + upsert + commit. 회원 행 잠금·코드 조회는 가입 회원만 하므로 쿼리 수 차이(수 ms)는 남는다(§16.7 한계) | REQ-27 |
+| D-재설정전달분리 | 알림 발송을 **응답 경로에서 뗀다.** `request_reset(email) -> ResetDelivery \| None`은 commit까지만 하고 전달할 정보(`ResetDelivery(email, code, expires_at)`, `code`는 `repr`에서 숨김)를 돌려준다. 라우터가 `BackgroundTasks.add_task(service.deliver, delivery)`로 응답 뒤에 `deliver`를 실행한다. `deliver`는 `notifier.send_code`를 부르고 예외는 삼켜 로그만 남긴다(기존 동작 유지). 응답은 항상 204 | REQ-27 |
+
+### 16.3 도메인 (`src/auth/domain/`)
+
+**`user.py`**
+
+| 항목 | 내용 |
+| --- | --- |
+| 생성자 인자(추가, 끝에, 기본값) | `failed_login_count: int = 0`, `login_locked_until: datetime \| None = None`. 검증: 음수면 `ValueError("로그인 실패 횟수는 0 이상이어야 합니다.")`, `login_locked_until`은 `_require_aware` |
+| 상수 | `LOGIN_MAX_FAILURES = 5`, `LOGIN_LOCK_DURATION = timedelta(minutes=10)` (`timedelta` import 추가, 표준 라이브러리라 R1 영향 없음) |
+| `is_login_locked(now) -> bool` | `login_locked_until is not None and now < login_locked_until`. `now`가 tz 없으면 `ValueError`(`_require_aware`) |
+| `login_lock_remaining_seconds(now) -> int` | 잠금 중이면 `ceil((until - now).total_seconds())`(1 이상), 아니면 0 |
+| `record_login_failure(now) -> bool` | 탈퇴면 False. `is_login_locked(now)`면 False(횟수 제외·연장 없음). 그 외: 지난 잠금 값(`login_locked_until`이 있고 만료)을 `None`으로 정리하고 `failed_login_count += 1`; `>= LOGIN_MAX_FAILURES`면 `login_locked_until = now + LOGIN_LOCK_DURATION`, `failed_login_count = 0`. True |
+| `clear_login_failures() -> bool` | `failed_login_count`와 `login_locked_until`을 0·None으로. 둘 중 하나라도 값이 있었으면 True |
+| `ensure_can_login(now)` (기존, 시그니처 불변) | 순서 변경: 탈퇴 → `InvalidCredentialsError`(기존), **잠금 → `AccountLockedError(remaining_seconds)`(신규)**, 정지 + 상점주 아님 → `AccountSuspendedError`(기존) |
+| `reset_password` (기존) | 끝에 `self.clear_login_failures()` 추가(D-재설정잠금해제). 탈퇴·약한 비밀번호 오류 조건은 불변 |
+
+`ValueError`/예외 조건 표(추가분)
+
+| 메서드 | 오류 |
+| --- | --- |
+| 생성자 | `failed_login_count < 0` → `ValueError`, `login_locked_until` tz 없음 → `ValueError` |
+| `is_login_locked`, `login_lock_remaining_seconds`, `record_login_failure` | `now` tz 없음 → `ValueError` |
+| `ensure_can_login` | 탈퇴 `InvalidCredentialsError`, 잠금 중 `AccountLockedError`, 정지 `AccountSuspendedError` |
+
+로그인 잠금 상태 전이(회원 1명 기준)
+
+| 현재 | 이벤트 | 다음 |
+| --- | --- | --- |
+| 횟수 k(0~3), 잠금 없음 | 비밀번호 틀림 | 횟수 k+1 |
+| 횟수 4, 잠금 없음 | 비밀번호 틀림(5번째) | 횟수 0, `locked_until = now+10분`(응답은 401) |
+| 잠금 중 | 틀림 | 변화 없음(401, 횟수 제외, 연장 없음) |
+| 잠금 중 | 맞음 | 변화 없음(429) |
+| 잠금 끝(`now >= locked_until`) | 틀림 | 횟수 1부터(지난 값 정리) |
+| 잠금 끝 | 맞음 | 로그인 성공, 지난 값 정리 |
+| 횟수 k>0 | 맞음(성공) | 횟수 0 |
+| 어느 상태든 | 재설정 완료 | 횟수 0, 잠금 해제 |
+| 탈퇴 | 틀림·맞음 | 변화 없음(401, 없는 계정과 같은 실패) |
+
+**`exceptions.py`**: `AccountLockedError`. 메시지 생성(분 올림)은 생성자 안에서 `ceil(seconds / 60)`로 한다(순수 파이썬).
+
+**`password_reset_code.py`·`repository/*`·`service.py`(추상)**: 변경 없음. `UserRepository`·`PasswordResetCodeRepository` 추상 시그니처도 불변(`find_by_id(for_update)`, `delete`가 이미 있음).
+
+### 16.4 인프라 (`src/auth/infrastructure/`)
+
+- `models.py` `UserModel`: `failed_login_count: Mapped[int] = mapped_column(server_default="0")`, `login_locked_until: Mapped[datetime | None] = mapped_column(TZ)`, `__table_args__`에 `CheckConstraint("failed_login_count >= 0", name="ck_users_failed_login_nonneg")`. (R14: `schema.sql`과 동일)
+- `repositories.py` `SqlAlchemyUserRepository`: `save`의 INSERT·UPDATE 두 분기와 `_to_domain`에 두 컬럼 매핑. `find_by_id(for_update=True)`는 그대로 사용(레포지토리 변경 없음).
+- 인덱스 없음(조회는 `email` UNIQUE 인덱스).
+
+**스키마 변경안 (오케스트레이터가 `schema.sql`·`SKILL.md`에 반영, 설계자는 수정하지 않음)**
+
+`.claude/skills/db-schema/schema.sql` `users` 블록, `token_keep_jti` 줄 뒤:
+```sql
+    -- 로그인 잠금 (auth D-로그인잠금, REQ-13). 5번째 연속 실패에서 locked_until을 정하고 횟수는 0으로 되돌린다
+    failed_login_count INTEGER    NOT NULL DEFAULT 0,
+    login_locked_until TIMESTAMPTZ,                        -- NULL이거나 과거면 잠금 아님
+    CONSTRAINT ck_users_status CHECK (...),                -- 기존
+    CONSTRAINT ck_users_failed_login_nonneg CHECK (failed_login_count >= 0)
+```
+`db-schema/SKILL.md`: ERD `users` 블록에 `int failed_login_count`, `timestamptz login_locked_until` 추가, §2 관계 목록 뒤 설명 문단(`token_version` 문장 옆)에 "`failed_login_count`·`login_locked_until`은 로그인 연속 실패 잠금 상태"를 한 문장 추가.
+
+**개발 DB 수동 `ALTER` (`create_all`은 기존 테이블의 컬럼을 추가하지 않으므로 서버 재시작 전에 실행, 실행은 사용자)**
+```sql
+ALTER TABLE users ADD COLUMN failed_login_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN login_locked_until TIMESTAMPTZ;
+ALTER TABLE users ADD CONSTRAINT ck_users_failed_login_nonneg CHECK (failed_login_count >= 0);
+
+-- REQ-35 이전에 탈퇴한 회원의 남은 재설정 코드 정리(1회성)
+DELETE FROM password_reset_codes
+ WHERE user_id IN (SELECT id FROM users WHERE status = 'WITHDRAWN');
+```
+되돌리기: `ALTER TABLE users DROP CONSTRAINT ck_users_failed_login_nonneg, DROP COLUMN login_locked_until, DROP COLUMN failed_login_count;`. 기존 행은 `DEFAULT 0`·`NULL`이라 별도 이행 없음. 테스트용 DB는 `tests/conftest.py`의 생성 방식을 구현자가 확인(컬럼이 빠진 오래된 테스트 DB면 같은 `ALTER` 필요).
+
+### 16.5 응용 (`src/auth/application/`)
+
+**`service.py` `AuthApplicationService`**
+
+- 생성자: 기존 인자 뒤에 `codes: PasswordResetCodeRepository`(추상, 필수) 추가. `use/earn/restore/revoke_points`, `withdraw_user`, `get_user` 등 **다른 모듈이 부르는 메서드의 시그니처·`commit` 규약은 불변**(payments·reservations·admin 영향 없음, C-22와 같은 방식으로 `inspect.signature` 단언을 유지). `login(email, password) -> LoginResult`도 시그니처 불변.
+- `login`:
+```python
+async def login(self, email: str, password: str) -> LoginResult:
+    snapshot = await self.users.find_by_email(User.normalize_email(email))   # 잠금 없음
+    if snapshot is None:                                                      # 가입되지 않음: 잠금 없음
+        self.hasher.dummy_verify(password)
+        raise InvalidCredentialsError()
+    verified = self.hasher.verify(password, snapshot.password_hash)           # 행 잠금 밖 (bcrypt)
+    now = self.clock.now()
+    user = await self.users.find_by_id(snapshot.id, for_update=True)         # D-잠금경합
+    if user is None or user.password_hash != snapshot.password_hash:
+        raise InvalidCredentialsError()
+    if not verified:
+        if user.record_login_failure(now):                                    # 탈퇴·잠금 중이면 False
+            await self.users.save(user)
+            await self.session.commit()                                       # 횟수 저장 뒤 예외 (R5)
+        raise InvalidCredentialsError()
+    user.ensure_can_login(now)                                                # 탈퇴 401 -> 잠금 429 -> 정지 403
+    if user.clear_login_failures():
+        await self.users.save(user)
+        await self.session.commit()
+    token, _ = self.tokens.issue(user.id, user.role, token_version=user.token_version)
+    return LoginResult(token=token, status=user.effective_status(now).value)
+```
+  새 잠금이 생긴 순간(`user.is_login_locked(now)`가 True로 바뀜)은 `logger.warning`으로 `user_id`만 남긴다(이메일·비밀번호 금지, 선택).
+- `withdraw_user`: `user.withdraw` → `users.save` → (소멸 > 0이면 `point_logs.add`) → **`await self.codes.delete(user_id)`** → `_finish(commit)`. 이미 탈퇴·관리자 등으로 `withdraw`가 예외면 삭제하지 않는다.
+- `get_account`·`check_withdrawable`·기타: 불변.
+
+**`password_reset_service.py` `PasswordResetService`**
+
+```python
+@dataclass(frozen=True)
+class ResetDelivery:
+    email: str
+    code: str = field(repr=False)
+    expires_at: datetime
+
+async def request_reset(self, email: str) -> ResetDelivery | None:
+    user = await self.users.find_by_email(User.normalize_email(email))
+    if user is None or not user.can_reset_password:
+        self._spend_hash_cost(); return None                    # hash 1회
+    locked = await self.users.find_by_id(user.id, for_update=True)   # 회원 행 -> 코드 행 (D-잠금순서)
+    if locked is None or not locked.can_reset_password:
+        self._spend_hash_cost(); return None
+    now = self.clock.now()
+    previous = await self.codes.find_by_user_id(user.id, for_update=True)
+    if PasswordResetCode.is_request_throttled(previous, now):
+        self._spend_hash_cost(); return None                    # 간격 안: 기존 코드 유지(REQ-28-1)
+    raw_code = self.generator.generate()
+    code = PasswordResetCode.issue(user.id, raw_code, self.hasher, now)   # hash 1회
+    await self.codes.save(code)
+    await self.session.commit()
+    return ResetDelivery(user.email, raw_code, code.expires_at)
+
+async def deliver(self, delivery: ResetDelivery) -> None:      # 응답 뒤(BackgroundTasks)
+    try:
+        await self.notifier.send_code(delivery.email, delivery.code, delivery.expires_at)
+    except Exception:  # noqa: BLE001 - 전달 실패를 로그로만 남긴다
+        logger.exception("비밀번호 재설정 코드 전달 실패")
+
+def _spend_hash_cost(self) -> None:
+    self.hasher.hash(self.generator.generate())                 # 결과는 버린다
+```
+- `confirm_reset`: ② 이메일 조회 → 없음·탈퇴면 기존대로 `dummy_verify`+`InvalidResetCodeError`. ③ **`find_by_id(user.id, for_update=True)`로 회원 행을 먼저 잠그고** 탈퇴를 다시 확인(탈퇴면 같은 오류) ④ 코드 행 `find_by_user_id(for_update=True)` ⑤ `check` 실패면 횟수 저장·commit·예외(기존) ⑥ 성공이면 이미 잠근 회원에게 `reset_password`(이제 실패 횟수·잠금도 초기화)·`save`·`codes.delete`·commit. 오류 코드·순서(① 새 비밀번호 검증이 먼저)·응답은 불변.
+- 트랜잭션 경계 요약: 로그인 실패 저장·성공 초기화 = `login`이 자기 세션에서 commit 1회. 탈퇴 = 기존대로 조정 서비스(또는 admin 서비스)가 마지막에 commit 1회, 코드 삭제는 같은 트랜잭션(`commit=False` 경로, R13). 재설정 요청 = 발급 commit 1회 뒤 응답, 알림은 트랜잭션 밖.
+
+### 16.6 표현 (`src/auth/presentation/`, `src/error_handlers.py`)
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 (변경분 굵게) |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/v1/auth/login` | `LoginRequest` (불변) | `TokenResponse` (불변) | 200 | 400 `VALIDATION_ERROR`, 401 `INVALID_CREDENTIALS`, 403 `FORBIDDEN`(정지 고객), **429 `ACCOUNT_LOCKED` (신규, `Retry-After` 헤더)** |
+| POST | `/v1/auth/password-reset/request` | `PasswordResetRequest` (불변) | 없음 | 204 (불변) | 400 `VALIDATION_ERROR` |
+| POST | `/v1/auth/password-reset/confirm` | 불변 | 불변 | 204 | 불변 (재설정 성공 시 로그인 잠금도 풀림) |
+
+- `schemas.py`: 변경 없음.
+- `router.py` `request_password_reset`: `background: BackgroundTasks` 인자 추가. `delivery = await service.request_reset(body.email)`; `delivery`가 있으면 `background.add_task(service.deliver, delivery)`; `Response(204)` 반환. (FastAPI는 직접 반환한 `Response`에도 `background_tasks`를 붙인다. 구현자가 `TestClient`로 `deliver`가 실행되는지 확인.)
+- `src/error_handlers.py`(**모듈 밖 파일, 범위 확장**, 기존 `EmailDuplicatedError` 핸들러와 같은 방식): 
+```python
+@app.exception_handler(AccountLockedError)
+async def account_locked(request: Request, exc: AccountLockedError):
+    return _response(429, exc.error_code, str(exc), {"Retry-After": str(exc.retry_after_seconds)})
+```
+  `from auth.domain.exceptions import AccountLockedError` 추가. `tests/test_error_handlers.py`에 429 형식·헤더 테스트.
+- 목록 API 변경 없음.
+
+### 16.7 REQ-27 응답 시간 완화안과 한계
+
+완화(위 코드):
+1. **bcrypt 비용 균등**: 미가입·탈퇴·재요청 간격 안·발급, 네 분기 모두 `hasher.hash` 정확히 1회(간격 안이 가장 빨랐던 문제와 `dummy_verify`≠`hash` 비용 차이를 함께 해소).
+2. **알림 분리**: 알림 지연(메일 API 응답 시간 등)이 응답에 반영되지 않는다.
+3. 응답 본문·상태(204)는 기존과 같다.
+
+한계(그대로 문서·명세에 남긴다, "짐작하기 어렵게"이지 "불가능"이 아님):
+- 발급 분기만 DB 쓰기·commit이 있고, 가입 회원만 회원 행 잠금·코드 조회를 한다. bcrypt(약 0.3초)에 비해 수 ms지만, 같은 요청을 아주 많이 반복해 평균을 내면 구별될 여지가 있다. 부하가 있는 서버에서는 bcrypt 지터가 더 커서 어려워진다. 완전 균등화(미가입에도 같은 쿼리·쓰기)는 하지 않는다.
+- 같은 회원에 대한 동시 요청이나 탈퇴·비밀번호 변경과의 잠금 대기는 가입 회원에게만 생기는 지연이다.
+- `BackgroundTasks`는 같은 이벤트 루프에서 응답 뒤에 돈다. 나중에 실제 메일 구현이 이벤트 루프를 막으면(동기 SMTP) 다음 요청이 느려지는 2차 채널이 생기므로 **구현체는 비동기 논블로킹**이어야 한다(`PasswordResetNotifier` 계약에 주석). 프로세스가 응답 직후 종료되면 코드가 전달되지 않을 수 있다(회원은 60초 뒤 재요청). 더 견고하게는 외부 큐/아웃박스가 필요하며 이번 범위 밖.
+- 첫 `dummy_verify`가 더미 해시를 만들어 한 번 느려지는 현상은 이제 `request_reset`에는 없다(`hash`만 사용). `login`·`confirm_reset`의 `dummy_verify`에는 서버 기동 후 첫 호출에 남는다(기존 D-해셔싱글턴, 기동 시 워밍업은 `main.py` 수정이 필요해 제안만).
+- 채택하지 않은 안: 응답 최소 지연(고정 sleep) 패딩 — 모든 요청이 느려지고 부하 시 효과가 불안정하다. 필요하면 후속으로 추가.
+- 요청 횟수 제한(IP·이메일별)은 요구조건에 없어 두지 않는다(D-재설정제한 유지).
+- 로그인에서도 같은 종류의 미세 차이(가입 회원은 행 잠금·UPDATE·commit)가 있다. REQ-13 범위에서 허용(REQ-12는 응답 내용 동일만 요구). 또한 계정 잠금은 공격자가 알려진 이메일을 5번 틀려 의도적으로 잠글 수 있는 한계(서비스 거부)가 있고 IP별 제한은 범위 밖이다.
+
+### 16.8 R1~R16 영향 (설계 판정, 공식 판정은 `layer-checker`)
+
+| 규칙 | 판정 |
+| --- | --- |
+| R1 | 도메인 변경은 `datetime`, `timedelta`, `math`만 사용 |
+| R3 | 잠금 횟수·시각·판정·남은 시간은 모두 `User` 메서드. 서비스는 반환값(변화 유무)으로 save·commit 여부만 결정(비즈니스 if-else 아님) |
+| R5 | `commit()`은 `login`·`request_reset`·`confirm_reset`·`withdraw_user`(application)만. 레포지토리는 `flush`까지 |
+| R6 | `AccountLockedError`는 도메인 예외, HTTP 변환은 `error_handlers.py` 전역 핸들러 |
+| R7 | 429도 `{success, error_code, message}` 3키. `Retry-After`는 헤더. 401에만 `WWW-Authenticate` |
+| R8·R9 | `codes`는 추상 `PasswordResetCodeRepository`를 생성자 필수 인자로 받음. container `create_auth_service`에서 연결(C-28). `provide_*`는 새로 늘지 않음 |
+| R10 | 호출 메서드는 모두 추상에 선언됨(`find_by_id(for_update)`, `delete`) |
+| R11·R12 | 다른 모듈 import 없음. admin은 기존 `withdraw_user`를 계속 호출 |
+| R13 | 탈퇴의 코드 삭제는 `commit=False` 경로에서 같은 세션·같은 트랜잭션 |
+| R14 | `models.py` ↔ `schema.sql` 동시 변경(§16.4). `SKILL.md`도 함께 |
+| R15 | 명세 변경은 §16.9. 429·`Retry-After`는 명세에 추가 후 구현과 일치 |
+| R16 | 새 시크릿·의존성 없음 |
+
+### 16.9 명세·문서 변경 목록 (오케스트레이터 소유, 설계자는 수정하지 않음)
+
+1. `docs/reference/auth.md` §2 로그인: 본문에 "같은 계정으로 연속 5회 실패하면 마지막 실패부터 10분 잠금, 잠금 중에는 비밀번호가 맞아도 거부, 잠금 중 시도는 횟수 제외·연장 없음, 성공·재설정 완료 시 횟수 초기화" 문단. 에러 표에 `429 ACCOUNT_LOCKED`("비밀번호가 맞을 때만 응답, 틀리면 401 `INVALID_CREDENTIALS`") 행, 응답 헤더 `Retry-After`, 429 예시 JSON(메시지는 D-잠금에러). 가입되지 않은 이메일은 잠금 없음, 탈퇴 회원은 기존처럼 401.
+2. `docs/reference/auth.md` §10 재설정 요청: "응답 시간 차이로도 가입 여부를 짐작하기 어렵게 한다(완전 방지는 아님). 코드 전달은 응답 뒤에 이뤄진다" 문장. §11 재설정 확인: "성공하면 로그인 실패 횟수와 잠금도 초기화된다".
+3. `docs/reference/auth.md` 자진 탈퇴 절(`/v1/users/me/withdraw`)과 `docs/reference/admin.md` 강제 탈퇴 EP: "탈퇴하면 그 회원의 비밀번호 재설정 코드도 삭제된다" 문장(REQ-35).
+4. `docs/reference/README.md`: "상태 코드" 표에 `429 | 로그인 연속 실패 잠금 (auth)` 행, 401 행의 "로그인 실패"는 유지. auth 추가 `error_code` 문단에 `ACCOUNT_LOCKED`(429, `Retry-After`) 추가. 루트 `README.md`는 에러 코드 표가 없어 변경 없음(`Grep`으로 확인).
+5. `.claude/skills/db-schema/{schema.sql,SKILL.md}`: §16.4.
+6. `docs/requirements/auth.md`: 이미 사용자 변경 완료(정본). C-32의 재설정-잠금해제 문구 확인만 요청.
+7. `docs/design/auth.md` §1 `D-로그인제한` 행, §13 질문 5 행: 이 절로 대체됨을 표시(설계 문서이므로 이번에 함께 고침).
+
+### 16.10 구현 쓰기 범위·테스트 계획
+
+**구현 쓰기 범위 (`layer-implementer` 발주용, R1~R16 준수)**
+
+| 파일 | 내용 |
+| --- | --- |
+| `src/auth/domain/user.py` | §16.3 |
+| `src/auth/domain/exceptions.py` | `AccountLockedError` |
+| `src/auth/infrastructure/models.py`, `repositories.py` | §16.4 |
+| `src/auth/application/service.py` | 생성자 `codes`, `login`, `withdraw_user` |
+| `src/auth/application/password_reset_service.py` | `ResetDelivery`, `request_reset`, `deliver`, `confirm_reset` 잠금 순서 |
+| `src/auth/presentation/router.py` | `request_password_reset` 백그라운드 전달 |
+| `src/auth/domain/service.py` | 코드 변경 없음, `PasswordResetNotifier` docstring에 "비동기 논블로킹 구현" 한 줄(선택) |
+| `tests/auth/**` | 아래 |
+| **범위 확장 (표시, 발주서에 명시)** | |
+| `src/container.py` | `create_auth_service`에 `codes` 주입, `create_password_reset_code_repository`를 `create_auth_service`보다 위로 이동(C-28) |
+| `src/error_handlers.py` | 429 핸들러(C-29) |
+| `tests/test_error_handlers.py`, `tests/test_container.py` | 429 형식 테스트, 생성자 인자 변경 반영(C-30) |
+| `.claude/skills/db-schema/{SKILL.md,schema.sql}`, `docs/reference/**` | §16.4·§16.9, **오케스트레이터** |
+| **하지 않음(확정)** | `src/admin/**`(admin 파일 수정 불필요: D-탈퇴코드삭제가 `withdraw_user` 안에서 해결), `src/payments/**`, `src/reservations/**`, `src/stores/**`, `src/catalog/**`, `src/main.py`, `.claude/**`, `pyproject.toml`, `.env.example` |
+
+완료 게이트: `backend-invariants` §7(위반 0, `import main`, `pytest -rs` failed 0·db skip 0).
+
+**테스트 계획**
+- 도메인(DB 없음, `tests/auth/test_requirements_domain.py` 또는 새 파일): `record_login_failure` 1~4회 증가·5번째에 잠금+횟수 0·반환값, 잠금 중 호출은 False이고 횟수·`locked_until` 불변(연장 없음), 경계(`now == locked_until`은 잠금 끝, 1초 전은 잠금), 잠금 끝 뒤 실패는 1부터, `clear_login_failures` 반환값, 탈퇴 회원은 변화 없음, `ensure_can_login` 순서 표(탈퇴+잠금 → 401, 잠금+정지 → 429, 정지만 → 403, 상점주 정지는 허용), `login_lock_remaining_seconds` 올림, `reset_password`가 횟수·잠금을 지움, 생성자 검증(음수·tz 없음), `AccountLockedError` 메시지 분 올림·`retry_after_seconds`.
+- 서비스(fake): 틀린 비밀번호 4회 → commit 4회·횟수 4, 5번째 → 401이며 commit되고 `locked_until` 저장(**예외 전에 commit**), 잠금 중 올바른 비밀번호 → `AccountLockedError`·commit 0, 잠금 중 틀린 비밀번호 → 401·commit 0·횟수 불변, 잠금 끝 뒤 올바른 비밀번호 → 성공·초기화·commit, 성공이 횟수 3을 0으로 만듦, 없는 이메일 → `dummy_verify`·저장 0, 탈퇴 회원 틀림/맞음 모두 401·저장 0, 정지 고객 맞음 → 403·횟수 불변, `withdraw_user`가 `codes.delete`를 호출하고(행이 없어도 예외 없음) 관리자 탈퇴 거부 때는 호출하지 않음, 공개 메서드 시그니처(`use/earn/restore/revoke_points`, `withdraw_user`, `login`) `inspect.signature` 고정, **생성자에 `codes`가 있고 기본값이 없음**(기존 "생성자 인자 불변" 단언은 이 변경으로 갱신, C-30). `FakeUsers`는 `for_update`를 받아야 함.
+- 재설정 서비스(fake): 모든 분기(미가입·탈퇴·간격 안·발급)에서 `hasher.hash_calls == 1`·`dummy_calls == 0`(`FakeHasher` 계수), `request_reset` 안에서 `notifier.send_code` 호출 0·발급 시 `ResetDelivery` 반환·`deliver`가 `send_code` 1회 호출·`deliver`가 예외를 삼키고 로그, commit 횟수(발급 1, 나머지 0), `ResetDelivery` `repr`에 코드가 안 나옴, `confirm_reset` 성공이 횟수·잠금을 지움, 탈퇴 직전 상태 경합(잠근 뒤 탈퇴로 바뀐 회원이면 코드를 만들지 않음). 기존 테스트 중 `notifier.sent`를 `request_reset` 직후 단언하는 것(`tests/auth/test_requirements_service.py:215-326` 근방)은 `deliver` 호출을 거치도록 고침(C-30).
+- API/DB(`db` 마커): 5회 실패 후 6번째(맞는 비밀번호)가 429 `ACCOUNT_LOCKED`+`Retry-After` 정수·공통 3키 본문·`WWW-Authenticate` 없음, 같은 상황에서 틀린 비밀번호는 401, 잠금 중 시도가 잠금을 늘리지 않음(`login_locked_until` 불변), 다른 이메일 계정은 영향 없음, 가입되지 않은 이메일 6회 모두 401(429 없음), 재설정 완료 뒤 새 비밀번호로 즉시 로그인(잠금 해제), **동시성**: 같은 계정에 틀린 비밀번호 4건을 `asyncio.gather`로 동시에 → `failed_login_count == 4`(갱신 유실 없음), 10건 동시 → 잠금 설정·횟수 0·`locked_until`은 첫 5번째 실패 시각 기준, 강제·자진 탈퇴 뒤 `password_reset_codes` 행이 없음(재설정 요청 → 코드 있음 → 탈퇴 → 행 0), 재설정 요청 204가 가입·미가입 모두 같고 `BackgroundTasks`로 알림이 실행됨(알림 fake에 코드가 수집됨), 탈퇴와 재설정 요청 동시 실행에서 교착·500 없음.
+- 운영 확인(`verifier`, CI 아님): 가입·미가입·간격 안 이메일로 재설정 요청 각 20회 응답 시간을 재서 중앙값 차이가 bcrypt 지터 안인지 기록(벽시계 단언은 flaky라 자동 테스트에 넣지 않음).
+
+### 16.11 정합 이슈 (C-27~C-33)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-27 | §15.2 `D-서비스분리`("`AuthApplicationService` 생성자는 바꾸지 않는다"), §15.9 "생성자 인자 불변 확인" | REQ-35를 admin 수정 없이 해결하려면 생성자에 `codes`가 필요해 그 결정과 충돌 | 이 절이 우선. 이유: 기본값 없는 필수 인자(R8)로 추가하고 생성 지점은 4곳뿐(B-38). 다른 모듈 영향 없음 |
+| C-28 | `src/container.py:143-160` | `create_password_reset_code_repository`가 `create_auth_service`보다 아래에 정의돼 `Depends(...)` 기본값 평가 시 `NameError` | 구현 시 함수 순서 이동(범위 확장 표시) |
+| C-29 | `src/error_handlers.py` | 429 핸들러 추가는 모듈 밖 파일 | 기존 `EmailDuplicatedError` 선례와 같은 한 줄 추가. 발주서에 범위 확장 명시 |
+| C-30 | `tests/auth/test_service.py:119·232`, `tests/auth/test_api_db.py:28`, `tests/auth/test_requirements_service.py`, `tests/test_container.py` | 생성자 인자 추가, `request_reset` 반환 형태 변경으로 기존 테스트 수정 필요. `tests/test_error_handlers.py`는 공용 | 구현 범위에 포함(§16.10). `FakeCodes`는 `tests/auth/fakes.py`로 옮겨 공유하는 것을 권장 |
+| C-31 | `docs/reference/admin.md` 강제 탈퇴 EP, `docs/design/admin.md` | 강제 탈퇴에서도 재설정 코드가 지워지지만 admin 명세에는 문장이 없음 | §16.9-3 명세 문장 추가. admin 코드 변경은 불필요하므로 admin 담당 승인은 문서 확인만 |
+| C-32 | `docs/requirements/auth.md` REQ-13 | "재설정을 마치면 실패 횟수가 0"만 있고 **잠금 해제 여부가 없음**(D-재설정잠금해제는 해제로 해석) | 요구조건 문구에 "잠금도 풀린다"를 추가해 해석을 고정할지 확인 |
+| C-33 | `docs/design/auth.md` §1 `D-로그인제한`, §13 질문 5 | 이전 "시도 제한 없음"이 남아 있음 | 두 행에 "§16으로 대체" 표시(이번에 수정). 같은 날 "시도 제한 없음"을 가정한 테스트가 있으면 갱신 |
+
+### 16.12 질문 목록과 확정값
+
+| # | 항목 | 출처 | 확정값 | 근거 | 바꾸기 쉬운 곳 |
+| --- | --- | --- | --- | --- | --- |
+| 31 | 잠금 횟수·시간 | REQ-13 | 5회·10분(요구조건에 명시, 값 자체는 확정) | 사용자 결정 2026-11-06 | `User.LOGIN_MAX_FAILURES`, `User.LOGIN_LOCK_DURATION` |
+| 32 | 잠금 응답 상태 코드·헤더·본문 | REQ-13 | **확정(위임, 2026-11-06)**: 429 `ACCOUNT_LOCKED`, `Retry-After`(초), 남은 분은 메시지에만(본문 3키, R7) | 추천안, 시도 과다의 표준 상태 | `AccountLockedError`, `error_handlers.py` 한 줄 |
+| 33 | 정지·잠금이 겹칠 때 어느 것을 먼저 알릴지 | REQ-13 | **확정(위임, 2026-11-06)**: 탈퇴(401) → 잠금(429) → 정지(403) | 잠금은 인증 전 관문 | `User.ensure_can_login` |
+| 34 | 비밀번호 재설정 완료가 잠금도 푸는지 | REQ-13 | **확정(위임, 2026-11-06)**: 푼다 (요구조건 문구 확인 요청, C-32) | 재설정 직후 로그인 불가를 피함 | `User.reset_password` 한 줄 |
+| 35 | 잠금 해제용 관리자 기능 | (요구조건 없음) | 만들지 않음(10분 자동 해제, 재설정으로 해제) | 요구조건에 없음 | 필요하면 admin 후속 |
+| 36 | REQ-27 완화 수준 | REQ-27 | **확정(위임, 2026-11-06)**: bcrypt 1회 균등 + 알림 분리, 한계는 §16.7. 고정 지연 패딩·큐는 채택 안 함 | "짐작하기 어렵게" 수준의 실용안 | `PasswordResetService._spend_hash_cost`, 라우터 `BackgroundTasks` |
+| 37 | REQ-35 구현 위치 | REQ-35 | **확정(위임, 2026-11-06)**: `withdraw_user`에서 삭제(admin 파일 수정 없음), 생성자에 `codes` 추가 | 두 경로가 공유하는 유일한 지점 | `AuthApplicationService.withdraw_user` |
+| 38 | 로그인 시도 로그 | (없음) | 새 잠금 발생 시에만 `user_id` WARNING 로그(선택) | 이메일·비밀번호는 남기지 않음 | `login` |

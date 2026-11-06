@@ -138,7 +138,7 @@
 ## 3. 상품 검색
 | Method | URI (제안) | 권한 | 성공 |
 | --- | --- | --- | --- |
-| GET | `/v1/products/search` | 공개 | 200 OK |
+| GET | `/v1/products` | 공개 | 200 OK |
 
 위치 기준 반경 내 상점의 상품을 키워드·카테고리로 검색합니다.
 
@@ -153,16 +153,60 @@
 | `page` | int | X | 1 | 페이지 |
 | `size` | int | X | 20 | 페이지 크기 |
 
-**응답 (노션 원문)**
+**응답**
+검색 조건(검색어·카테고리·반경)에 맞는 상품을 하나 이상 가진 상점을 상점 단위로 묶어 돌려줍니다. `page`·`size`·`total`은 **상점 수** 기준입니다.
+
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `items[].store_name` | string | 상점명 |
-| `items[].distance` | float | 거리 |
-| `items[].unit` | string | 거리 단위 |
-| `items[].has_active_offer` | bool | 진행 중인 할인 여부 |
-| `page` | int | 현재 페이지 |
-| `size` | int | 페이지 크기 |
-| `total` | int | 전체 개수 |
+| `items[].store` | object | 상점 정보 |
+| `items[].store.id` | UUID | 상점 ID |
+| `items[].store.name` | string | 상점명 |
+| `items[].store.pickup_address` | string | 픽업 주소 |
+| `items[].store.latitude` | float \| null | 위도 (좌표가 없으면 null) |
+| `items[].store.longitude` | float \| null | 경도 (좌표가 없으면 null) |
+| `items[].distance` | float \| null | 거리 (위치 없이 검색하면 null) |
+| `items[].unit` | string | 거리 단위 (`km`) |
+| `items[].products` | [Product](#product-상품)[] | 그 상점의 조건 일치 상품 전부. 각 항목은 Product 필드 + 아래 `has_active_offer` |
+| `items[].products[].has_active_offer` | bool | 진행 중인 할인 여부 |
+| `page` | int | 현재 페이지 (상점 기준) |
+| `size` | int | 페이지 크기 (상점 수) |
+| `total` | int | 전체 상점 수 |
+
+```json
+{
+  "items": [
+    {
+      "store": {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "name": "월드컵 베이커리",
+        "pickup_address": "서울시 마포구 월드컵북로 1",
+        "latitude": 37.5563,
+        "longitude": 126.9236
+      },
+      "distance": 0.42,
+      "unit": "km",
+      "products": [
+        {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "store_id": "22222222-2222-2222-2222-222222222222",
+          "name": "모둠 식빵",
+          "category": "베이커리",
+          "description": "오늘 구운 식빵 5종",
+          "original_price": 12000,
+          "is_active": true,
+          "product_image": ["https://example.com/bread.jpg"],
+          "has_active_offer": true
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "size": 20,
+  "total": 1
+}
+```
+
+> **변경 근거:** 노션 원문은 `store_name`·`distance`·`unit`·`has_active_offer`만 있었으나, 사용자 결정으로 상품과 상점 정보를 함께 보여주되 상점 단위로 묶는 구조(`store` + `products[]`)로 바꿨습니다.
 
 **에러**
 | HTTP | 메시지 |
@@ -170,11 +214,14 @@
 | 400 | lat과 lng는 함께 입력해야 합니다. |
 | 422 | radius_km 범위 오류 |
 
-> **확인 필요**
-> - 응답 항목에 상품 정보가 없습니다. 각 항목을 `{ "product": Product, "store_name", "distance", "unit", "has_active_offer" }` 형태로 하는 것을 제안합니다.
-> - 위치 없이 검색하면 `distance`를 어떻게 줄지 (`null` 제안)
-> - 거리 계산 방법 (위경도로 하버사인 공식 계산 등). PostGIS는 현재 스택에 없습니다.
-> - **FastAPI:** 이 경로는 `/v1/products/{product_id}`보다 먼저 등록해야 합니다.
+> **확정(2026-11-06):**
+> - 위치(`lat`·`lng`) 없이 검색하면 반경 필터 없이 노출 중인 상점 전체를 대상으로 하고 `distance`는 `null`입니다. `unit`은 항상 `km`, 거리는 소수 둘째 자리까지입니다. `radius_km`만 보내면 무시합니다(단 0.1~20 범위 밖이면 400).
+> - 거리는 위경도 하버사인 공식으로 계산합니다(PostGIS 없음). 좌표가 없는 상점은 위치를 지정하면 제외되고, 지정하지 않으면 `latitude`·`longitude`가 `null`로 나옵니다.
+> - `store` 객체는 `id`, `name`, `pickup_address`, `latitude`, `longitude`입니다.
+> - 상점 정렬: 위치가 있으면 가까운 순, 없으면 상점명 순입니다. `products[]`는 상품명 순이고 개수 상한은 없습니다.
+> - 검색어는 부분 일치·대소문자 무시(상품명·설명), 최대 100자이며, 앞뒤 공백을 뺀 뒤 빈 문자열(공백만 입력)이면 검색어 조건 없이 조회합니다. 카테고리는 정확 일치입니다. 폐점·정지 상점, 노출 중단 상품, 정지된 할인은 나오지 않습니다.
+> - `has_active_offer`는 예정·판매 중·품절 상태의 할인이 있으면 true입니다.
+> - 형식·범위 오류는 이 프로젝트 공통 규칙에 따라 422 대신 400 `VALIDATION_ERROR`입니다.
 
 ---
 
@@ -361,7 +408,7 @@
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `items[].offer` | [Offer](#offer-할인) | 할인 정보 |
-| `items[].distance` | float | 거리 |
+| `items[].distance` | float \| null | 거리 (위치 없이 조회하면 null) |
 | `items[].unit` | string | 거리 단위 |
 | `page` | int | 현재 페이지 |
 | `size` | int | 페이지 크기 |
@@ -374,7 +421,7 @@
 | 400 | distance 정렬은 위치 정보가 필요합니다. |
 | 422 | 허용되지 않는 status 값입니다. |
 
-> **확인 필요:** 정렬 방향 (`price`는 오름차순, `discount_rate`는 내림차순, `sales_end`는 마감 임박순으로 제안)
+> **확정(2026-11-06):** 위치 없이 조회하면 반경 필터 없이 조회하고 `distance`는 `null`입니다. 검색어는 상품명 부분 일치·대소문자 무시이며, 공백만 입력하면 검색어 조건 없이 조회합니다. 정렬 방향은 `distance`·`price`·`sales_end` 오름차순(가까운 순·낮은 가격순·마감 임박순), `discount_rate` 내림차순입니다. 동률이면 `sales_end` 오름차순, 그다음 `id` 순입니다.
 
 ---
 

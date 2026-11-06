@@ -2,9 +2,9 @@
 
 - 대상: `src/catalog` (products, discount_offers, stock_log)
 - 기준 문서: `docs/reference/catalog.md`, `.claude/skills/db-schema/schema.sql`, `.claude/skills/backend-invariants`(R1~R16), `.claude/skills/layer-architecture`(§3.4, §5~§8), `.claude/skills/layer-implementation`
-- 범위 EP 12개: #1 상품 등록, #2 상점 상품 목록, #4 상품 상세, #5 상품 수정, #6 상품 노출 중단, #7 할인 등록, #9 상점 할인 목록, #10 할인 상세, #11 할인 수정, #12 할인 판매 중단, #13 할인 재등록, #14 재고 수동 조정
+- 범위 EP 14개: #1 상품 등록, #2 상점 상품 목록, #3 상품 검색(`GET /v1/products`, 14절), #4 상품 상세, #5 상품 수정, #6 상품 노출 중단, #7 할인 등록, #8 주변 할인 목록(`GET /v1/offers`, 14절), #9 상점 할인 목록, #10 할인 상세, #11 할인 수정, #12 할인 판매 중단, #13 할인 재등록, #14 재고 수동 조정. #3·#8의 설계는 14절에 모았고, 결정은 D59~D77, 열린 질문은 Q30~Q44(Q30은 닫힘), 정합 이슈는 CI-12~CI-15·C15이다
 - 번호는 `docs/reference/catalog.md`의 절 번호이고, `docs/reference/README.md` 표에서는 #10(할인 상세)이 17번 행, #12(할인 판매 중단)가 19번 행이다.
-- "임시"로 표시한 결정은 확정이 아니라 제안이며 12절 표에 모았다.
+- "임시"로 표시한 결정은 확정이 아니라 제안이며 12절 표에 모았다. 단 D59~D77·Q30~Q44는 2026-11-06 사용자가 확정했다("그대로 진행").
 
 ---
 
@@ -40,6 +40,7 @@ src/catalog/
     product.py               # Product
     discount_offer.py        # DiscountOffer, OfferStatus, CancelPolicy, OPEN_OFFER_STATUSES, 취소 정책·안내 문구 상수
     stock_log.py             # StockLog
+    search.py                # SearchArea, OfferSort, normalize_keyword, 검색 상수 (#3·#8, 14.2절)
     service.py               # Clock (ABC) — 추상 도메인 서비스
     repository/
       __init__.py
@@ -53,8 +54,8 @@ src/catalog/
     reservation_lookup.py    # NoReservationLookup — 임시 구현 (D28, CI-10)
     reservation_cancel.py    # NoReservationCancel — 임시 구현 (D42, CI-11)
   application/
-    ports.py                 # StorePort, StoreInfo, ReservationLookupPort, ReservationCancelPort (Protocol)
-    views.py                 # OfferView, OfferDetailView, ProductDetailView, StockAdjustResult, DeactivateOfferResult, Page
+    ports.py                 # StorePort(+find_visible_stores), StoreInfo, StoreWithDistance, ReservationLookupPort, ReservationCancelPort (Protocol)
+    views.py                 # OfferView, OfferDetailView, ProductDetailView, StockAdjustResult, DeactivateOfferResult, Page, StoreSearchHit, SearchedProduct, NearbyOfferView
     service.py               # CatalogApplicationService
   presentation/
     dependencies.py          # provide_catalog_service, provide_store_port, provide_reservation_lookup, provide_reservation_cancel, OptionalUser
@@ -80,7 +81,8 @@ src/catalog/
 | 폐점 여부 | #1, #7, #11(재개), #13 | `StoreInfo.closed_at is not None` |
 | `store_name`, `pickup_address` 조인 | #4, #7(응답), #9, #10, #11·#12·#13(응답) | `StoreInfo.name`, `StoreInfo.pickup_address` |
 | 상점 좌표 | #10 | `StoreInfo.latitude`, `StoreInfo.longitude` (`float \| None`) |
-| 여러 상점 일괄 조회 | 후속 #8(주변 할인) | `find_stores_by_ids(ids) -> list[StoreInfo]` (지금은 쓰지 않음) |
+| 여러 상점 일괄 조회 | (쓰지 않음) | `find_stores_by_ids(ids) -> list[StoreInfo]` (#3·#8은 14.3절의 `find_visible_stores`를 쓴다. 노출 상태 필터와 거리 계산을 id 목록 조회로는 할 수 없다, D65) |
+| 노출 가능한 상점 + 거리 | #3, #8 | `find_visible_stores(latitude, longitude, radius_km) -> list[StoreWithDistance]` (14.3절. **stores 쪽 신규 메서드 필요**, 11절) |
 
 실제 `Store`(`src/stores/domain/store.py`)와 포트·`StoreRef` 대조:
 
@@ -260,6 +262,8 @@ fastapi, sqlalchemy, pydantic, `database`, 다른 모듈을 import하지 않는�
 | `ProductRepository(ABC)` | `product_repository.py` | `find_by_id(product_id, for_update=False) -> Product \| None`; `find_by_store(store_id, *, category, is_active, page, size) -> tuple[list[Product], int]`; `save(product) -> Product` |
 | `DiscountOfferRepository(ABC)` | `discount_offer_repository.py` | `find_by_id(offer_id, for_update=False) -> DiscountOffer \| None`; `find_with_product(offer_id) -> tuple[DiscountOffer, Product] \| None`; `find_open_by_product(product_id, now) -> DiscountOffer \| None`; `exists_open_by_store(store_id, now) -> bool`; `find_by_store(store_id, *, statuses, now, page, size) -> tuple[list[tuple[DiscountOffer, Product]], int]`; `save(offer) -> DiscountOffer` |
 | `StockLogRepository(ABC)` | `stock_log_repository.py` | `add(log) -> StockLog` |
+
+#3·#8용 추상 메서드(`ProductRepository.search_store_ids`·`find_matching_in_stores`, `DiscountOfferRepository.search_in_stores`)의 시그니처는 14.4절이다. 위 표는 현재 구현의 일부이며 14.4의 세 메서드를 더하면 기존 fake 레포지토리(ABC)도 구현해야 인스턴스를 만들 수 있다(CI-12).
 
 ### 3.7 추상 도메인 서비스 (`domain/service.py`)
 
@@ -522,10 +526,12 @@ class CatalogApplicationService:
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | POST | `/v1/stores/{store_id}/products` | `ProductCreateRequest` | `ProductResponse` | 201 | 400(가격, 미승인·폐점 상점), 401, 403(`OWNER` 아님/본인 상점 아님), 404(상점) |
 | 2 | GET | `/v1/stores/{store_id}/products` | 쿼리 | `ProductListResponse` | 200 | 400(page/size 형식), 401·403(`is_active=false` 비소유), 404(상점) |
+| 3 | GET | `/v1/products` | 쿼리(14.5절) | `ProductSearchResponse` | 200 | 400(`lat`·`lng` 한쪽만, 범위·형식 `VALIDATION_ERROR`). 401·403·404 없음. 인증 없음(공개) |
 | 4 | GET | `/v1/products/{product_id}` | - | `ProductDetailResponse` | 200 | 404(없음, 또는 비활성+비소유) |
 | 5 | PATCH | `/v1/products/{product_id}` | `ProductUpdateRequest` | `ProductResponse` | 200 | 400(항목 없음, 할인가 이하), 401, 403, 404 |
 | 6 | POST (상품 노출 중단) | `/v1/products/{product_id}/deactivate` | 없음 | `ProductResponse` | 200 | 400(이미 비활성, 진행 중 할인), 401, 403, 404 |
 | 7 | POST | `/v1/products/{product_id}/offers` | `OfferCreateRequest` | `OfferResponse` | 201 | 400(가격·시간·비활성 상품·진행 중 할인·상점), 401, 403, 404 |
+| 8 | GET | `/v1/offers` | 쿼리(14.5절) | `NearbyOfferListResponse` | 200 | 400(`lat`·`lng` 한쪽만, `distance` 정렬에 위치 없음, status·sort 허용 외, 범위·형식). 401·403·404 없음. 인증 없음(공개) |
 | 9 | GET | `/v1/stores/{store_id}/offers` | 쿼리(`status` 반복 가능) | `OfferListResponse` | 200 | 400(status 값 등), 404(상점) |
 | 10 | GET | `/v1/offers/{offer_id}` | - | `OfferDetailResponse` | 200 | 400(잘못된 UUID `VALIDATION_ERROR`), 404(할인 없음). 인증 없음(공개) |
 | 11 | PATCH | `/v1/offers/{offer_id}` | `OfferUpdateRequest` | `OfferResponse` | 200 | 400(항목 없음·종료·예약 있음·가격·시간·재개 조건), 401, 403, 404 |
@@ -536,8 +542,8 @@ class CatalogApplicationService:
 - 요청 형식 오류(Pydantic)는 프로젝트 전역 핸들러가 **400 `VALIDATION_ERROR`**로 바꾼다(`error_handlers.py`). 명세의 422는 반영되지 않는다(D14).
 - 모든 에러 본문은 `{"success": false, "error_code", "message"}`(R7).
 - 라우터는 서비스만 호출하고 예외를 잡지 않는다. 쓰기 EP는 `owner.id`를, 읽기 EP #2·#4는 `viewer.id if viewer else None`을 서비스에 넘긴다.
-- 경로 충돌: 후속 `GET /v1/products/search`는 `GET /v1/products/{product_id}`보다 **먼저** 등록한다.
-- 같은 경로 `/v1/offers/{offer_id}`에 #10 GET과 #11 PATCH가 공존한다. FastAPI는 경로와 메서드 조합으로 라우트를 구분하므로 두 함수를 같은 router에 등록하면 충돌하지 않고 순서도 무관하다. 후속 #8 `GET /v1/offers`는 경로가 달라 영향이 없다. `/v1/offers/` 아래에 `{offer_id}` 하나를 받는 정적 경로(예: `/offers/search`)를 만들게 되면 `{offer_id}`보다 먼저 등록한다.
+- 경로 충돌 없음: `GET /v1/products`(#3)와 `GET /v1/products/{product_id}`(#4)는 경로 모양이 달라(뒤 경로 세그먼트 유무) 등록 순서와 무관하다. `/v1/products/`처럼 끝에 `/`가 붙은 요청은 FastAPI가 `/v1/products`로 리다이렉트한다(`redirect_slashes`). 이 경로를 "먼저 등록"해야 한다는 이전 문구(`/v1/products/search` 시절)는 폐기했다(D59).
+- 같은 경로 `/v1/offers/{offer_id}`에 #10 GET과 #11 PATCH가 공존한다. FastAPI는 경로와 메서드 조합으로 라우트를 구분하므로 두 함수를 같은 router에 등록하면 충돌하지 않고 순서도 무관하다. #8 `GET /v1/offers`(14절)도 경로가 달라 영향이 없다(`/v1/offers/{offer_id}`와 순서 무관). `/v1/offers/` 아래에 `{offer_id}` 하나를 받는 정적 경로(예: `/offers/search`)를 만들게 되면 `{offer_id}`보다 먼저 등록한다.
 - #10은 `OwnerUser`·`OptionalUser`를 쓰지 않는다. 토큰이 있어도 읽지 않고 401·403이 없다(D56).
 - #11과 #12는 모두 할인을 `is_active=false`, `CLOSED`로 만들 수 있다. #12는 사유·예약 일괄 취소·`{offer, count}` 응답이 있고 판매 마감이 지난 활성 할인도 중단할 수 있다. #11 중단은 마감 후 400 `OFFER_ENDED`이고 사유·예약 연계가 없다. 두 진입점은 공존한다(D53).
 
@@ -573,7 +579,7 @@ class CatalogApplicationService:
 | #2, #9 | `size` | int | 20 | `ge=1, le=100` |
 | #9 | `status` | `list[OfferStatus]` (반복 가능) | 미지정 시 `SCHEDULED`+`ON_SALE`+`SOLD_OUT`(진행 중 전체, D25) | 허용 외 값은 400. 유효 상태 기준 필터(여러 값은 OR). `CLOSED`는 명시할 때만. 정렬 `sales_end` 오름차순. `?status=ON_SALE` 단일 호출도 동작 |
 
-정렬 옵션은 제공하지 않는다(명세에 #2·#9 정렬 매개변수 없음). 주변 할인 목록(후속 #8)은 구매자 탐색용이라 기본 `ON_SALE`을 유지한다.
+정렬 옵션은 제공하지 않는다(명세에 #2·#9 정렬 매개변수 없음). 주변 할인 목록(#8)은 구매자 탐색용이라 기본 `ON_SALE`을 유지한다. #3·#8의 쿼리 매개변수는 14.5절.
 
 ### 7.5 에러 (#11, #12)
 
@@ -612,8 +618,7 @@ class CatalogApplicationService:
 
 ## 8. 후속 (이번 설계 대상 아님)
 
-- #3 상품 검색 `GET /v1/products/search` — 위경도 하버사인 거리와 `has_active_offer`, `store_name` 조인이 필요해 stores 좌표 조회 방식이 먼저 정해져야 함.
-- #8 주변 할인 목록 `GET /v1/offers` — 반경·정렬(`distance/price/sales_end/discount_rate`)·`StorePort.find_stores_by_ids`(좌표 포함) 필요.
+- (이번 설계로 이동) #3 상품 검색 `GET /v1/products`, #8 주변 할인 목록 `GET /v1/offers` — 14절. 구현은 stores 쪽 `find_visible_stores` 추가(11절)가 먼저다.
 - 상품 재노출 `POST /v1/products/{product_id}/activate` — 만들지 않는다(D13). 필요해지면 후속에서 새로 설계한다.
 - `reason`(#12 중단 사유) 저장 — 컬럼 추가가 필요하다(Q22).
 - reservations용 `deduct_stock/restore_stock` (6.4).
@@ -698,6 +703,9 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 
 - #10 구현에 stores 변경은 없다. `Store`가 `latitude`·`longitude`(`float | None`)를 이미 가지고 `StoresApplicationService.find_store_by_id`가 그 객체를 그대로 반환하며 폐점 상점도 반환한다(`src/stores/domain/store.py:22-53`, `src/stores/application/service.py:18`, `src/stores/infrastructure/repositories.py:20-25,76-77`). catalog 쪽 `StoreInfo` Protocol과 `StoreRef`만 확장한다. `src/container.py`·`src/main.py` 변경도 없다(서비스 생성자 인자가 늘지 않고 `provide_*` 매핑이 같다).
 
+- #3·#8(14절) 구현에는 **stores 변경이 필요하다**(C15): `StoreRepository.find_visible_near`, `SqlAlchemyStoreRepository` 구현, `StoreQueryService.find_visible_stores`, `StoreWithDistance`. 설계는 `docs/design/stores.md` 15절에 반영했다(D41~D47, C22·C23). `src/container.py`·`src/main.py`·스키마(`schema.sql`)·`pyproject.toml`·`error_handlers.py`는 변경 없다(새 `provide_*`·테이블·의존성·예외 클래스가 없다). 구현 순서는 stores → catalog.
+- `docs/reference/catalog.md` §3의 `/v1/products/search`와 `docs/reference/README.md` 10번 행·"FastAPI 주의" 문구는 이번에 `/v1/products`로 정정했다(D59).
+
 남은 제안(명세·타 모듈, 승인 전에는 바꾸지 않는다):
 - `docs/reference/catalog.md` §10: "확인 필요" 인용문을 아래 확정 내용으로 바꾼다. `notice`는 고정 문구, `cancel_policy.cancellable_until = pickup_start − 1시간`, `cancel_policy.description`은 고정 문구(문구는 D54·D55), 중단·마감 할인·비활성 상품의 할인·폐점 상점의 할인도 조회되며 상태는 `offer.status`·`offer.is_active`로 구분, `latitude`·`longitude`는 상점이 좌표 없이 개설되면 null, `description`은 null 가능. 응답 예시를 추가한다(`offer`는 Offer 공통 객체 예시 재사용).
   ```json
@@ -777,6 +785,25 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D56 | #10 공개 범위·에러 | 사용자 결정 | 인증 없이 누구나 조회. 중단·마감·품절 할인, 비활성 상품의 할인, 폐점 상점의 할인 모두 조회되고 `offer.status`·`offer.is_active`로 상태를 표시한다. 에러는 할인 없음 404 하나(401·403 없음) | 사용자 결정 | `get_offer_detail`, router | 확정 |
 | D57 | #10 응답 구성 | 명세 §10, 사용자 결정 | `OfferDetailResponse`는 명세 필드 그대로이고 `offer`는 기존 `OfferResponse`를 재사용한다. `latitude`·`longitude`는 catalog `StoreInfo`·`StoreRef`에 추가해 상점에서 받고 null 가능. `cancel_policy`는 중첩 객체 | 명세 필드명 유지(R15), stores가 이미 좌표를 제공 | `schemas.py`, `application/ports.py`, `StoreRef` | 확정 |
 | D58 | #10 조회 방식 | 설계 | 할인+상품을 `find_with_product` 한 번의 JOIN으로 읽고 상점은 `StorePort`로 읽는다. 잠금·commit 없음 | 읽기 전용, 5.3절 | `find_with_product`, `get_offer_detail` | 확정 |
+| D59 | #3 상품 검색 경로 | 사용자 결정 | `GET /v1/products`(공개, 200). 이전 제안 `/v1/products/search`는 폐기. `GET /v1/products/{product_id}`(#4)와 경로가 달라 등록 순서 제약이 없다 | 사용자 확정 | router | 확정 |
+| D60 | #8 주변 할인 목록 경로 | 사용자 결정, 명세 §8 | `GET /v1/offers`(공개, 200). #9 `GET /v1/stores/{store_id}/offers`는 변경 없음 | 사용자 확정 | router | 확정 |
+| D61 | 공개 검색·주변 목록에 노출되는 상점 | requirements 정책 표("노출 중 상품 조회: 상점이 폐점이 아님", "폐점 상점의 상품 읽기·검색: 상점주 외 불가, 존재하지 않는 것처럼 다룸"), admin.md D17·명세 7 | `approval_at IS NOT NULL AND closed_at IS NULL AND suspended_at IS NULL`인 상점만. stores가 이 조건으로 거른다(14.3). 미승인은 requirements가 등록 차단만 정하고 검색 노출은 언급이 없어 같은 조건에 포함(상점 개설이 `approval_at`을 채워 실제로는 거의 없음) | 폐점·정지 상점은 근거가 명시돼 있고, 미승인은 보수적으로 숨김 | stores `find_visible_near`, `Store`의 노출 조건 한곳 | 확정(사용자 결정) |
+| D62 | 노출되는 상품 | requirements 정책 표("노출 중단 상품 조회: 상점주 외 불가") | `products.is_active = true`만. #8도 상품이 비활성인 할인은 제외(D56 #10 단건 상세는 ID로 직접 접근하므로 숨기지 않는 것과 다르다) | 공개 탐색 목록에서 노출 중단 상품을 뺀다 | #3 상품 조건(`search_store_ids`·`find_matching_in_stores`)과 #8 `search_in_stores`의 `WHERE` | 확정(사용자 결정) |
+| D63 | 소유자 예외 | 사용자 결정(인증 없음), requirements 정책 표 | 두 EP는 `OptionalUser`도 쓰지 않는다. 소유자라도 폐점·노출 중단 상품이 검색에 나오지 않는다. 소유자는 #2(`is_active=false`)로 본다 | 사용자 확정 "인증 없음". requirements의 "폐점 상점의 상품 검색: 상점주 허용"과 충돌(Q31) | router | 확정(사용자 결정) |
+| D64 | 정지 할인 | admin.md D20·명세 7 | 공개 목록·검색에서 정지된 할인은 숨긴다. #8 `status`는 `PublicOfferStatus`(`SUSPENDED` 없음)이고 `_status_clause`가 정지 할인을 `ON_SALE`·`SCHEDULED`·`SOLD_OUT`에서 뺀다. `has_active_offer`에도 세지 않는다 | admin 명세 7 | `_status_clause`, `PublicOfferStatus` | 확정(admin 설계) |
+| D65 | 여러 상점 조회·거리 계산 방식 | admin.md C9, R11, layer-architecture §3.4 | `StorePort.find_visible_stores`를 추가해 stores가 "노출 상점 + 거리"를 계산·정렬하고 catalog는 상점 id 목록으로 자기 테이블을 `= ANY(:ids)` 필터한다. catalog가 `stores`를 조인하지 않는다. 비정규화 컬럼은 쓰지 않는다 | `find_stores_by_ids` 후 걸러내면 `total`이 틀어지고(C9), 비정규화는 스키마 변경과 동기화 부담이 크다 | `ports.py`, stores `StoreQueryService` | 확정(사용자 결정) |
+| D66 | 거리 계산 | 명세 §3·§8 "확인 필요"(PostGIS 없음) | SQL 하버사인(구면, 지구 반지름 6371.0km), `distance <= radius_km`(경계 포함). 위도 범위 선필터. 좌표 없는 상점은 위치 지정 시 제외 | PostGIS가 스택에 없음. 하버사인은 명세 제안 | stores `find_visible_near` | 확정(사용자 결정) |
+| D67 | 위치 미입력 동작, `unit` | 명세 §3·§8 | 위치 없이 호출하면 반경 필터 없이 노출 상점 전체를 대상으로 하고 `distance`는 `null`, `unit`은 항상 `"km"`. `radius_km`만 오면 무시. 거리는 소수 둘째 자리로 반올림 | 명세 제안(`distance`는 `null`). 응답 스키마가 `distance: float`이라 null 허용은 명세와 다름(Q32) | `search.py` 상수 `DISTANCE_UNIT`, `DISTANCE_DECIMALS` | 확정(사용자 결정) |
+| D68 | #3 정렬 (D77로 개정) | 명세에 정렬 매개변수 없음 | **상점** 정렬은 stores가 돌려준 순서(`array_position`): 위치가 있으면 거리 오름차순 → `id`, 없으면 `name ASC, id ASC`(Q42). 상점 안 `products[]`는 `name ASC, id ASC`(Q43, D15와 같음) | 명세에 없음, 상점 상품 목록 기본 정렬과 일관 | `ProductRepository.search_store_ids`, `find_matching_in_stores` | 확정(사용자 결정) |
+| D69 | 검색어·카테고리 매칭 | 명세 §3·§8 | `keyword`는 앞뒤 공백 제거 후 부분 일치, 대소문자 무시(`ILIKE`, `%`·`_`·`\` 이스케이프), 100자 이하. #3은 상품명·설명, #8은 상품명만(명세). `category`는 정확 일치(#2와 같음) | 명세 설명, #2 | `search.py`, 레포 쿼리 | 확정(사용자 결정) |
+| D70 | `has_active_offer` 정의 | 명세 §3 "진행 중인 할인 여부", requirements 용어 "진행 중인 할인 상품" | 같은 상품에 유효 상태가 `OPEN_OFFER_STATUSES`(SCHEDULED/ON_SALE/SOLD_OUT, 정지 제외)인 할인이 있으면 true. #9 기본 목록과 같은 집합 | 상태 집합을 한곳에서 관리(D25) | `OPEN_OFFER_STATUSES`, `_status_clause` | 확정(사용자 결정) |
+| D71 | #8 정렬 방향 | 명세 §8 "확인 필요" 제안 | `distance`·`price`·`sales_end` 오름차순, `discount_rate` 내림차순. 동률은 `sales_end ASC, id ASC`. 기본 `sort=sales_end` | 명세 제안 그대로 | `DiscountOfferRepository.search_in_stores` | 확정(사용자 결정) |
+| D72 | #8 검증 | 명세 §8 에러 표 | `lat`·`lng` 한쪽만 400, `sort=distance`에 위치 없음 400(명세 문구). `status` 허용 외 값은 명세의 422가 아니라 400(D14). `status`는 단일 값, 기본 `ON_SALE` | 명세, D14 | `SearchArea`, `OfferSort` | 확정(사용자 결정) |
+| D73 | 응답 구성(폐기) | 사용자 확정 명세 | ~~#3 `items[]`는 4필드 평면 구조~~ → **D76으로 대체**. #8 `items[]` 구성(`offer`, `distance`, `unit`)은 유지 | - | - | 폐기(#3 부분) |
+| D74 | 페이지·`total` 정합 | admin.md C9 | 상점 필터를 레포 쿼리 안(`= ANY(:ids)`)에 두어 `total`과 페이지가 같은 조건에서 계산된다. 거리순 정렬은 `array_position(:ids, store_id)`. 배열 바인드 한 개라 asyncpg 파라미터 상한(32767)에 걸리지 않는다 | `IN (...)` 전개 금지 | 레포 쿼리 | 확정(사용자 결정) |
+| D75 | 읽기 전용·오류 코드 | R5, D14 | 두 EP는 잠금·`commit`이 없고 상점 조회와 상품·할인 조회가 한 시점이 아니다(허용). 형식·범위 오류는 전역 핸들러의 400 `VALIDATION_ERROR` | 읽기 전용, D14 | 서비스, router | 확정(사용자 결정) |
+| D76 | #3 응답 구조 (D77로 대체) | 사용자 결정(Q30) | ~~`items[]` = `product` + `store` + `distance` + `unit` + `has_active_offer` 평면 구조(상품 단위)~~ → 사용자가 상점 단위 묶음으로 다시 결정해 **폐기**. `StoreSummaryResponse`(`id, name, pickup_address, latitude, longitude`)와 "`StoreInfo`로 채운다"는 부분은 D77이 이어받는다 | - | - | 폐기 |
+| D77 | #3 응답 구조: 상점 단위 묶음 (D76 대체) | 사용자 결정 | `items[]` 한 건 = 검색 조건(`keyword`·`category`·반경)에 맞는 상품을 1개 이상 가진 **상점 하나**: `{store: {id, name, pickup_address, latitude, longitude}, distance, unit, products: [ProductResponse 필드 + has_active_offer, …]}`. `products[]`에는 그 상점의 조건 일치 상품을 전부 담는다(상한 없음, Q44). **`page`·`size`·`total`은 상점 수 기준.** 조건 일치 상품이 없는 상점은 나오지 않는다. #8 응답은 바뀌지 않는다. `store`는 `StoreWithDistance.store`(`StoreInfo`)로 채워 stores·`StorePort` 추가 변경이 없다 | 사용자 결정, `StoreInfo`가 5개 필드를 이미 가짐 | `schemas.py`, `StoreSearchHit`, 레포 쿼리(14.4) | 확정(사용자 결정) |
 | Q12 | 종료되는 할인의 남은 재고를 `stock_log`로 기록하거나 복구하는가 | 재고 영향 | 기록·복구하지 않고 `remaining_stock` 유지 (D40) | #13 재등록의 기존 할인 종료와 같은 방식 | `close` | 확정 |
 | Q14 | 폐점된 상점의 할인도 중단 허용 | 현재 코드 | 허용(#12는 `ensure_not_closed`를 호출하지 않음). #11 재개는 폐점이면 막는다 | 이미 열려 있던 할인을 닫는 동작은 폐점과 모순되지 않는다 | `deactivate_offer` | 확정 |
 | Q16 | #12 `reason` 검증 범위 | 명세(필수·최대 200자) | `min_length=1`, 공백만이면 거부 | "필수"를 빈 값 거부로 해석 | `OfferDeactivateRequest` | 확정 |
@@ -791,6 +818,21 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | Q27 | `cancel_reservations=false`이면 예약이 유지되는 것이 상점주 의도와 맞는지(고객은 예약이 남은 채 할인만 닫힘, C9) | 명세 기본값 | 유지(D41) | 명세 기본값 | `deactivate_offer` 7단계 | 확인 |
 | Q28 | `ReservationCancelPort` 계약: 재고 복구 없음, `commit` 금지, 픽업 완료 시 사전 검사, 취소 주체 구분 값(상점주 사유), 취소 사유 저장, 환불은 reservations·payments 책임, 중복 호출 멱등 | 6.4절 | 6.4절 표의 계약 | R5·R12·R13 | `ports.py` docstring과 reservations 어댑터 | 확인(reservations 설계) |
 | Q29 | `PickedUpReservationExistsError`의 `error_code` 이름 | 명세에 에러 코드 없음 | `PICKED_UP_RESERVATION_EXISTS` | 기존 `OFFER_CLOSED`·`PRODUCT_INACTIVE` 명명 관례 | `exceptions.py` 한 곳, 7.5 표 | 임시 |
+| Q30 | #3 응답에 상품 정보가 없다 | 사용자 확정 명세, reference §3 | 닫힘: 사용자 결정으로 D76, 이후 상점 단위 묶음 D77로 확정 | 사용자 결정 | `schemas.py` | 닫힘(사용자 결정) |
+| Q31 | 검색에서도 소유자 예외를 둘 것인가. requirements는 "폐점 상점의 상품 읽기·검색: 상점주 허용"인데 사용자는 인증 없음으로 확정 | requirements 정책 표, 사용자 결정 | 예외 없음, 소유자는 #2로 조회(D63) | 사용자 확정 우선 | router(`OptionalUser` 추가 + 서비스 `viewer_id` + stores 질의 확장) | 확정(사용자 결정) |
+| Q32 | 위치 없이 검색할 때 동작: 반경 필터 생략, `distance=null`(명세 필드 타입은 `float`) | reference §3·§8 | 필터 생략, `distance: null`, `radius_km` 무시(D67) | 명세 제안 | `SearchArea.of`, 스키마 `distance` | 확정(사용자 결정) |
+| Q33 | `unit` 값과 거리 소수 자리 | reference §3 | `"km"`, 소수 둘째 자리 반올림 | `radius_km` 단위가 km | `search.py` 상수 | 확정(사용자 결정) |
+| Q34 | 좌표 없는 상점(지오코딩 실패로 `latitude`·`longitude`가 null)의 처리 | stores 도메인(둘 다 있거나 둘 다 없음) | 위치 지정 시 제외, 미지정 시 포함(`distance=null`) | 거리를 못 구함 | stores `find_visible_near` | 확정(사용자 결정) |
+| Q35 | #8 정렬 방향과 동률 처리 | reference §8 확인 필요 | `price` 오름차순, `discount_rate` 내림차순, `sales_end` 마감 임박순, `distance` 가까운 순, 동률 `sales_end → id`(D71) | 명세 제안 | `search_in_stores`의 `ORDER BY` | 확정(사용자 결정) |
+| Q36 | 검색어 매칭 방식 | reference §3·§8 | 부분 일치·대소문자 무시, #3 이름+설명, #8 이름만, 100자(D69) | 명세 설명 | `search.py`, 레포 쿼리 | 확정(사용자 결정) |
+| Q37 | `has_active_offer`의 "진행 중" 범위(`ON_SALE`만으로 좁힐지) | reference §3, requirements 용어 | SCHEDULED·ON_SALE·SOLD_OUT 포함(D70) | #9 기본 목록과 같은 집합 | `OPEN_OFFER_STATUSES` 사용처 한곳 | 확정(사용자 결정) |
+| Q38 | 공개 노출 제외 규칙(폐점·정지·미승인 상점, 노출 중단 상품, 정지 할인). #8에서 상품이 비활성인 할인도 숨길지(#10은 숨기지 않음, D56) | requirements 정책 표 3행, admin 명세 7 | 모두 제외(D61·D62·D64) | 근거 인용은 D61~D64 | stores 노출 조건, 레포 `WHERE` | 확정(사용자 결정) |
+| Q39 | 위치 없는 호출은 노출 상점 전체 id를 catalog로 가져온다. 상점 수 상한과 대안 | 14.4 | 상한 없음(현 규모 전제) | 배열 바인드로 파라미터 상한은 회피 | 규모가 커지면 상점 상태·좌표 비정규화(admin C9 대안) 또는 stores가 상한·페이지를 가짐 | 확정(사용자 결정) |
+| Q40 | #3 `store` 객체에 더 필요한 필드(예: 상점 상태, 평점 등). 현재 제안은 `id, name, pickup_address, latitude, longitude`(D77) | 사용자 결정 후속 | 5개 필드로 확정 구현, 추가 없음 | `StoreInfo`가 가진 값만 사용 | `StoreSummaryResponse` | 확정(사용자 결정) |
+| Q41 | #8 `GET /v1/offers`에도 같은 원칙(할인 + `store` 객체)을 적용할지. 사용자가 명시하지 않음 | 사용자 결정 후속 | 적용하지 않음: `items[]`는 `offer`(이미 `store_id`·`store_name` 포함)·`distance`·`unit` 유지. 적용 시 `NearbyOfferItem`에 `store: StoreSummaryResponse` 추가(StoreInfo로 채울 수 있어 stores 변경 없음) | 사용자 명세는 §8 그대로, 확정되지 않은 변경은 지어내지 않음 | `NearbyOfferItem`·`NearbyOfferView` | 확정(사용자 결정) |
+| Q42 | #3 상점 정렬 기준. 위치가 있으면 거리순이지만 없을 때 기준이 없다 | 사용자 결정 후속 | 위치 없으면 상점명 `name ASC`, 같으면 `id ASC`. 이를 위해 stores의 `find_visible_stores`가 위치 미지정일 때 `name ASC, id ASC`로 돌려주도록 계약을 바꿨다(14.3). 대안: 조건 일치 상품 수 내림차순, `has_active_offer` 있는 상점 우선 | 상점명은 사용자가 예측 가능하고 stores만으로 정렬 가능 | stores `find_visible_near`의 `ORDER BY`, D68 | 확정(사용자 결정) |
+| Q43 | 한 상점 안 `products[]` 정렬 | 사용자 결정 후속 | `name ASC, id ASC`(#2와 같음). 대안: `has_active_offer=true` 우선 후 `name` | #2 상점 상품 목록 기본 정렬(D15) | `find_matching_in_stores`의 `ORDER BY` | 확정(사용자 결정) |
+| Q44 | 한 상점의 `products[]` 개수 상한 필요 여부 | 사용자 결정 후속 | 상한 없음. 한 요청은 상점 최대 100개(`size le=100`)의 일치 상품 전체를 한 번에 읽는다. 대안: 상점당 상위 N개만 담고 `product_total` 필드를 더하는 안(응답 필드 추가라 별도 확인) | 상점당 상품 수가 많지 않다는 전제(요구 조건에 상점당 상품 상한 없음, requirements "상점당 상품 개수 상한 없음") | `find_matching_in_stores`, 스키마 | 확정(사용자 결정) |
 | - | 스키마 S3(`discount_offers.price` 삭제), S6(`products.created_at`) | 4절, db-schema §5 | S3 삭제 보류(모델은 매핑 안 함), S6 보류 | 4절 | `schema.sql`, `db-schema/SKILL.md` | 팀 확인 |
 | - | 명세 #14의 403 문구와 422 표기 | 11절 | D8, D14 | 전역 핸들러 동작 | `docs/reference/catalog.md` | 팀 확인 |
 
@@ -804,6 +846,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | --- | --- | --- |
 | C1 (StoreInfo에 좌표 없음) | 닫힘 | #10 때문에 catalog `StoreInfo`에 `latitude`, `longitude`를 추가한다. stores의 `Store`가 이미 제공하므로 stores 변경은 없다(2.1절). #8도 같은 필드를 쓴다 |
 | C3 (생성 순환) | 열림(후속, 조건부) | container 팩토리 한 방향 구조(9.3절). 폐점 구현 시 stores 읽기/쓰기 서비스 분리(D22)가 필요하며 stores.md가 이를 수용해야 닫힌다 |
+| admin.md C9 (정지 상점 숨김을 여러 상점 조회 #3·#8에 적용) | 설계로 닫음 | stores가 노출 상점과 거리를 계산하는 `find_visible_stores`(14.3, D65)로 해결. stores 쪽 구현이 필요해 C15로 이어진다 |
 | C5 (`StoreNotFoundError` 이름 중복) | 유지 | 서로 다른 모듈의 별개 클래스. catalog는 stores 예외를 import하지 않음(R11) |
 | C7 (폐점 차단의 "진행 중" 정의) | 유지 | `has_open_offers_for_store`가 D4 정의를 그대로 공유(2.3절) |
 
@@ -817,6 +860,10 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | CI-7 | 5.2 `save` | `save`의 갱신 경로가 가격·시간 컬럼을 빠뜨리면 #11 수정이 DB에 반영되지 않는 조용한 실패가 된다 | 갱신 경로가 `sale_price`, `sales_start`, `sales_end`, `pickup_start`, `pickup_end`를 모두 쓴다. 왕복 테스트로 확인(10절) |
 | CI-10 | 6.4 ↔ reservations 설계(미작성) | catalog → reservations(예약 존재 확인)와 reservations → catalog(재고 차감, 6.4)가 양방향이다 | 둘 다 쓰는 쪽이 포트를 정의하고 container가 연결하면 import 순환은 없다. 생성 순환을 피하려면 `create_reservation_lookup`이 reservations **레포지토리만** 받아야 한다(catalog 서비스에 의존 금지). 예약 생성이 offer 행 잠금 아래에서 INSERT 되어야 #11 검사와 직렬화된다(5.3, db-schema §7). reservations 설계에 요구사항으로 전달: `exists_by_offer(offer_id)` 추상 메서드, 잠금 순서(offer 잠금 → 예약 insert). reservations 구현 PR에서 container 바인딩과 `test_wiring.py`의 `NoReservationLookup` 단언을 교체 |
 | CI-11 | 6.4 `ReservationCancelPort` ↔ reservations 설계(미작성) | catalog → reservations 쓰기 포트(일괄 취소·환불 요청)가 임시 `NoReservationCancel`(0건)로 연결돼 있다. 어댑터가 reservations 서비스를 `commit=False`로 부르고 그 서비스가 catalog 서비스를 부르면 생성 순환(R12, C12) | 어댑터 경로는 catalog 서비스를 쓰지 않는다(재고 복구 없는 전용 취소 메서드). 픽업 완료 예약 사전 검사 후 `PickedUpReservationExistsError`, commit 금지, 같은 세션. reservations 구현 PR에서 `create_reservation_cancel()` 교체 + `test_wiring.py`의 `NoReservationCancel` 단언 교체 |
+| CI-12 | 14.3·14.4 ↔ 기존 fake/구현 | `StorePort`에 메서드가 늘고 `ProductRepository`·`DiscountOfferRepository`(ABC)에 추상 메서드가 늘면 `tests/catalog/test_service.py`의 `FakeStores`·`FakeProducts`·`FakeOffers`가 구현하지 않아 인스턴스 생성(ABC) 또는 호출(Protocol)에서 깨진다. `StorePort`는 Protocol이라 stores 구현이 없어도 import·조립은 성공하고 호출할 때 `AttributeError`가 난다 | 구현 PR이 fake 3종을 함께 갱신하고 `test_wiring.py`가 `create_store_port()` 결과에 `find_visible_stores`가 있는지 확인한다 |
+| CI-13 | 14.4 `has_active_offer` ↔ #9 기본 목록 | 같은 "진행 중 할인" 집합을 두 곳이 쓴다 | `OPEN_OFFER_STATUSES`·`_status_clause`만 쓰고 별도 조건을 만들지 않는다. CI-5의 비교 테스트를 `has_active_offer`까지 넓힌다 |
+| CI-14 | 14.4 SQL `rate` ↔ 도메인 `discount_rate` | 도메인은 파이썬 정수 연산(버림, D1), SQL 정렬은 두 번째 구현이다. `int4 * 100`은 원가가 21억 근처에서 오버플로하고 DB `CHECK`는 원가 0을 허용해 0으로 나눌 수 있다 | `::bigint` 캐스트와 `NULLIF(original_price, 0)`를 쓰고 도메인 값과 비교하는 테스트를 둔다 |
+| CI-15 | 기존 #2·#4·#9 ↔ requirements 정책 표 | requirements는 "폐점 상점의 상품은 상점주 외에는 존재하지 않는 것처럼 다룬다"인데 현재 `StoreRef.is_visible_to`는 정지만 숨기고 폐점은 숨기지 않는다(`src/catalog/domain/store_ref.py:64-66`). 이번 검색은 폐점 상점을 숨기므로 단건·목록 조회와 규칙이 어긋난다 | 이번 범위 밖. 별도 요청으로 `is_visible_to`에 폐점 조건을 추가할지 결정한다 (D63·Q31과 함께) |
 
 ### 13.3 예약·결제 연계 이슈
 
@@ -828,3 +875,188 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | C12 | **재고·순환**: 예약 취소가 보통 catalog에 재고 복구를 요청한다(reservations → catalog). #12는 catalog → reservations(포트)이므로 어댑터가 reservations 서비스를 쓰고 그 서비스가 catalog 서비스를 쓰면 container에서 생성 순환(R12)이 된다 | 일괄 취소 유스케이스는 재고를 되돌리지 않는 전용 메서드로 만들고(D40) 이 어댑터 경로에서 catalog 서비스를 부르지 않게 한다. 불가피하면 9.3절의 읽기/쓰기 분리 패턴을 쓴다. reservations 설계에 요구사항으로 전달 |
 | C13 | 임시 포트 `NoReservationCancel`이 container에 남아 있는 동안 `cancel_reservations=true`도 실제 취소·환불을 하지 않고 `cancelled_reservation_count=0`만 돌려준다 | CI-11(reservations 구현 시 어댑터로 교체). 명세 §12 "확인 필요"에 미연계 상태가 적혀 있다 |
 | C14 | #10 `cancel_policy.cancellable_until = pickup_start − 1시간`(D55)은 고객에게 보여주는 약속이다. payments의 위약금·환불 규칙(예약 취소 시 전액 환불 vs 위약금 부과 경계)이 이 시각을 기준으로 해야 화면과 실제 환불이 어긋나지 않는다 | payments·reservations 설계에 요구사항으로 전달: 취소 허용·위약금 경계는 `DiscountOffer.cancel_policy().cancellable_until`(또는 같은 `CANCEL_LEAD_TIME`)에서 가져오고 별도 상수를 두지 않는다. 기준이 바뀌면 `CANCEL_LEAD_TIME`과 `CANCEL_POLICY_DESCRIPTION`(D55)을 함께 고친다 |
+| C15 | stores 설계(`docs/design/stores.md` 15절에 반영 완료, 2026-11-06)에  `StoreRepository.find_visible_near`·`StoreQueryService.find_visible_stores`·`StoreWithDistance` 추가와 노출 조건(`approval_at` 있음, `closed_at`·`suspended_at` 없음)·하버사인 SQL이 필요하다. 노출 조건이 `Store` 도메인의 `status`/`is_approved`와 SQL 두 곳에 있어 어긋날 수 있다 | 해결 방향 확정(stores 15절). stores 구현자에게 전달: 노출 조건 SQL과 `Store.status == ACTIVE and is_approved`가 같은 결과인지 비교하는 테스트, 좌표 없는 상점 처리, 거리·경계 테스트. #3·#8 구현은 이 PR이 먼저다 |
+
+---
+
+## 14. #3 상품 검색 · #8 주변 할인 목록 (후속 설계, 코드 미구현)
+
+사용자 확정: #3 경로는 `GET /v1/products`(이전 문서의 `/v1/products/search`는 제안값이었고 폐기), #8 경로는 `GET /v1/offers`. 두 EP는 공개(인증 없음)이고 읽기 전용이다(잠금·`commit` 없음, D75). 기존 `GET /v1/stores/{store_id}/offers`(#9)는 바꾸지 않는다.
+
+### 14.1 핵심 결정 요약
+
+| 쟁점 | 결정 | 결정 번호 |
+| --- | --- | --- |
+| 여러 상점을 가로지르는 조회에서 폐점·정지 상점을 거르고 거리를 계산하는 방법 (catalog는 `stores` 테이블을 조인할 수 없다, R11) | stores가 "노출 가능한 상점 + 거리"를 계산해 돌려주고(`StorePort.find_visible_stores`), catalog는 그 상점 id 목록으로 자기 테이블을 필터·정렬·페이지한다. 필터가 SQL 안에 있어 `total`이 맞다 (admin.md C9 해법) | D65, D74 |
+| 거리 계산 | PostGIS 없음 → stores 인프라의 SQL 하버사인 | D66 |
+| 응답 | #3 `items[]` 한 건 = 조건에 맞는 상품을 가진 상점 하나(`store`, `distance`, `unit`, `products[]`). `page`·`size`·`total`은 상점 수 기준 | D77 |
+
+### 14.2 도메인 (`domain/search.py`, 순수 파이썬, R1)
+
+상수(한 곳에 모은다, D67·D69): `DEFAULT_RADIUS_KM = 3.0`, `MIN_RADIUS_KM = 0.1`, `MAX_RADIUS_KM = 20.0`, `DISTANCE_UNIT = "km"`, `DISTANCE_DECIMALS = 2`, `KEYWORD_MAX_LENGTH = 100`.
+
+| 대상 | 정의 | `ValueError` 조건 (전부 400 `VALIDATION_ERROR`) |
+| --- | --- | --- |
+| `SearchArea` (불변 VO) | `lat: float`, `lng: float`, `radius_km: float` | 아래 `of` |
+| `SearchArea.of(lat, lng, radius_km) -> SearchArea \| None` | `lat`·`lng`가 모두 None이면 None(반경 필터 없음, `radius_km`는 무시, D67). 둘 다 있으면 `radius_km`가 None일 때 `DEFAULT_RADIUS_KM`을 써서 생성 | 한쪽만 None: "lat과 lng는 함께 입력해야 합니다."(명세 문구); `lat`이 유한하지 않거나 -90~90 밖: "위도는 -90~90 범위여야 합니다."; `lng`가 -180~180 밖: "경도는 -180~180 범위여야 합니다."; `radius_km`가 0.1~20 밖: "검색 반경은 0.1~20km여야 합니다." (범위는 router `Query`도 막지만 도메인이 정본이다) |
+| `OfferSort(StrEnum)` | `DISTANCE="distance"`, `PRICE="price"`, `SALES_END="sales_end"`, `DISCOUNT_RATE="discount_rate"` | - |
+| `OfferSort.ensure_usable(area)` | 정렬이 위치 정보를 쓸 수 있는지 확인 | `DISTANCE`인데 `area is None`: "distance 정렬은 위치 정보가 필요합니다."(명세 문구) |
+| `normalize_keyword(raw) -> str \| None` | 앞뒤 공백 제거, 빈 문자열이면 None | 100자 초과: "검색어는 100자 이하여야 합니다." |
+| `round_distance(km) -> float \| None` | None이면 None, 아니면 `round(km, DISTANCE_DECIMALS)` | - |
+
+- 검증 순서(#8): `SearchArea.of` → `OfferSort.ensure_usable` → `normalize_keyword`. 명세 에러 표의 순서(lat/lng → distance 정렬)와 같다.
+- 거리 계산 자체는 도메인에 두지 않는다. 계산은 stores가 SQL로 하고 catalog는 결과값을 받는다(14.3절). 노출 규칙(어떤 상점·상품·할인이 공개 검색에 보이는가)은 14.4의 쿼리 조건 한곳과 stores의 노출 조건 한곳에 있고 D61·D62·D64가 정본이다.
+
+### 14.3 stores 연계: `StorePort` 확장
+
+`catalog/application/ports.py`에 추가한다(쓰는 쪽이 포트를 정의, R11). 기존 `find_store_by_id`, `find_stores_by_ids`는 그대로 둔다.
+
+```python
+class StoreWithDistance(Protocol):
+    store: StoreInfo
+    distance_km: float | None            # 위치 미지정이면 None
+
+class StorePort(Protocol):
+    ...
+    async def find_visible_stores(
+        self,
+        *,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        radius_km: float | None = None,
+    ) -> list[StoreWithDistance]: ...
+```
+
+계약:
+
+| 항목 | 계약 |
+| --- | --- |
+| 노출 가능한 상점 (D61) | `approval_at IS NOT NULL AND closed_at IS NULL AND suspended_at IS NULL` |
+| 위치 지정 (`latitude`·`longitude` 모두) | 좌표가 있는 상점만, 하버사인 거리(km) `<= radius_km`(`radius_km`가 None이면 `DEFAULT_RADIUS_KM`은 호출자가 채워 넘긴다). 정렬 거리 오름차순, 같으면 `id` 오름차순. `distance_km`는 반올림하지 않은 값 |
+| 위치 미지정 (둘 다 None) | 노출 가능한 모든 상점, `distance_km=None`, `name` 오름차순 → `id` 오름차순(Q42). `radius_km`는 무시 |
+| 한쪽만 지정 | stores가 `ValueError`(호출자 catalog가 먼저 막으므로 도달하지 않는 방어) |
+| 트랜잭션 | 읽기 전용. 잠금·`commit` 없음. 같은 요청 세션 |
+
+stores 쪽 구현(11절의 제안, 이 문서는 stores를 바꾸지 않는다, C15):
+- `StoreRepository.find_visible_near(*, latitude, longitude, radius_km) -> list[StoreWithDistance]` 추상 메서드(`docs/design/stores.md` 15절)와 `SqlAlchemyStoreRepository` 구현.
+- `StoreQueryService.find_visible_stores(...)`가 이를 그대로 돌려준다. `StoreWithDistance`는 stores 도메인의 불변 dataclass(`store: Store`, `distance_km: float | None`)다. catalog는 stores를 import하지 않고 구조적으로 맞춘다. container 변경은 없다(`create_store_port`가 이미 `StoreQueryService`를 돌려준다, 9.3절).
+- SQL 하버사인(D66): `d = 2 * 6371.0 * asin(sqrt(least(1.0, sin(radians(lat2-lat1)/2)^2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(radians(lng2-lng1)/2)^2)))`. `least(1.0, …)`는 부동소수 오차로 `asin` 정의역을 벗어나는 오류를 막는다. 선필터로 위도 범위 `lat1 ± radius/111.0`도(`BETWEEN`)만 쓴다. 경도 범위는 날짜 변경선·극 근처에서 틀리기 쉬워 쓰지 않는다.
+
+### 14.4 인프라: 레포지토리 메서드와 SQL
+
+추상(3.6절 표에 추가)과 구현 시그니처:
+
+| 추상 | 메서드 |
+| --- | --- |
+| `ProductRepository` | `search_store_ids(*, store_ids: Sequence[uuid.UUID], keyword: str \| None, category: str \| None, page: int, size: int) -> tuple[list[uuid.UUID], int]` — 조건에 맞는 상품을 1개 이상 가진 상점 id를 페이지 단위로(상점 순서 유지)와 상점 수 `total`; `find_matching_in_stores(*, store_ids: Sequence[uuid.UUID], keyword: str \| None, category: str \| None, now: datetime) -> list[tuple[Product, bool]]` — 그 상점들의 조건 일치 상품과 `has_active_offer` |
+| `DiscountOfferRepository` | `search_in_stores(*, store_ids: Sequence[uuid.UUID], status: OfferStatus, keyword: str \| None, category: str \| None, sort: OfferSort, now: datetime, page: int, size: int) -> tuple[list[tuple[DiscountOffer, Product]], int]` |
+
+- 두 메서드 모두 도메인 객체만 주고받고 `*Model`을 내보내지 않는다(R4). `commit`·`flush` 없음(읽기). `now`는 인자로만 받고 SQL `now()`를 쓰지 않는다(CI-5).
+- `store_ids`는 stores가 돌려준 순서(위치 지정이면 거리 오름차순)를 그대로 가진다. 빈 목록이면 서비스가 레포를 부르지 않는다(14.6).
+- 상점 필터(D74): `ProductModel.store_id = ANY(:ids)`(배열 바인드 파라미터 하나, `ARRAY(UUID(as_uuid=True))`). `IN (...)`처럼 id마다 바인드 파라미터를 만들면 asyncpg의 쿼리 파라미터 상한(32767)에 걸리므로 쓰지 않는다. 거리순 정렬은 같은 배열로 `array_position(:ids, products.store_id)`를 쓴다(stores가 계산한 거리 순서가 그대로 정렬 키가 된다).
+
+**상품 검색 쿼리 (상점 단위 페이지, D77)**: 요청당 쿼리는 상점 조회 1 + `search_store_ids` 2(`count`, id 페이지) + `find_matching_in_stores` 1 = 4개다. 상점 id를 페이지로 먼저 정한 뒤 그 상점들의 일치 상품만 읽으므로 `total`과 페이지가 상점 수 기준이고 상품 행이 페이지를 잡아먹지 않는다. 공통 상품 조건(`상품 조건`)은 두 메서드가 같은 함수로 만든다.
+
+| 상품 조건 | SQL |
+| --- | --- |
+| 노출 상점 | `products.store_id = ANY(:ids)` |
+| 노출 상품 (D62) | `products.is_active` |
+| 카테고리 | `products.category = :category` (정확 일치, #2와 같음) |
+| 검색어 (D69) | `products.name ILIKE :pat ESCAPE '\' OR products.description ILIKE :pat ESCAPE '\'`. `pat = '%' + escape(keyword) + '%'`이고 `escape`는 `\`·`%`·`_`를 `\`로 이스케이프 |
+
+| 메서드 | SQL |
+| --- | --- |
+| `search_store_ids` total | `SELECT count(DISTINCT products.store_id) FROM products WHERE <상품 조건>` |
+| `search_store_ids` 페이지 | `SELECT products.store_id FROM products WHERE <상품 조건> GROUP BY products.store_id ORDER BY array_position(:ids, products.store_id) OFFSET (page-1)*size LIMIT size`. `:ids`는 stores가 정렬해 준 순서(거리순, 없으면 상점명순, Q42)라 항상 이 정렬 키를 쓴다(이전의 `by_store_order` 인자는 없다) |
+| `find_matching_in_stores` | `SELECT products.*, EXISTS(<has_active_offer>) FROM products WHERE <상품 조건> AND products.store_id = ANY(:page_ids) ORDER BY products.name, products.id` (D68, Q43). `has_active_offer`는 상관 `EXISTS (SELECT 1 FROM discount_offers o WHERE o.product_id = products.id AND (<_status_clause(SCHEDULED)> OR <_status_clause(ON_SALE)> OR <_status_clause(SOLD_OUT)>))`이고 `OPEN_OFFER_STATUSES`·`_status_clause`를 그대로 쓴다(D70, CI-13). 행 수 상한 없음(Q44) |
+
+**주변 할인 쿼리 (`DiscountOfferRepository.search_in_stores`)**: `discount_offers JOIN products`.
+
+| 조건 | SQL |
+| --- | --- |
+| 노출 상점·상품 | `products.store_id = ANY(:ids) AND products.is_active` (D61·D62) |
+| 상태 | `_status_clause(status, now)` 하나. `status`는 `PublicOfferStatus`(`SUSPENDED` 없음)라 정지된 할인은 어떤 값으로도 나오지 않는다(D64) |
+| 카테고리 / 검색어 | `products.category = :category` / `products.name ILIKE :pat ESCAPE '\'`(상품명만, 명세) |
+
+| `sort` | `ORDER BY` (D71) |
+| --- | --- |
+| `distance` | `array_position(:ids, products.store_id) ASC, discount_offers.sales_end ASC, discount_offers.id ASC` |
+| `price` | `discount_offers.sale_price ASC, discount_offers.sales_end ASC, discount_offers.id ASC` |
+| `sales_end` | `discount_offers.sales_end ASC, discount_offers.id ASC` |
+| `discount_rate` | `rate DESC, discount_offers.sales_end ASC, discount_offers.id ASC` |
+
+- `rate` SQL은 도메인 `discount_rate`(D1, 버림 정수 연산)와 같아야 한다: `((products.original_price - discount_offers.sale_price)::bigint * 100) / NULLIF(products.original_price, 0)`. `bigint` 캐스트가 필요하다(`int4 * 100`이 21억 근처 가격에서 오버플로, CI-14). 정수 나눗셈이라 버림이다. 테스트는 같은 데이터로 도메인 값과 SQL 정렬 결과를 비교한다.
+- 스키마 변경은 없다(S 번호 추가 없음). 키워드 `ILIKE '%…%'`는 인덱스를 못 쓰고 `products`를 훑는다. 상점 id 필터가 먼저 범위를 줄인다. 규모가 커지면 `pg_trgm` GIN 인덱스를 검토한다(지금은 보류, 별도 요청 때 `schema.sql`·`db-schema`와 함께).
+
+### 14.5 표현: 쿼리·응답·에러·등록
+
+**쿼리 매개변수** (모두 선택, 형식 오류·범위 위반은 전역 핸들러가 400 `VALIDATION_ERROR`로 바꾼다. 명세의 422는 반영되지 않는다, D14·D75)
+
+| EP | 이름 | 타입 | 기본 | 검증 (`Query`) |
+| --- | --- | --- | --- | --- |
+| #3 | `keyword` | str | - | `max_length=100`, 빈 값·공백은 미지정 취급 |
+| #3 | `category` | str | - | `max_length=80`, 정확 일치 |
+| #3 | `lat` / `lng` | float | - | `ge=-90, le=90` / `ge=-180, le=180`. 한쪽만 보내면 도메인이 400 "lat과 lng는 함께 입력해야 합니다." |
+| #3 | `radius_km` | float | `DEFAULT_RADIUS_KM`(3) | `ge=0.1, le=20`. 위치 없이 보내면 무시(범위 검증은 항상) |
+| #3 | `page` / `size` | int | 1 / 20 | `PageParam` / `SizeParam`(`ge=1`, `size le=100`, 기존 별칭 재사용) |
+| #8 | `lat`, `lng`, `radius_km`, `category`, `page`, `size` | #3과 같음 | | |
+| #8 | `keyword` | str | - | `max_length=100`, 상품명만 검색 |
+| #8 | `status` | `PublicOfferStatus` (**단일 값**, 명세) | `ON_SALE` | 허용 외 값 400. `SUSPENDED`는 허용하지 않는다(D64). #9처럼 반복 가능한 목록이 아니다 |
+| #8 | `sort` | `OfferSort` | `sales_end` | 허용 외 값 400. `distance`는 위치 필요(D72) |
+
+**응답 스키마** (`schemas.py`)
+
+| 스키마 | 필드 |
+| --- | --- |
+| `StoreSummaryResponse` | `id: UUID`, `name: str`, `pickup_address: str`, `latitude: float \| None`, `longitude: float \| None` (D77). `StoreInfo`가 이미 모두 가진다 |
+| `SearchedProductResponse` | `ProductResponse`의 모든 필드(`id, store_id, name, category, description, original_price, is_active, product_image`, #4와 같은 정의 재사용) + `has_active_offer: bool` |
+| `StoreSearchItem` | `store: StoreSummaryResponse`, `distance: float \| None`, `unit: str`, `products: list[SearchedProductResponse]`(1개 이상) |
+| `ProductSearchResponse` | `items: list[StoreSearchItem], page, size, total`(상점 수 기준, D77) |
+| `NearbyOfferItem` | `offer: OfferResponse`(17개 필드 재사용), `distance: float \| None`, `unit: str` |
+| `NearbyOfferListResponse` | `items: list[NearbyOfferItem], page, size, total` |
+
+- 각 스키마는 `from_hit` / `from_view` 팩토리로 만든다. `distance`는 view에서 `round_distance`를 거친 값이고 `unit`은 항상 `DISTANCE_UNIT`(위치가 없어도 "km", D67).
+- `OfferResponse.status`는 `effective_status`라 `SUSPENDED`가 나오지 않는다(`status` 필터가 걸러냄).
+
+**에러** (R7 형식 `{"success": false, "error_code", "message"}`)
+
+| 상황 | 상태 | `error_code` | 메시지 | EP |
+| --- | --- | --- | --- | --- |
+| `lat`·`lng` 한쪽만 | 400 | `VALIDATION_ERROR` | lat과 lng는 함께 입력해야 합니다. | #3, #8 |
+| `sort=distance`인데 위치 없음 | 400 | `VALIDATION_ERROR` | distance 정렬은 위치 정보가 필요합니다. | #8 |
+| `radius_km`·`lat`·`lng` 범위 위반, `page`·`size`, `status`·`sort` 허용 외 값 | 400 | `VALIDATION_ERROR` | `필드: 오류` | #3, #8 (명세의 422) |
+| 결과 없음 | 200 | - | `items: []`, `total: 0` | #3, #8 |
+
+401·403·404는 없다(공개, 상점·상품 존재 판단 없음).
+
+**라우터** (`presentation/router.py`): 함수 2개(`search_products`, `list_nearby_offers`)를 추가한다. 인증 의존성(`OwnerUser`·`OptionalUser`)을 쓰지 않는다. 서비스는 `Depends(provide_catalog_service)`로 받고(R9) 예외를 잡지 않는다(R6). 등록 순서는 무관하다(7.2절). 새 `provide_*`는 없다.
+
+### 14.6 응용: 서비스 시나리오 (읽기 전용: 조회 → 조합, `commit` 없음)
+
+`views.py`에 추가: `StoreSearchHit(store: StoreInfo, distance_km, products: list[SearchedProduct])`, `SearchedProduct(product, has_active_offer)`, `NearbyOfferView(view: OfferView, distance_km)`. 서비스 생성자 인자는 늘지 않는다(포트가 확장될 뿐이다).
+
+**#3 `search_products(*, keyword, category, lat, lng, radius_km, page, size) -> Page[StoreSearchHit]`**
+1. `now = clock.now()`
+2. `area = SearchArea.of(lat, lng, radius_km)` (400); `kw = normalize_keyword(keyword)` (400)
+3. `visible = stores.find_visible_stores(latitude=area.lat, longitude=area.lng, radius_km=area.radius_km)` (`area`가 None이면 인자 모두 None)
+4. `visible`이 비면 `Page(items=[], page, size, total=0)`를 돌려주고 끝낸다(레포 호출 없음)
+5. `page_ids, total = products.search_store_ids(store_ids=[v.store.id …], keyword=kw, category=category, page=page, size=size)` — `total`은 상점 수. `page_ids`가 비면 빈 `Page`(`total` 유지)를 돌려주고 끝낸다
+6. `rows = products.find_matching_in_stores(store_ids=page_ids, keyword=kw, category=category, now=now)`
+7. `by_id = {v.store.id: v}`; `rows`를 `product.store_id`로 묶고(`page_ids` 순서대로 `items`를 만든다) 각 상점마다 `StoreSearchHit(store=by_id[sid].store, distance_km=round_distance(by_id[sid].distance_km), products=[SearchedProduct(p, flag), …])`. 묶기는 조합일 뿐이고 비즈니스 판단이 없다(R3)
+
+**#8 `list_nearby_offers(*, lat, lng, radius_km, category, keyword, status, sort, page, size) -> Page[NearbyOfferView]`**
+1. `now`; `area = SearchArea.of(...)` (400); `sort.ensure_usable(area)` (400); `kw = normalize_keyword(keyword)`
+2. `visible = stores.find_visible_stores(...)`; 비면 빈 `Page`
+3. `rows, total = offers.search_in_stores(store_ids=…, status=status, keyword=kw, category=category, sort=sort, now=now, page=page, size=size)`
+4. 각 `(offer, product)`를 `_offer_view(offer, product, store_name, now)`로 `OfferView`로 만들고(`store_name`은 `by_id[product.store_id].store.name`), `distance_km=round_distance(...)`와 함께 `NearbyOfferView`로 묶는다
+
+- 두 시나리오의 상점 조회(1개 쿼리)와 상품·할인 조회(`count` + 페이지, 2개 쿼리)는 같은 요청 세션에서 따로 실행되어 한 시점이 아니다. 그 사이에 상점이 폐점·정지되면 한 번 더 노출될 수 있으며 읽기 전용이라 허용한다(D75).
+- 비즈니스 판단(위치 쌍 검증, 정렬 사용 가능 여부, 거리 반올림)은 도메인 함수가 하고 서비스는 조합한다(R3). 서비스에 `select()`가 없다(R3).
+
+### 14.7 테스트 계획 (추가분)
+
+- **domain** (`tests/catalog/test_domain.py`): `SearchArea.of` — 둘 다 None → None, 한쪽만 → 명세 문구, 경계값(-90/90/-180/180/0.1/20 통과, 범위 밖·NaN·inf 거부), `radius_km=None`이면 3, 위치 없이 `radius_km`를 줘도 None; `OfferSort.ensure_usable`; `normalize_keyword`(공백, 빈 값, 100자/101자); `round_distance`.
+- **application** (fake 레포·`StorePort`·고정 `Clock`): `FakeStores`에 `find_visible_stores`를 추가한다(기존 fake가 이 메서드가 없으면 호출 시 `AttributeError`, CI-12). #3·#8 공통: 상점이 비면 레포 호출 0회·`total=0`, `commit` 0회, `store_ids`가 stores가 준 순서(거리순)대로 전달, #3은 `search_store_ids` → `find_matching_in_stores` 순서로 호출하고 `page_ids`가 비면 두 번째 호출이 없음, 상점 단위 묶기(상점당 `products[]`, `page_ids` 순서 유지), 위치 없으면 인자 모두 None, 거리 반올림, 상점 이름 매핑, 400 순서(`lat`/`lng` 쌍 → distance 정렬).
+- **infrastructure (DB)**: 상점 필터 `= ANY(array)`가 id 배열이 32767개를 넘어도 동작(바인드 파라미터 상한 회귀 방지), 키워드 이스케이프(`%`, `_`, `\` 포함 검색어가 리터럴로 매칭), 대소문자 무시, 상품 `is_active=false` 제외, `has_active_offer` — 할인 4종(SCHEDULED/ON_SALE/SOLD_OUT/CLOSED)·정지·마감 지남에서 `OPEN_OFFER_STATUSES` 기준 값(CI-13), `total`이 상점 수와 일치(상품이 많은 상점이 페이지를 차지하지 않음, 한 상점의 일치 상품 3개가 `total`을 1로 셈), 조건 일치 상품이 없는 상점은 제외, `array_position` 정렬이 입력 id 순서와 일치, `products[]` 정렬 `name, id`, #8 정렬 4종의 방향·동률 처리, SQL `rate` 정렬이 도메인 `discount_rate`와 같은 순서(원가 21억대 가격 포함, 오버플로 없음).
+- **presentation (DB, 실제 임시 포트·실제 stores 구현)**: 인증 헤더 없이 200; 폐점·정지 상점, 노출 중단 상품, 정지 할인이 검색·주변 목록에 안 나옴; 반경 안·밖 경계, 좌표 없는 상점(위치 지정 시 제외, 미지정 시 `distance: null`), 위치 미지정 시 전체; `lat`만/`lng`만 → 400 명세 문구; `sort=distance` 위치 없음 → 400 명세 문구; `radius_km=0.09/20.1`, `lat=91`, 허용 외 `status`·`sort` → 400 `VALIDATION_ERROR`; `GET /v1/products`와 `GET /v1/products/{product_id}` 공존(둘 다 200), `GET /v1/offers`와 `GET /v1/offers/{offer_id}` 공존; 응답 최상위·`items[]` 필드 집합이 확정 구조와 정확히 일치(#3 `items[]`는 `store`·`distance`·`unit`·`products`, `store`는 5개 필드, `products[]` 항목은 #4와 같은 `ProductResponse` 필드 + `has_active_offer`; #8 `offer`·`distance`·`unit`); 한 상점의 일치 상품이 `products[]`에 모두 들어가고 일치하지 않는 상품은 빠짐.
+- **조립**: `create_store_port()`가 돌려주는 객체가 `find_visible_stores`를 가졌는지(CI-12). `test_wiring.py`의 라우트 수 단언은 이 두 EP만큼(+2) 늘린다(현재 값은 구현 시 확인).

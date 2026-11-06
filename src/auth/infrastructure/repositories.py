@@ -7,13 +7,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.domain.exceptions import EmailDuplicatedError, UserNotFoundError
+from auth.domain.password_reset_code import PasswordResetCode
 from auth.domain.point_log import PointLog, PointType
+from auth.domain.repository.password_reset_code_repository import PasswordResetCodeRepository
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role, User, UserStatus
-from auth.infrastructure.models import PointLogModel, TokenBlacklistModel, UserModel
+from auth.infrastructure.models import (
+    PasswordResetCodeModel,
+    PointLogModel,
+    TokenBlacklistModel,
+    UserModel,
+)
 
 
 class SqlAlchemyUserRepository(UserRepository):
@@ -47,6 +54,8 @@ class SqlAlchemyUserRepository(UserRepository):
                 phone=user.phone,
                 users_point=user.users_point,
                 business_number=user.business_number,
+                token_version=user.token_version,
+                token_keep_jti=user.token_keep_jti,
             )
             self._write_status(model, user)
             if user.created_at is not None:
@@ -66,6 +75,8 @@ class SqlAlchemyUserRepository(UserRepository):
             model.name = user.name
             model.phone = user.phone
             model.password_hash = user.password_hash
+            model.token_version = user.token_version
+            model.token_keep_jti = user.token_keep_jti
             self._write_status(model, user)
             await self.session.flush()
         return user
@@ -103,6 +114,8 @@ class SqlAlchemyUserRepository(UserRepository):
             suspended_until=model.suspended_until,
             deleted_at=model.deleted_at,
             deleted_reason=model.deleted_reason,
+            token_version=model.token_version,
+            token_keep_jti=model.token_keep_jti,
         )
 
 
@@ -194,3 +207,50 @@ class SqlAlchemyTokenBlacklistRepository(TokenBlacklistRepository):
             delete(TokenBlacklistModel).where(TokenBlacklistModel.expires_at <= now)
         )
         return result.rowcount or 0
+
+
+class SqlAlchemyPasswordResetCodeRepository(PasswordResetCodeRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def find_by_user_id(
+        self, user_id: uuid.UUID, for_update: bool = False
+    ) -> PasswordResetCode | None:
+        stmt = select(PasswordResetCodeModel).where(PasswordResetCodeModel.user_id == user_id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        model = (await self.session.execute(stmt)).scalar_one_or_none()
+        return self._to_domain(model) if model else None
+
+    async def save(self, code: PasswordResetCode) -> PasswordResetCode:
+        values = {
+            "code_hash": code.code_hash,
+            "expires_at": code.expires_at,
+            "failed_attempts": code.failed_attempts,
+        }
+        if code.created_at is not None:
+            values["created_at"] = code.created_at
+        stmt = (
+            pg_insert(PasswordResetCodeModel)
+            .values(user_id=code.user_id, **values)
+            .on_conflict_do_update(index_elements=["user_id"], set_=values)
+        )
+        await self.session.execute(stmt)
+        await self.session.flush()
+        return code
+
+    async def delete(self, user_id: uuid.UUID) -> None:
+        await self.session.execute(
+            delete(PasswordResetCodeModel).where(PasswordResetCodeModel.user_id == user_id)
+        )
+        await self.session.flush()
+
+    @staticmethod
+    def _to_domain(model: PasswordResetCodeModel) -> PasswordResetCode:
+        return PasswordResetCode(
+            user_id=model.user_id,
+            code_hash=model.code_hash,
+            expires_at=model.expires_at,
+            failed_attempts=model.failed_attempts,
+            created_at=model.created_at,
+        )

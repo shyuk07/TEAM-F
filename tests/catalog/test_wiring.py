@@ -111,6 +111,8 @@ def test_catalog_routes_registered():
         for method in item
     }
     for m, p in [
+        ("GET", "/v1/products"),
+        ("GET", "/v1/offers"),
         ("POST", "/v1/stores/{store_id}/products"),
         ("GET", "/v1/stores/{store_id}/products"),
         ("GET", "/v1/products/{product_id}"),

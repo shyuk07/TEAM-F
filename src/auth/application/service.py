@@ -18,7 +18,7 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import Clock, PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
-from auth.domain.user import Role, User
+from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User
 
 MAX_PAGE_SIZE = 100
 
@@ -138,7 +138,7 @@ class AuthApplicationService:
             raise InvalidCredentialsError()
         now = self.clock.now()
         user.ensure_can_login(now)  # 비밀번호 검증 성공 뒤에만 상태를 알려 준다 (D8)
-        token, _ = self.tokens.issue(user.id, user.role)
+        token, _ = self.tokens.issue(user.id, user.role, token_version=user.token_version)
         return LoginResult(token=token, status=user.effective_status(now).value)
 
     async def authenticate(
@@ -151,6 +151,7 @@ class AuthApplicationService:
         if user is None:
             raise AuthenticationError("유효하지 않은 토큰입니다.")
         user.ensure_can_authenticate(self.clock.now(), allow_suspended=allow_suspended)
+        user.ensure_token_current(claims.token_version, claims.jti)  # 비밀번호 변경·재설정 뒤 이전 토큰 무효
         return AuthenticatedPrincipal(user=user, claims=claims)
 
     async def logout(self, claims: TokenClaims) -> None:
@@ -161,6 +162,35 @@ class AuthApplicationService:
         user = await self.users.find_by_id(user_id)
         if user is None:
             raise UserNotFoundError()
+        return user
+
+    async def update_profile(
+        self, user_id: uuid.UUID, name: str | None, phone: str | None
+    ) -> User:
+        user = await self._locked_user(user_id)
+        user.update_profile(name, phone)
+        await self.users.save(user)
+        await self.session.commit()
+        return user
+
+    async def change_password(
+        self,
+        user_id: uuid.UUID,
+        current_password: str,
+        new_password: str,
+        *,
+        keep_jti: str | None,
+    ) -> None:
+        user = await self._locked_user(user_id)
+        user.change_password(current_password, new_password, self.hasher, keep_jti=keep_jti)
+        await self.users.save(user)
+        await self.session.commit()
+
+    async def check_self_withdrawable(self, user_id: uuid.UUID, password: str) -> User:
+        """자진 탈퇴 사전 확인(읽기 전용): 비밀번호 확인 → 탈퇴 가능 여부."""
+        user = await self.get_user(user_id)
+        user.ensure_current_password(password, self.hasher)
+        user.ensure_withdrawable(SELF_WITHDRAWAL_REASON)
         return user
 
     async def list_point_logs(
@@ -270,8 +300,10 @@ class AuthApplicationService:
         self, user_id: uuid.UUID, reason: str, *, now: datetime, commit: bool = True
     ) -> User:
         user = await self._locked_user(user_id)
-        user.withdraw(reason, now)
+        expired = user.withdraw(reason, now)  # 남은 포인트는 소멸(잔액 0). 복구(환불)가 먼저 끝나 있어야 한다
         await self.users.save(user)
+        if expired > 0:
+            await self.point_logs.add(PointLog.record(user.id, PointType.EXPIRE, -expired, 0))
         await self._finish(commit)
         return user
 

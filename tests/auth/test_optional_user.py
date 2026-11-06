@@ -109,7 +109,7 @@ class Env:
             FakeClock(),
         )
         self.user = User.register(
-            email="a@b.com", password_hash="x", role="CUSTOMER", name="n", phone=None
+            email="a@b.com", password_hash="x", role="CUSTOMER", name="n", phone="010-1"
         )
         self.user.id = uuid.uuid4()
         self.users.items[self.user.id] = self.user

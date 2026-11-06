@@ -9,7 +9,7 @@
 ## 문서 구성
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
-| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 7 |
+| [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 12 |
 | [stores.md](stores.md) | `src/stores` 상점 | 2 |
 | [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 4 |
@@ -32,7 +32,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 7 | stores | [상점 폐점](stores.md#2-상점-폐점) | POST | `/v1/stores/{store_id}/close` | 상점주(본인) | 200 |
 | 8 | catalog | [상품 등록](catalog.md#1-상품-등록) | POST | `/v1/stores/{store_id}/products` | 상점주(본인) | 201 |
 | 9 | catalog | [상점 상품 목록](catalog.md#2-상점-상품-목록) | GET | `/v1/stores/{store_id}/products` | 공개 | 200 |
-| 10 | catalog | [상품 검색](catalog.md#3-상품-검색) | GET | `/v1/products/search` | 공개 | 200 |
+| 10 | catalog | [상품 검색](catalog.md#3-상품-검색) | GET | `/v1/products` | 공개 | 200 |
 | 11 | catalog | [상품 상세](catalog.md#4-상품-상세) | GET | `/v1/products/{product_id}` | 공개 | 200 |
 | 12 | catalog | [상품 수정](catalog.md#5-상품-수정) | PATCH | `/v1/products/{product_id}` | 상점주(본인) | 200 |
 | 13 | catalog | [상품 노출 중단](catalog.md#6-상품-노출-중단) | POST | `/v1/products/{product_id}/deactivate` | 상점주(본인) | 200 |
@@ -63,6 +63,11 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 38 | admin | [회원 포인트 지급](admin.md#9-회원-포인트-지급) | POST | `/v1/admin/users/{user_id}/points` | 관리자 | 201 |
 | 39 | auth | [관리자 회원 조회](auth.md#6-관리자-회원-조회) | GET | `/v1/admin/users/{user_id}` | 관리자 | 200 |
 | 40 | auth | [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리) | POST | `/v1/admin/token-blacklist/purge` | 관리자 | 200 |
+| 41 | auth | [프로필 변경](auth.md#8-프로필-변경) | PATCH | `/v1/users/me` | 회원 | 200 |
+| 42 | auth | [비밀번호 변경](auth.md#9-비밀번호-변경) | POST | `/v1/users/me/password` | 회원 | 204 |
+| 43 | auth | [비밀번호 재설정 코드 요청](auth.md#10-비밀번호-재설정-코드-요청) | POST | `/v1/auth/password-reset/request` | 공개 | 204 |
+| 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
+| 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -71,7 +76,6 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 - 할인 수정(`PATCH /v1/offers/{offer_id}`)은 필드 수정과 함께 `is_active`로 판매 중단·재개를 받는 예외입니다.
 - 상태만 바꾸는 동작(폐점, 노출 중단, 판매 중단, 재등록, 취소, 픽업)은 `POST /{id}/동사` 형태로 둡니다. 요청 본문이 있거나 부수 효과(환불, 재고 이력)가 있어서 `PATCH`로 표현하기 어렵기 때문입니다.
 - 로그인한 사용자 기준 조회는 노션의 `/v1/users/me/...` 형태에 맞춥니다.
-- **FastAPI 주의:** `/v1/products/search`는 `/v1/products/{product_id}`보다 **먼저** 등록해야 합니다.
 
 ## 공통 규칙
 
@@ -105,7 +109,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 예약 `pickup_reservations.status` | `PENDING_PAYMENT`, `RESERVED`(?), `CANCELLED`, `PICKED_UP` | 예약 API (**확인 필요**: `RESERVED`와 결제 완료 상태의 관계) |
 | 결제 `payments.status` | `READY`, `PAID` (+ 실패 상태?) | 결제 요청, 포인트 정책 |
 | 환불 `refunds.status` | `COMPLETED` (+ 다른 상태?) | 환불 API |
-| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE`, `GRANT`(관리자 지급) | 포인트 내역 조회, 관리자 포인트 지급 |
+| 포인트 `point_log.point_type` | `EARN`, `USE`, `RESTORE`, `REVOKE`, `GRANT`(관리자 지급), `EXPIRE`(탈퇴 소멸) | 포인트 내역 조회, 관리자 포인트 지급, 회원 탈퇴 |
 
 ### 포인트 정책 (노션 포인트 내역 조회 페이지)
 별도 API 없이 payments 서비스가 내부에서 처리합니다.
@@ -116,6 +120,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | `EARN` | 결제 승인(`READY` → `PAID`) 직후 | 결제 금액 × 1% (소수점 버림) |
 | `RESTORE` | 환불 시 사용 포인트 복구 | `total_price − payments.amount` |
 | `REVOKE` | 환불 시 적립 포인트 회수 | 결제 금액 × 1%, 잔액 한도 |
+| `EXPIRE` | 회원 탈퇴(자진·관리자 강제) 처리 시 남은 잔액 소멸. 예약 취소의 환불·포인트 복구가 끝난 뒤 발생. 시간 경과 소멸은 없다 | 음수(남은 잔액 전부), `balance_after`는 0. 잔액이 0이면 내역 없음 |
 
 ### 에러 응답 (제안)
 노션 auth 페이지는 아래 형식을 쓰고, 나머지 페이지는 상태 코드와 메시지만 적혀 있습니다. 전역 예외 핸들러로 모든 API를 이 형식으로 맞추는 것을 제안합니다.
@@ -125,6 +130,8 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 ```
 
 노션에 나온 `error_code`: `VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED`
+
+auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
 
 ### 상태 코드
 | 코드 | 쓰임 |

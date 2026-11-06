@@ -74,7 +74,7 @@ def test_validate_raw_password():
 
 
 def test_register():
-    u = User.register("A@b.com", "h", "OWNER", name="n", phone=None, business_number=None)
+    u = User.register("A@b.com", "h", "OWNER", name="n", phone="010-1", business_number=None)
     assert u.role is Role.OWNER and u.users_point == 0
     assert u.created_at.tzinfo is not None
     with pytest.raises(ValueError):
@@ -114,7 +114,7 @@ def test_point_log_rules():
     PointLog.record(uid, PointType.USE, -10, 0)
     PointLog.record(uid, PointType.REVOKE, -1, 0)
     PointLog.record(uid, PointType.RESTORE, 1, 1)
-    PointLog.record(uid, PointType.GRANT, 5, 5)
+    PointLog.record(uid, PointType.GRANT, 5, 5, reason="이벤트", created_by=uuid.uuid4())  # GRANT는 사유·처리자 필수(REQ-53)
     for t, a in [(PointType.EARN, -1), (PointType.RESTORE, -1), (PointType.USE, 1),
                  (PointType.REVOKE, 1), (PointType.EARN, 0)]:
         with pytest.raises(ValueError):
@@ -173,6 +173,6 @@ def test_register_admin():
 
 def test_signup_still_rejects_admin():
     with pytest.raises(ValueError, match="관리자"):
-        User.register(email="a@b.com", password_hash="h", role="ADMIN")
+        User.register(email="a@b.com", password_hash="h", role="ADMIN", name="n", phone="010-0000-0000")
     with pytest.raises(ValueError, match="관리자"):
         Role.for_signup("ADMIN")

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# stores.md D42: 다르면 KAKAO_GEOCODE_URL로 교체한다.
+# stores.md D49: 다르면 KAKAO_GEOCODE_URL로 교체한다.
 DEFAULT_GEOCODE_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -38,7 +38,7 @@ def _timeout(raw: str | None) -> float:
 def get_kakao_geocoding_settings(
     env: Mapping[str, str] | None = None,
 ) -> KakaoGeocodingSettings | None:
-    """KAKAO_* 를 읽는다. 키가 없으면 None(예외 없음, D28·D43). 값은 로그에 넣지 않는다."""
+    """KAKAO_* 를 읽는다. 키가 없으면 None(예외 없음, D28·D50). 값은 로그에 넣지 않는다."""
     if env is None:
         load_dotenv()
         env = os.environ

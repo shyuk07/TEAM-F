@@ -11,6 +11,9 @@ from catalog.application.ports import (
 )
 from catalog.application.views import (
     DeactivateOfferResult,
+    NearbyOfferView,
+    SearchedProduct,
+    StoreSearchHit,
     OfferDetailView,
     OfferSuspensionView,
     OfferView,
@@ -35,6 +38,7 @@ from catalog.domain.product import Product
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
+from catalog.domain.search import OfferSort, SearchArea, normalize_keyword, round_distance
 from catalog.domain.service import Clock
 from catalog.domain.stock_log import StockLog
 from catalog.domain.store_ref import StoreRef
@@ -112,6 +116,91 @@ class CatalogApplicationService:
             notice=OFFER_NOTICE,
             cancel_policy=offer.cancel_policy(),
         )
+
+    async def search_products(
+        self,
+        *,
+        keyword: str | None,
+        category: str | None,
+        lat: float | None,
+        lng: float | None,
+        radius_km: float | None,
+        page: int,
+        size: int,
+    ) -> Page[StoreSearchHit]:
+        now = self.clock.now()
+        area = SearchArea.of(lat, lng, radius_km)
+        kw = normalize_keyword(keyword)
+        visible = await self.stores.find_visible_stores(
+            latitude=area.lat if area else None,
+            longitude=area.lng if area else None,
+            radius_km=area.radius_km if area else None,
+        )
+        if not visible:
+            return Page(items=[], page=page, size=size, total=0)
+        page_ids, total = await self.products.search_store_ids(
+            store_ids=[v.store.id for v in visible],
+            keyword=kw, category=category, page=page, size=size,
+        )
+        if not page_ids:
+            return Page(items=[], page=page, size=size, total=total)
+        rows = await self.products.find_matching_in_stores(
+            store_ids=page_ids, keyword=kw, category=category, now=now
+        )
+        by_id = {v.store.id: v for v in visible}
+        grouped: dict[uuid.UUID, list[SearchedProduct]] = {sid: [] for sid in page_ids}
+        for product, flag in rows:
+            if product.store_id in grouped:
+                grouped[product.store_id].append(SearchedProduct(product, flag))
+        items = [
+            StoreSearchHit(
+                store=by_id[sid].store,
+                distance_km=round_distance(by_id[sid].distance_km),
+                products=grouped[sid],
+            )
+            for sid in page_ids
+            if grouped[sid]
+        ]
+        return Page(items=items, page=page, size=size, total=total)
+
+    async def list_nearby_offers(
+        self,
+        *,
+        lat: float | None,
+        lng: float | None,
+        radius_km: float | None,
+        category: str | None,
+        keyword: str | None,
+        status: OfferStatus,
+        sort: OfferSort,
+        page: int,
+        size: int,
+    ) -> Page[NearbyOfferView]:
+        now = self.clock.now()
+        area = SearchArea.of(lat, lng, radius_km)
+        sort.ensure_usable(area)
+        kw = normalize_keyword(keyword)
+        visible = await self.stores.find_visible_stores(
+            latitude=area.lat if area else None,
+            longitude=area.lng if area else None,
+            radius_km=area.radius_km if area else None,
+        )
+        if not visible:
+            return Page(items=[], page=page, size=size, total=0)
+        rows, total = await self.offers.search_in_stores(
+            store_ids=[v.store.id for v in visible],
+            status=status, keyword=kw, category=category, sort=sort,
+            now=now, page=page, size=size,
+        )
+        by_id = {v.store.id: v for v in visible}
+        items = [
+            NearbyOfferView(
+                view=self._offer_view(o, p, by_id[p.store_id].store.name, now),
+                distance_km=round_distance(by_id[p.store_id].distance_km),
+            )
+            for o, p in rows
+        ]
+        return Page(items=items, page=page, size=size, total=total)
 
     # ── 쓰기 ──────────────────────────────
     async def create_product(self, user_id: uuid.UUID, store_id: uuid.UUID, data: dict) -> Product:

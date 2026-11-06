@@ -65,9 +65,17 @@ class FakeStoreInfo:
         self.suspended_at = suspended_at
 
 
+class FakeVisible:
+    def __init__(self, store, distance_km=None):
+        self.store = store
+        self.distance_km = distance_km
+
+
 class FakeStores:
     def __init__(self):
         self.items = {}
+        self.visible = []
+        self.visible_calls = []
 
     def add(self, info):
         self.items[info.id] = info
@@ -79,12 +87,30 @@ class FakeStores:
     async def find_stores_by_ids(self, ids):
         return [self.items[i] for i in ids if i in self.items]
 
+    async def find_visible_stores(self, *, latitude=None, longitude=None, radius_km=None):
+        self.visible_calls.append((latitude, longitude, radius_km))
+        return list(self.visible)
+
 
 class FakeProducts(ProductRepository):
     def __init__(self, events=None):
         self.items = {}
         self.locked = []
         self.events = events if events is not None else []
+        self.search_calls = []
+        self.page_ids = None  # None이면 store_ids 그대로
+
+    async def search_store_ids(self, *, store_ids, keyword, category, page, size):
+        self.search_calls.append(("search_store_ids", list(store_ids), keyword, category, page, size))
+        ids = list(store_ids) if self.page_ids is None else list(self.page_ids)
+        return ids, len(ids)
+
+    async def find_matching_in_stores(self, *, store_ids, keyword, category, now):
+        self.search_calls.append(("find_matching_in_stores", list(store_ids)))
+        return [
+            (p, False) for p in sorted(self.items.values(), key=lambda p: (p.name, str(p.id)))
+            if p.store_id in store_ids
+        ]
 
     async def find_by_id(self, product_id, for_update=False):
         if for_update:
@@ -119,6 +145,15 @@ class FakeOffers(DiscountOfferRepository):
         self.events = []
         self.last_statuses = None
         self.products = None
+        self.search_calls = []
+        self.search_rows = []
+
+    async def search_in_stores(self, *, store_ids, status, keyword, category, sort, now, page, size):
+        self.search_calls.append(
+            dict(store_ids=list(store_ids), status=status, keyword=keyword, category=category,
+                 sort=sort, page=page, size=size)
+        )
+        return self.search_rows, len(self.search_rows)
 
     async def find_by_id(self, offer_id, for_update=False):
         if for_update:

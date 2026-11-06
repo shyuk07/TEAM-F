@@ -39,7 +39,7 @@ def put(parts, role=Role.CUSTOMER, **kw):
 # ── 승인·거부 ──
 async def test_approve_owner_commit_flag():
     svc, db, parts = build()
-    o = await svc.signup("o@b.com", "password1", "OWNER")
+    o = await svc.signup("o@b.com", "password1", "OWNER", name="n", phone="010-0000-0000")
     assert o.status is UserStatus.PENDING and db.commits == 1
     res = await svc.approve_owner(o.id, now=T0, commit=False)
     assert res.status is UserStatus.APPROVED and res.approved_at == T0 and db.commits == 1
@@ -121,7 +121,7 @@ async def test_grant_failure_leaves_no_log():
 
 async def test_all_point_logs_record_balance_after():
     svc, _, parts = build()
-    u = await svc.signup("a@b.com", "password1", "CUSTOMER")
+    u = await svc.signup("a@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     await svc.earn_points(u.id, 500)
     await svc.use_points(u.id, 200)
     await svc.restore_points(u.id, 100)
@@ -159,8 +159,8 @@ async def test_list_points_page_check_before_lookup_and_404():
 # ── 로그인 ──
 async def test_login_status_values_and_clock():
     svc, _, parts = build()
-    cust = await svc.signup("c@b.com", "password1", "CUSTOMER")
-    owner = await svc.signup("o@b.com", "password1", "OWNER")
+    cust = await svc.signup("c@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
+    owner = await svc.signup("o@b.com", "password1", "OWNER", name="n", phone="010-0000-0000")
     assert (await svc.login("c@b.com", "password1")).status == "APPROVED"
     assert (await svc.login("o@b.com", "password1")).status == "PENDING"  # D5: 로그인 허용
     with pytest.raises(ValueError):  # PENDING은 정지 불가 (D36)
@@ -175,7 +175,7 @@ async def test_login_status_values_and_clock():
 
 async def test_login_suspended_customer_403_after_password_check():
     svc, _, _ = build()
-    c = await svc.signup("c@b.com", "password1", "CUSTOMER")
+    c = await svc.signup("c@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     await svc.suspend_user(c.id, "r", None, now=T0)
     with pytest.raises(AccountSuspendedError):
         await svc.login("c@b.com", "password1")
@@ -186,7 +186,7 @@ async def test_login_suspended_customer_403_after_password_check():
 async def test_login_withdrawn_is_invalid_credentials_for_each_role():
     svc, _, _ = build()
     for email, role in (("c@b.com", "CUSTOMER"), ("o@b.com", "OWNER")):
-        u = await svc.signup(email, "password1", role)
+        u = await svc.signup(email, "password1", role, name="n", phone="010-0000-0000")
         await svc.withdraw_user(u.id, "r", now=T0)
         with pytest.raises(InvalidCredentialsError):
             await svc.login(email, "password1")
@@ -195,7 +195,7 @@ async def test_login_withdrawn_is_invalid_credentials_for_each_role():
 # ── authenticate ──
 async def test_authenticate_suspended_and_allow_flag():
     svc, _, _ = build()
-    o = await svc.signup("o@b.com", "password1", "OWNER")
+    o = await svc.signup("o@b.com", "password1", "OWNER", name="n", phone="010-0000-0000")
     token = (await svc.login("o@b.com", "password1")).token
     o.status = UserStatus.APPROVED
     await svc.suspend_user(o.id, "r", None, now=T0)
@@ -206,7 +206,7 @@ async def test_authenticate_suspended_and_allow_flag():
 
 async def test_authenticate_withdrawn_always_401():
     svc, _, _ = build()
-    o = await svc.signup("o@b.com", "password1", "OWNER")
+    o = await svc.signup("o@b.com", "password1", "OWNER", name="n", phone="010-0000-0000")
     token = (await svc.login("o@b.com", "password1")).token
     await svc.withdraw_user(o.id, "r", now=T0)
     for allow in (False, True):
@@ -216,7 +216,7 @@ async def test_authenticate_withdrawn_always_401():
 
 async def test_authenticate_expired_suspension_passes():
     svc, _, _ = build()
-    c = await svc.signup("c@b.com", "password1", "CUSTOMER")
+    c = await svc.signup("c@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")
     token = (await svc.login("c@b.com", "password1")).token
     await svc.suspend_user(c.id, "r", T0 + timedelta(hours=1), now=T0)
     with pytest.raises(AccountSuspendedError):
@@ -227,8 +227,8 @@ async def test_authenticate_expired_suspension_passes():
 
 async def test_signup_owner_pending_customer_approved():
     svc, _, _ = build()
-    assert (await svc.signup("o@b.com", "password1", "OWNER")).status is UserStatus.PENDING
-    assert (await svc.signup("c@b.com", "password1", "CUSTOMER")).status is UserStatus.APPROVED
+    assert (await svc.signup("o@b.com", "password1", "OWNER", name="n", phone="010-0000-0000")).status is UserStatus.PENDING
+    assert (await svc.signup("c@b.com", "password1", "CUSTOMER", name="n", phone="010-0000-0000")).status is UserStatus.APPROVED
 
 
 async def test_get_account():
