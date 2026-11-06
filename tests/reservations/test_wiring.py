@@ -40,6 +40,7 @@ def test_all_provides_are_wired():
     assert {f.__name__ for f in provides} == {
         "provide_reservation_service",
         "provide_reservation_lifecycle_service",
+        "provide_store_reservation_list_service",
     }
     fresh = FastAPI()
     wire_dependencies(fresh)
@@ -223,6 +224,7 @@ def test_pickup_endpoint_allows_suspended_owner_others_do_not():
         return get_type_hints(fn, include_extras=True)[name]
 
     assert hint(router_module.complete_pickup, "owner") == SuspendedAllowedOwnerUser
+    assert hint(router_module.list_store_reservations, "owner") == SuspendedAllowedOwnerUser
     for fn in (router_module.cancel_reservation,):
         assert hint(fn, "user") == CurrentUser
 

@@ -48,6 +48,26 @@ class ReservationListResponse(BaseModel):
     total: int
 
 
+class StoreReservationListItem(BaseModel):
+    """상점주용 예약 목록 항목. 고객 정보와 픽업 코드는 넣지 않는다 (R-REQ25)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_name: str
+    quantity: int
+    total_price: int = Field(..., description="예약 금액")
+    status: str = Field(..., description="PENDING_PAYMENT / RESERVED / PICKED_UP / CANCELLED")
+    created_at: datetime = Field(..., description="예약 시각")
+
+
+class StoreReservationListResponse(BaseModel):
+    reservations: list[StoreReservationListItem]
+    page: int
+    size: int
+    total: int
+
+
 class ReservationCancelResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

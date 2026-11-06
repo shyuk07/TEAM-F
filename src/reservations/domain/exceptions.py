@@ -34,6 +34,20 @@ class NotReservationOwnerError(PermissionError):
         super().__init__(message)
 
 
+class StoreNotFoundError(LookupError):
+    """404 NOT_FOUND (상점 없음)"""
+
+    def __init__(self, message: str = "상점을 찾을 수 없습니다."):
+        super().__init__(message)
+
+
+class NotStoreReservationOwnerError(PermissionError):
+    """403 FORBIDDEN (다른 상점의 예약 목록)"""
+
+    def __init__(self, message: str = "본인 상점의 예약만 조회할 수 있습니다."):
+        super().__init__(message)
+
+
 class NotPickupStoreOwnerError(PermissionError):
     """403 FORBIDDEN"""
 

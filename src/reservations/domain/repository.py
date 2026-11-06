@@ -50,4 +50,16 @@ class ReservationRepository(ABC):
         """offer_ids 중 하나라도 해당 상태 예약이 있으면 True. 빈 목록이면 False. 행을 잠그지 않는다."""
 
     @abstractmethod
+    async def find_by_offers(
+        self,
+        offer_ids: Sequence[uuid.UUID],
+        *,
+        status: ReservationStatus | None,
+        page: int,
+        size: int,
+    ) -> tuple[list[PickupReservation], int]:
+        """offer_ids에 속한 예약을 (예약 시각 내림차순, id 내림차순)으로 한 페이지와 필터 후 전체 건수로 돌려준다.
+        빈 목록이면 ([], 0). 행을 잠그지 않는다."""
+
+    @abstractmethod
     async def save(self, reservation: PickupReservation) -> PickupReservation: ...
