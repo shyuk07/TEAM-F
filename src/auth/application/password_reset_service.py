@@ -43,10 +43,12 @@ class PasswordResetService:
             self.hasher.dummy_verify("dummy-reset-code")  # 응답 시간을 맞춘다
             return
         now = self.clock.now()
-        raw_code = self.generator.generate()
         previous = await self.codes.find_by_user_id(user.id, for_update=True)
-        # 회원당 1행 덮어쓰기: 이전 코드는 무효, 실패 횟수는 만료 전이면 이어받는다(5회 제한 우회 방지)
-        code = PasswordResetCode.issue(user.id, raw_code, self.hasher, now, previous)
+        if PasswordResetCode.is_request_throttled(previous, now):
+            return  # 재요청 간격 안: 기존 코드 유지, 새 코드·알림 없음(응답은 동일 204)
+        raw_code = self.generator.generate()
+        # 회원당 1행 덮어쓰기: 이전 코드는 무효, 새 코드는 실패 횟수 0에서 시작
+        code = PasswordResetCode.issue(user.id, raw_code, self.hasher, now)
         await self.codes.save(code)
         await self.session.commit()
         try:

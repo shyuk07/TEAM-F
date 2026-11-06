@@ -11,6 +11,7 @@ class PasswordResetCode:
     CODE_LENGTH = 6
     TTL = timedelta(minutes=15)
     MAX_FAILED_ATTEMPTS = 5
+    REQUEST_COOLDOWN = timedelta(seconds=60)  # 임시값: 재요청 최소 간격, 사용자 확정 전 (D-재설정제한)
 
     def __init__(
         self,
@@ -37,29 +38,30 @@ class PasswordResetCode:
         return len(raw) == cls.CODE_LENGTH and raw.isascii() and raw.isdigit()
 
     @classmethod
+    def is_request_throttled(cls, previous: "PasswordResetCode | None", now: datetime) -> bool:
+        """직전 코드 발급 후 REQUEST_COOLDOWN 안이면 True. 이때는 새 코드를 만들지 않는다(무차별 대입 완화)."""
+        if previous is None or previous.created_at is None:
+            return False
+        return now < previous.created_at + cls.REQUEST_COOLDOWN
+
+    @classmethod
     def issue(
         cls,
         user_id: uuid.UUID,
         raw_code: str,
         hasher: PasswordHasher,
         now: datetime,
-        previous: "PasswordResetCode | None" = None,
     ) -> "PasswordResetCode":
-        """새 코드 발급. 이전 코드가 아직 만료 전이면 실패 횟수를 이어받는다.
-
-        재요청으로 5회 제한을 초기화하는 추측 공격을 막기 위해서다. 이미 5회면 새 코드도 잠긴 상태다.
-        이전 코드가 없거나 만료됐으면 0에서 시작한다.
-        """
+        """새 코드 발급. 항상 실패 횟수 0에서 시작한다(REQ-28·REQ-29). 이전 코드는 덮어써서 무효가 된다."""
         if not cls.is_valid_format(raw_code):
             raise ValueError(f"재설정 코드는 {cls.CODE_LENGTH}자리 숫자여야 합니다.")
         if now.tzinfo is None:
             raise ValueError("now는 timezone 정보가 있어야 합니다.")
-        carried = previous.failed_attempts if previous is not None and now < previous.expires_at else 0
         return cls(
             user_id=user_id,
             code_hash=hasher.hash(raw_code),
             expires_at=now + cls.TTL,
-            failed_attempts=carried,
+            failed_attempts=0,
             created_at=now,
         )
 

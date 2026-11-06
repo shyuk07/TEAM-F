@@ -89,8 +89,8 @@ async def test_patch_profile_legacy_member_missing_phone(client):
         await s.execute(text("UPDATE users SET phone = NULL"))
         await s.commit()
     r = await client.patch("/v1/users/me", json={"name": "새이름"}, headers=bearer(t))
-    assert r.status_code == 200 and r.json()["name"] == "새이름" and r.json()["phone"] is None
-    r = await client.patch("/v1/users/me", json={"phone": "010"}, headers=bearer(t))
+    assert_error(r, 400, "VALIDATION_ERROR")  # REQ-2: 둘 다 채워야 한다
+    r = await client.patch("/v1/users/me", json={"name": "새이름", "phone": "010"}, headers=bearer(t))
     assert r.status_code == 200 and r.json()["phone"] == "010"
 
 
@@ -214,14 +214,36 @@ async def test_password_reset_validation_does_not_count_attempts(client, notifie
     assert r.status_code == 204
 
 
-async def test_password_reset_expired_and_rerequest(client, notifier):
+async def _age_reset_code(client, seconds):
+    async with client.session_factory() as s:
+        await s.execute(text("UPDATE password_reset_codes SET created_at = created_at - make_interval(secs => :n)"),
+                        {"n": seconds})
+        await s.commit()
+
+
+async def test_password_reset_rerequest_within_cooldown_keeps_code(client, notifier):
     await signup(client)
     await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
     first = notifier.last("user@test.com")
+    sent = len(notifier.sent)
+    r = await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    assert r.status_code == 204 and len(notifier.sent) == sent  # 새 코드·알림 없음
+    assert await scalar(client, "SELECT count(*) FROM password_reset_codes") == 1
+    r = await client.post("/v1/auth/password-reset/confirm",
+                          json={"email": "user@test.com", "code": first, "new_password": "resetpass12"})
+    assert r.status_code == 204  # 기존 코드 유효
+
+
+async def test_password_reset_rerequest_after_cooldown_invalidates_previous(client, notifier):
+    await signup(client)
     await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    first = notifier.last("user@test.com")
+    await _age_reset_code(client, 61)
+    r = await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    assert r.status_code == 204
     second = notifier.last("user@test.com")
     assert await scalar(client, "SELECT count(*) FROM password_reset_codes") == 1  # 회원당 1행
-    if first != second:
+    if first != second:  # 6자리 난수가 우연히 같으면 구분 불가
         r = await client.post("/v1/auth/password-reset/confirm",
                               json={"email": "user@test.com", "code": first, "new_password": "resetpass12"})
         assert_error(r, 400, "INVALID_RESET_CODE")
@@ -230,10 +252,10 @@ async def test_password_reset_expired_and_rerequest(client, notifier):
         await s.commit()
     r = await client.post("/v1/auth/password-reset/confirm",
                           json={"email": "user@test.com", "code": second, "new_password": "resetpass12"})
-    assert_error(r, 400, "INVALID_RESET_CODE")
+    assert_error(r, 400, "INVALID_RESET_CODE")  # 만료
 
 
-async def test_five_failures_then_rerequest_keeps_lock_via_api(client, notifier):
+async def test_five_failures_then_rerequest_after_cooldown_gives_fresh_code_via_api(client, notifier):
     await signup(client)
     await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
     wrong = "000000" if notifier.last("user@test.com") != "000000" else "111111"
@@ -241,18 +263,13 @@ async def test_five_failures_then_rerequest_keeps_lock_via_api(client, notifier)
         r = await client.post("/v1/auth/password-reset/confirm",
                               json={"email": "user@test.com", "code": wrong, "new_password": "resetpass12"})
         assert_error(r, 400, "INVALID_RESET_CODE")
+    sent = len(notifier.sent)
     r = await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
-    assert r.status_code == 204
+    assert r.status_code == 204 and len(notifier.sent) == sent  # 60초 안: 새 코드 없음
     assert await scalar(client, "SELECT failed_attempts FROM password_reset_codes") == 5
-    new_code = notifier.last("user@test.com")
-    r = await client.post("/v1/auth/password-reset/confirm",
-                          json={"email": "user@test.com", "code": new_code, "new_password": "resetpass12"})
-    assert_error(r, 400, "INVALID_RESET_CODE")  # 맞는 새 코드도 거부
-    assert (await login(client, password="password123")).status_code == 200  # 비밀번호 그대로
-    async with client.session_factory() as s:  # 이전 코드가 만료되면 새로 시작
-        await s.execute(text("UPDATE password_reset_codes SET expires_at = now() - interval '1 second'"))
-        await s.commit()
-    await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    await _age_reset_code(client, 61)
+    r = await client.post("/v1/auth/password-reset/request", json={"email": "user@test.com"})
+    assert r.status_code == 204 and len(notifier.sent) == sent + 1
     assert await scalar(client, "SELECT failed_attempts FROM password_reset_codes") == 0
     r = await client.post("/v1/auth/password-reset/confirm",
                           json={"email": "user@test.com", "code": notifier.last("user@test.com"),

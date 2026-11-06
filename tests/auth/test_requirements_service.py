@@ -241,15 +241,30 @@ async def test_request_notifier_failure_is_swallowed_after_commit():
     assert db.commits == 1 and u.id in codes.rows
 
 
-async def test_rerequest_invalidates_previous_code_and_carries_attempts():
-    reset, svc, db, _, codes, _ = make_reset("111111", "222222")
+async def test_rerequest_within_cooldown_keeps_existing_code_and_sends_nothing():
+    reset, svc, db, parts, codes, notifier = make_reset("111111", "222222")
+    u = await signed_up(svc)
+    await reset.request_reset("a@b.com")
+    with pytest.raises(InvalidResetCodeError):
+        await reset.confirm_reset("a@b.com", "000000", "newpassword1")
+    parts["clock"].advance(seconds=59)
+    db.commits = 0
+    await reset.request_reset("a@b.com")  # 예외 없이 정상 반환(항상 204)
+    assert db.commits == 0 and len(notifier.sent) == 1
+    assert codes.rows[u.id].code_hash == "hashed:111111" and codes.rows[u.id].failed_attempts == 1
+    await reset.confirm_reset("a@b.com", "111111", "newpassword1")  # 기존 코드 유효
+
+
+async def test_rerequest_after_cooldown_invalidates_previous_code():
+    reset, svc, db, parts, codes, notifier = make_reset("111111", "222222")
     await signed_up(svc)
     await reset.request_reset("a@b.com")
     with pytest.raises(InvalidResetCodeError):
         await reset.confirm_reset("a@b.com", "000000", "newpassword1")
+    parts["clock"].advance(seconds=60)
     await reset.request_reset("a@b.com")
     (row,) = codes.rows.values()
-    assert row.failed_attempts == 1  # 만료 전 재요청은 횟수를 이어받는다
+    assert row.failed_attempts == 0 and len(notifier.sent) == 2  # 새 코드는 0에서 시작
     with pytest.raises(InvalidResetCodeError):
         await reset.confirm_reset("a@b.com", "111111", "newpassword1")  # 이전 코드 무효
     await reset.confirm_reset("a@b.com", "222222", "newpassword1")
@@ -293,22 +308,32 @@ async def test_confirm_locks_after_five_failures_even_with_right_code():
     assert u.token_version == 0 and codes.rows[u.id].failed_attempts == 5
 
 
-async def test_five_failures_then_rerequest_still_locked_until_expiry():
-    reset, svc, db, parts, codes, notifier = make_reset("111111", "222222", "333333")
+async def test_five_failures_then_rerequest_issues_fresh_usable_code():
+    reset, svc, db, parts, codes, notifier = make_reset("111111", "222222")
     u = await signed_up(svc)
     await reset.request_reset("a@b.com")
     for _ in range(5):
         with pytest.raises(InvalidResetCodeError):
             await reset.confirm_reset("a@b.com", "000000", "newpassword1")
-    await reset.request_reset("a@b.com")  # 예외 없이 정상 반환(항상 204)
-    assert codes.rows[u.id].failed_attempts == 5 and len(notifier.sent) == 2
-    with pytest.raises(InvalidResetCodeError):
-        await reset.confirm_reset("a@b.com", "222222", "newpassword1")  # 맞는 새 코드도 거부
-    assert u.token_version == 0
-    parts["clock"].advance(minutes=15)  # 새 코드 만료 뒤 재요청하면 0에서 시작
+    parts["clock"].advance(seconds=60)
     await reset.request_reset("a@b.com")
-    assert codes.rows[u.id].failed_attempts == 0
-    await reset.confirm_reset("a@b.com", "333333", "newpassword1")
+    assert codes.rows[u.id].failed_attempts == 0 and len(notifier.sent) == 2
+    await reset.confirm_reset("a@b.com", "222222", "newpassword1")  # 새 코드로 성공
+    assert u.token_version == 1
+
+
+async def test_five_failures_then_rerequest_within_cooldown_keeps_locked_code():
+    reset, svc, db, parts, codes, notifier = make_reset("111111", "222222")
+    u = await signed_up(svc)
+    await reset.request_reset("a@b.com")
+    for _ in range(5):
+        with pytest.raises(InvalidResetCodeError):
+            await reset.confirm_reset("a@b.com", "000000", "newpassword1")
+    await reset.request_reset("a@b.com")  # 60초 안: 새 코드 없음
+    assert codes.rows[u.id].failed_attempts == 5 and len(notifier.sent) == 1
+    with pytest.raises(InvalidResetCodeError):
+        await reset.confirm_reset("a@b.com", "111111", "newpassword1")
+    assert u.token_version == 0
 
 
 async def test_confirm_weak_password_does_not_touch_code():
