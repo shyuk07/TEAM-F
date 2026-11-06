@@ -44,3 +44,11 @@ class RefundPort(Protocol):
     # 결제가 없거나 PAID가 아니면 반환, PAID면 DataInconsistentError(500).
     async def ensure_no_paid_payment(self, reservation_id: uuid.UUID) -> None: ...
 
+
+
+class StoreOffersPort(Protocol):
+    """매장의 할인 ID 목록. catalog 추상 레포지토리를 쓰는 어댑터가 만족한다. commit 없음 (R13)."""
+
+    async def list_offer_ids_of_store(
+        self, store_id: uuid.UUID, *, for_update: bool = False
+    ) -> list[uuid.UUID]: ...

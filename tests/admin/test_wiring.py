@@ -7,7 +7,6 @@ from fastapi import FastAPI
 
 from admin.application import ports
 from admin.application.service import AdminApplicationService
-from admin.infrastructure.reservation_admin import NoReservationAdmin
 from admin.presentation import dependencies as deps
 from auth.application.service import AuthApplicationService
 from catalog.application.service import CatalogApplicationService
@@ -44,17 +43,23 @@ def test_placeholder_raises_when_not_wired():
         deps.provide_admin_service()
 
 
-def test_reservation_admin_is_still_the_placeholder():
-    # 임시 구현(미연계, R16). reservations가 연결되면 이 단언이 실패해 바인딩 교체를 상기시킨다 (admin.md C10).
-    assert isinstance(create_reservation_admin(), NoReservationAdmin)
+def test_reservation_admin_is_the_real_adapter():
+    from reservations.application.admin_adapters import ReservationAdminAdapter
+    from reservations.application.store_query import StoreReservationQuery
+
+    service, query = object(), StoreReservationQuery(object(), object())
+    adapter = create_reservation_admin(service, query)
+    assert isinstance(adapter, ReservationAdminAdapter)
+    assert adapter.service is service and adapter.query is query
 
 
-async def test_no_reservation_admin_does_nothing():
-    import uuid
+def test_reservation_admin_adapter_satisfies_port_signatures():
+    from reservations.application.admin_adapters import ReservationAdminAdapter
 
-    placeholder = NoReservationAdmin()
-    assert await placeholder.cancel_reserved_for_user(uuid.uuid4(), reason="x") == 0
-    assert await placeholder.has_reserved_for_store(uuid.uuid4()) is False
+    for name in ("cancel_active_for_user", "has_reserved_for_store"):
+        real = getattr(ReservationAdminAdapter, name)
+        assert inspect.iscoroutinefunction(real), name
+        assert _shape(real) == _shape(getattr(ports.ReservationAdminPort, name)), name
 
 
 def _shape(fn):

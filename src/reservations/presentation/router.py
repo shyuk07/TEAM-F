@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from auth.presentation.dependencies import CurrentUser, OwnerUser
+from auth.presentation.dependencies import CurrentUser, SuspendedAllowedOwnerUser
 from reservations.application.service import ReservationApplicationService
 from reservations.domain import rules
 from reservations.domain.exceptions import DataInconsistentError
@@ -84,6 +84,6 @@ async def cancel_reservation(reservation_id: uuid.UUID, user: CurrentUser, servi
     summary="픽업 완료",
 )
 async def complete_pickup(
-    reservation_id: uuid.UUID, body: PickupRequest, owner: OwnerUser, service: Service
+    reservation_id: uuid.UUID, body: PickupRequest, owner: SuspendedAllowedOwnerUser, service: Service
 ):
     return await service.complete_pickup(owner.id, reservation_id, body.pickup_code)

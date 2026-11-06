@@ -29,6 +29,12 @@ class DiscountOfferRepository(ABC):
         """상점의 진행 중(is_active 이고 마감 전, 정지 포함) 할인을 id 오름차순으로 FOR UPDATE 조회."""
 
     @abstractmethod
+    async def find_ids_by_store(
+        self, store_id: uuid.UUID, *, for_update: bool = False
+    ) -> list[uuid.UUID]:
+        """상점의 모든 할인 ID(상태 무관)를 id 오름차순으로 조회한다. for_update면 할인 행을 잠근다."""
+
+    @abstractmethod
     async def find_by_store(
         self,
         store_id: uuid.UUID,

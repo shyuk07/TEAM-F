@@ -1,5 +1,7 @@
 import inspect
 
+import pytest
+
 from container import create_store_repository, create_stores_service, wire_dependencies
 from main import app
 from stores.presentation import dependencies as deps
@@ -41,7 +43,13 @@ def test_store_port_is_query_service_and_graph_is_acyclic():
     assert isinstance(query, StoreQueryService)
     assert container.create_store_port(query) is query
     assert app.dependency_overrides[deps.provide_stores_service] is container.create_stores_service
-    port = container.create_pickup_pending_port()
+    with pytest.raises(NotImplementedError):  # 자리 표시 함수. 실제 객체는 wire_dependencies가 바꾼다 (D-36)
+        container.create_pickup_pending_port()
+    assert (
+        app.dependency_overrides[container.create_pickup_pending_port]
+        is container.create_store_reservation_query
+    )
+    port = container.create_store_reservation_query(object(), object())
     geocoder = container.create_geocoder()
     service = container.create_stores_service(None, repo, object(), port, geocoder)
     assert isinstance(service, StoresApplicationService)

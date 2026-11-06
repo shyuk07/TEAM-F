@@ -143,7 +143,7 @@ users 1─N pickup_reservations 1─N payments 1─N refunds
 | S-3 | `refunds.payment_id`에 UNIQUE | 부분 환불 없음(D-5) 가정. db-schema 2절이 "UNIQUE 추가(확인 필요)"라고 이미 적어 둠 | 이중 환불 방어 |
 | S-4 | 상태 값이 확정되면 `CHECK (status IN (...))` | db-schema 5절 3항 | `payments`: READY/PAID/FAILED/REFUNDED, `refunds`: COMPLETED(+?) 제안 |
 | S-5 | `payments.amount`, `status`, `refunds.refund_amount`, `penalty_amount`, `status`를 NOT NULL로 | 도메인이 항상 값을 보장하는데 DB는 NULL을 허용. NULL이 읽히면 도메인 생성자가 막지만 원인 추적이 어려움 | 낮은 우선순위 |
-| S-6 | (선택) `payments.point_used INTEGER NOT NULL DEFAULT 0` | `RESTORE = reservation.total_price − payments.amount`는 예약 금액이 바뀌지 않는다는 가정에 기댐. 컬럼이 있으면 환불에서 예약을 읽지 않고도 복구액을 앎 | 기본 설계는 README 공식을 따르고 이 컬럼은 쓰지 않음 |
+| S-6 | (**도입 확정, 사용자 2026-11-05, 10절 D-27**. `schema.sql`·`SKILL.md`는 오케스트레이터가 갱신) `payments.point_used INTEGER NOT NULL DEFAULT 0 CHECK (point_used >= 0)` | `RESTORE = reservation.total_price − payments.amount`는 예약 금액이 바뀌지 않는다는 가정에 기댐. 컬럼이 있으면 환불에서 예약을 읽지 않고도 복구액을 앎 | 기본 설계는 README 공식을 따르고 이 컬럼은 쓰지 않음 |
 | S-7 | `refunds.refund_reason`(JSONB)은 쓰지 않음 | `reason`(VARCHAR 200)이 API 필드와 일치. 두 컬럼의 구분은 팀 확인(D-14) | 모델에는 컬럼을 매핑하되 도메인에서 쓰지 않음 |
 
 ---
@@ -690,7 +690,7 @@ payments 모듈 안에서만 영향이 있는 항목은 담당자가 확정했�
 | D-9, R-2 | **예약 상태 변경 방식** (결제 완료 시 상태 이름, `mark_paid` 호출 방식) | 6.1, 6.2 | `PENDING_PAYMENT` → `RESERVED`, `mark_paid(commit=False)` |
 | D-6, R-3, R-4 | **예약 취소와 환불의 구체적인 처리 순서** | 4.3.3, 4.3.4, 6.1 | 두 진입점 모두 지원, 한 트랜잭션에서 commit 1번 |
 | D-15, D-18 | **결제 제한 시간과 픽업 코드 발급 시점** | 6.1 | 결제 제한 시간 없음, 픽업 코드는 payments가 관여하지 않음 |
-| D-10 (일부) | **포인트 사용 단위와 적립률** | 1.2, 4.3.1 | 100P 단위(auth `use_points`가 검증), 적립 결제 금액 × 1% 버림 |
+| ~~D-10 (일부)~~ | ~~포인트 사용 단위와 적립률~~ | 1.2, 4.3.1 | **해소 (2026-11-05)**: auth 요구조건으로 확정(`docs/requirements/auth.md` REQ-42~51). 100P 단위(auth `use_points`가 검증), 적립 결제 금액(포인트분 제외) × 1% 버림. 구현 설계는 10절 |
 
 ---
 
@@ -990,3 +990,195 @@ python .claude/skills/layer-check/check_layers.py   # 위반 0건 (현재 2건)
 (cd src && uv run python -c "import main")
 uv run pytest -rs                                    # failed 0, db 마커 skip 0
 ```
+
+---
+
+## 10. 결제 포인트 연결 설계 (2026-11-05, D-10 해소, D-26~D-31 / C-18~C-20)
+
+**상태: 확정 (사용자, 2026-11-05).** D-27 `payments.point_used`(S-6) 도입 확정, Q-2~Q-7은 임시 기본값 그대로 확정. 배유민 님 허락으로 서상혁(오케스트레이터)이 진행. 구현 순서는 reservations 15절 작업(container의 stores·reservations·admin 구역) 다음이며, 이 작업의 container 변경은 payments 구역만이다. 아래 "임시 기본값"·"제안" 표현은 이 확정 상태가 우선한다.
+
+- 이 절은 설계다(코드 변경 없음). 1~9절의 확정 내용(8.1·8.2절)은 그대로 두고, 4.3절의 포인트 흐름과 `src/payments/application/service.py:56`의 `TODO(D-10)`을 이 절이 대체한다. 어긋나면 이 절이 우선한다.
+- 규칙 정본은 확정 요구조건 `docs/requirements/auth.md` REQ-42~51(잔액 상한은 REQ-37, auth 쪽 별도 작업). 배유민 님 동의(사용자 2026-11-05). 이 절은 규칙을 다시 쓰지 않고 REQ 번호로 가리킨다.
+- auth 쪽 호출 규약은 `docs/design/auth.md` 6.1절이 정본이다. 이 절은 payments 쪽 구현만 정한다.
+
+### 10.0 확인한 사실 (실행·열람 결과)
+
+| # | 사실 | 근거 |
+| --- | --- | --- |
+| F-1 | auth 서비스에 `use_points`·`earn_points`·`restore_points`·`revoke_points(-> int 실제 회수액)`가 모두 `commit=False` 지원으로 이미 있다 | `src/auth/application/service.py:191-225`, `_finish(commit)` |
+| F-2 | `User.use_points`가 100P 단위(`POINT_USE_UNIT`)·양수·잔액 이하를 검사하고 `ValueError`를 낸다. `revoke_points`는 `min(amount, 잔액)`만 회수 | `src/auth/domain/user.py:219-240` |
+| F-3 | auth는 payments·reservations·catalog·stores를 import하지 않는다(`grep "^from (payments\|reservations\|catalog\|stores)" src/auth` 결과 없음). payments -> auth 단방향이라 순환 없음 | R12 |
+| F-4 | container에 `create_auth_service`가 이미 있고 admin 구역이 `Depends(create_auth_service)`로 받는 선례가 있다 | `src/container.py:123`, `:352-354` |
+| F-5 | 예약 취소 경로: `ReservationApplicationService`(`reservations/application/service.py:94`, 일괄 취소 `:138`) -> `PaymentRefundAdapter.refund_for_cancelled_reservation` -> `PaymentApplicationService.refund_for_cancelled_reservation`. 이 메서드가 포인트를 건드리지 않는다(`payments/application/service.py:163-183`) | `reservations/application/adapters.py:68-85` |
+| F-6 | `RefundTarget`에는 `total_price`가 있지만 어댑터가 payments로 넘기는 인자는 `reservation_status`·`pickup_start`·`reason`·`waive_penalty`뿐이다(`total_price` 안 넘김) | `reservations/application/views.py:19-26`, `adapters.py:78-84` |
+| F-7 | `Payment`에는 이미 `user_id`가 있다(도메인 `payment.py:42`, 모델 `models.py:20`). 환불 시 복구 대상 회원은 `payment.user_id`로 알 수 있다 | |
+| F-8 | 라우터 `create_payment`가 `service.pay(user.id, body.reservation_id)`로 부른다 | `router.py:58-60` |
+| F-9 | `PaymentApplicationService` 생성자는 `session, *, reservations, payments, refunds, gateway, clock, policy`이고 `auth`가 없다. 생성 지점은 container(`:330`)와 테스트 3곳(`test_service.py:53,88,394`, `test_payments_api.py:52`) | |
+
+### 10.1 결정 표 (D-26~D-31, 임시 기본값은 확정이 아님)
+
+| ID | 결정 | 임시 기본값(제안) | 근거 |
+| --- | --- | --- | --- |
+| D-26 | 요청 필드 | `PaymentCreate.use_point: int = Field(0, ge=0)`. 100P 단위·잔액은 스키마에서 검사하지 않는다 | REQ-42(단위 정본은 auth, 두 곳에 두지 않음: auth.md 4.1.2). 형식 오류만 Pydantic 400 |
+| D-27 | 환불 복구액 계산 | **`payments.point_used` 컬럼(S-6) 도입.** `Payment.point_used`를 결제 시점에 저장하고 환불에서 `point_used` 전액을 복구 | 아래 10.1.1 비교 |
+| D-28 | 0원 결제(전액 포인트)의 게이트웨이 호출 | 0원이어도 `gateway.charge`를 호출한다(모의 게이트웨이는 항상 성공). 실제 게이트웨이 도입 시 `amount == 0`이면 생략하는 분기를 서비스가 아니라 `PaymentGateway` 구현체 안에 둔다 | 지금은 모의라 영향 없음. 서비스 흐름을 하나로 유지 |
+| D-29 | 포인트 상수 위치 | `domain/rules.py`에 `POINT_EARN_PERCENT = 1`만 둔다. 사용 단위(100P)는 auth `User.POINT_USE_UNIT`이 정본이라 payments에 복제하지 않는다 | REQ-42·46, 단일 정본 |
+| D-30 | 복구·회수 대상 회원 | `payment.user_id`(결제자). 관리자·상점주가 대신 환불해도 결제자에게 | auth.md 6.1 지킬 점 6, F-7 |
+| D-31 | 환불의 `_apply_refund` 공통화 | `refund()`와 `refund_for_cancelled_reservation()`이 같은 비공개 메서드 `_apply_refund(payment, refund)`를 호출한다. 두 진입점이 같은 규칙으로 복구·회수 | F-5: 예약 취소 경로가 현재 포인트를 빠뜨림(C-18) |
+
+#### 10.1.1 D-27 비교 (S-6 도입 여부)
+
+| 항목 | A. `used = total − amount` (S-6 없음) | B. `payments.point_used` 컬럼 (제안) |
+| --- | --- | --- |
+| 환불 API(`refund()`) | `snapshot.total_price`로 계산 가능 | `payment.point_used` |
+| 예약 취소 경로 | `refund_for_cancelled_reservation`에 `total_price` 인자가 없음(F-6). **reservations의 `adapters.py`를 고쳐 `total_price=target.total_price`를 넘겨야 함** = 다른 모듈 수정 | 인자 변경 없음. payments 안에서 끝남 |
+| 예약 총액이 나중에 달라질 때 | 틀린 금액을 복구(포인트 증발·복제) | 영향 없음. 결제 시점 값 |
+| 감사·정합 | 결제 행만 보고 사용 포인트를 알 수 없음 | `amount + point_used = total` 검증 가능 |
+| 비용 | 없음 | 스키마 변경: `schema.sql`·`db-schema/SKILL.md`(R14), `models.py`, 개발 DB `ALTER`(D-24), 기존 행은 `DEFAULT 0` |
+
+B를 제안하는 이유: A는 reservations 모듈을 고쳐야 하고(범위 밖, 타 팀원 코드), 두 모듈의 값이 어긋나면 포인트가 조용히 틀린다. B는 이 모듈 안에서 끝난다. 스키마 변경 승인이 늦어지면 **대체안 A로 구현하고 `refund_for_cancelled_reservation(..., total_price: int)` 인자를 추가**한다(어댑터 한 줄 변경은 reservations 담당 승인 필요, C-19).
+
+**스키마 변경 제안 S-6 (이 설계는 `schema.sql`을 고치지 않음, R14)**
+```sql
+ALTER TABLE payments ADD COLUMN point_used INTEGER NOT NULL DEFAULT 0 CHECK (point_used >= 0);
+-- 선택: amount + point_used = 예약 total_price 는 앱에서 보장(다른 테이블 값이라 CHECK 불가)
+```
+
+### 10.2 domain/
+
+**`rules.py` (수정)**: `POINT_EARN_PERCENT = 1  # REQ-46. auth 요구조건으로 확정`
+
+**`exceptions.py` (추가)**: `InvalidPointAmountError(ValueError)` (`error_code = "INVALID_POINT_AMOUNT"`, 400)
+
+**`payment.py` (수정)**
+
+| 항목 | 규칙 |
+| --- | --- |
+| 속성 추가 | `point_used: int = 0`. 생성자 검증: int(bool 제외), `>= 0`, `<= amount + point_used`는 총액을 모르므로 검사하지 않음 |
+| `request(reservation_id, user_id, total_price, now=None, *, use_point=0)` | 기존 위치 인자 순서 유지. `use_point`가 int(bool 제외)가 아니거나 음수, 또는 `total_price`보다 크면 `InvalidPointAmountError`(REQ-43). `total_price`가 정수·0 이상이 아니면 기존대로 `ReservationNotPayableError`. `amount = total_price − use_point`, `point_used = use_point`. 0원 허용(REQ-44, D-19) |
+| `earn_point_amount() -> int` | `(self.amount * POINT_EARN_PERCENT) // 100`. 정수 연산(float 금지). 99원 이하·0원이면 0(REQ-46·47). `status`와 무관한 순수 계산. 위약금과 무관하게 `amount` 기준(REQ-50). 호출 시점 규칙은 서비스가 정함 |
+| `restorable_point_amount() -> int` | `self.point_used` 반환(D-27 B). 위약금 무관(REQ-49) |
+| 단위(100P) | payments 도메인은 검사하지 않는다. `total_price`가 100원 단위가 아니어도(예: 1,050원) `use_point=1000`이면 통과하고 `amount=50`. `use_point=1050`은 총액 이하이므로 도메인 통과 후 auth `use_points`가 단위 위반 `ValueError`(400)로 막는다(REQ-44 "끝자리는 포인트로 낼 수 없다"가 이 경로로 충족) |
+| 상태 전이 | 변경 없음: READY -> PAID/FAILED, PAID -> REFUNDED. 포인트 계산은 전이를 바꾸지 않는다 |
+
+### 10.3 infrastructure/ (D-27 B 채택 시)
+
+- `models.py`: `point_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0")`.
+- `repositories.py`: `_to_domain`·`save`(INSERT/UPDATE)에 `point_used`를 매핑한다. 레포지토리 메서드 목록은 변경 없음(R4·R5: flush까지만).
+- 동시성: 새 잠금 없음. 포인트 잔액 경쟁은 auth `_locked_user`의 `FOR UPDATE`가 막는다(C-3).
+
+### 10.4 application/ — `PaymentApplicationService`
+
+**생성자(C-18 포함, R8·R11·R12)**: 키워드 필수 인자 `auth: AuthApplicationService`를 추가한다(기본값 `None` 금지). 서비스 안에서 `AuthApplicationService(...)`를 만들지 않는다. 타입 import는 `from auth.application.service import AuthApplicationService`(상대 application 서비스, 3.4절 표 3행). payments가 auth를 import하고 auth는 payments를 import하지 않으므로 순환이 없다(F-3).
+
+**`pay(user_id, reservation_id, use_point=0) -> Payment`** (기존 순서 유지, 3~4단계 사이에 추가)
+
+1. `snapshot = reservations.get(reservation_id, for_update=True)` -> 404 / `ensure_payable_by` 403 / 중복 409(상태 검사보다 먼저, 기존) / `ensure_payable_state` 400
+2. `payment = Payment.request(..., snapshot.total_price, now, use_point=use_point)` — `use_point > total`·음수는 여기서 `InvalidPointAmountError`(400). **auth 호출 전이라 쓴 것이 없다**
+3. 이후 전체를 `try ... except Exception: await self.session.rollback(); raise`로 감싼다(게이트웨이가 예외를 던지는 경우 포함)
+4. `use_point > 0`이면 `await self.auth.use_points(user_id, use_point, commit=False)` — 단위·잔액 위반 `ValueError` -> 400(REQ-42·43), 없는 회원 404
+5. `result = await self.gateway.charge(payment)`
+   - 실패: `payment.fail(...)` 후 `await self.session.rollback()` -> **4단계의 사용 포인트가 되돌아간다(REQ-45)**. `PaymentFailedError`(400). 실패 결제는 저장하지 않는다(기존 D-23, S-2 승인 시 변경)
+   - 성공: `payment.approve(result.provider_payment_id, now)`
+6. `await self.payments.save(payment)` (UNIQUE 위반 -> 409)
+7. `earn = payment.earn_point_amount()`; `earn > 0`이면 `await self.auth.earn_points(user_id, earn, commit=False)` (REQ-46·47. 결제 확정과 같은 트랜잭션이라 "즉시", REQ-48)
+8. `await self.reservations.mark_paid(reservation_id, commit=False)`
+9. `await self.session.commit()` **한 번**. auth 호출은 전부 `commit=False`
+
+**`_apply_refund(payment, refund)` (신규 비공개, commit하지 않음)** — `refund()`의 `refunds.save`·`payments.save` 직후와 `refund_for_cancelled_reservation()`의 같은 위치에서 호출
+
+1. `restored = payment.restorable_point_amount()`; `> 0`이면 `await self.auth.restore_points(payment.user_id, restored, commit=False)` (REQ-49, 위약금 무관)
+2. `earned = payment.earn_point_amount()`; `> 0`이면 `await self.auth.revoke_points(payment.user_id, earned, commit=False)`. 반환값(실제 회수액)은 무시한다(REQ-50: 모자란 만큼 포기, 0이면 auth가 로그를 남기지 않음)
+3. 복구가 회수보다 먼저다(잔액이 모자라 회수액이 줄어드는 일이 없도록. REQ-50의 "잔액 한도"는 복구분을 포함한 잔액 기준으로 해석, C-20에서 확인)
+
+**멱등성(REQ-51)**: `_apply_refund`는 `payment.refund()`가 성공한 뒤에만 호출된다. 이미 환불된 결제는 `payments` 행 `FOR UPDATE` + `ensure_refundable()`(409) 또는 `ensure_cancel_refundable`(500)에서 먼저 막혀 포인트에 닿지 않는다. 별도 플래그 없음.
+
+**`refund()` 변경**: `_apply_refund` 호출 한 줄 추가. 복구·회수 대상은 `payment.user_id`. 이후 `reservations.cancel_for_refund` -> `commit`(기존). **`refund_for_cancelled_reservation()` 변경**: `_apply_refund` 호출 한 줄 추가. `commit`하지 않는 기존 규약 유지(R13). 새 인자 불필요(D-27 B).
+
+### 10.5 트랜잭션·잠금 순서
+
+| 흐름 | 락 순서 | 포인트 호출 | 실패 시 |
+| --- | --- | --- | --- |
+| 결제 요청 | 예약 -> 회원(`use_points`) -> 결제 INSERT -> 회원(`earn_points`, 이미 잠금) | `use_points` -> `earn_points` | 게이트웨이 실패·예외: `rollback()`이 사용·적립·결제 모두 되돌림(REQ-45). commit 전이라 부분 반영 없음 |
+| 환불 API | 예약 -> 결제 -> 환불 INSERT -> 회원 | `restore_points` -> `revoke_points` | `except Exception: rollback()`(기존). 환불·결제 상태·예약 취소·재고·포인트가 함께 롤백 |
+| 고객 예약 취소 | 예약(reservations) -> 결제 -> 환불 INSERT -> 회원 | 위와 동일 | reservations 서비스가 한 번 롤백(기존 규약) |
+| 상점주 일괄 취소(`waive_penalty=True`) | 예약별로 위와 동일 | 위와 동일(REQ-49: 위약금 면제와 무관하게 복구) | catalog/reservations 정함 |
+
+C-4 유지: 모든 경로가 **예약 행을 먼저** 잠그고 회원 행을 **마지막**에 잠근다. 결제 요청이 회원을 결제 INSERT보다 먼저 잠그지만, 같은 예약의 환불은 예약 잠금에서 대기하고 새로 INSERT되는 결제 행은 다른 트랜잭션이 잠글 수 없으므로 순환 대기가 생기지 않는다. 같은 회원의 서로 다른 예약 두 건은 회원 행 하나에서만 만나 직렬화된다. 단점: `use_points`가 회원 행을 쥔 채 `gateway.charge`를 기다린다. 모의 게이트웨이에서는 무시할 수 있고, 실제 게이트웨이 도입 시 재검토(D-32 후보, 지금 결정 아님).
+
+### 10.6 표현 (presentation/)
+
+- `schemas.py`: `PaymentCreate`에 `use_point: int = Field(0, ge=0, description="사용할 포인트(100P 단위, 선택)")`. `PaymentResponse`는 `amount`가 이미 결제 금액(포인트 제외)이라 필드 추가 없음. 응답에 `point_used`·적립액을 넣는지는 명세에 없으므로 넣지 않는다(R15). 필요하면 `docs/reference/payments.md` 갱신 제안(C-17 기존 항목과 함께).
+- `router.py`: `service.pay(user.id, body.reservation_id, use_point=body.use_point)`.
+- 에러: 단위·잔액·총액 초과 400 `VALIDATION_ERROR`(auth `ValueError`) 또는 `INVALID_POINT_AMOUNT`(총액 초과). 음수·정수 아님은 Pydantic 400. 잔액 부족 메시지는 auth 문구를 그대로 쓴다.
+
+### 10.7 container 연결 (자기 구역만, R9)
+
+```python
+# src/container.py payments 구역
+def create_payment_service(
+    session: AsyncSession = Depends(get_db),
+    reservations: ReservationPort = Depends(create_payment_reservation_port),
+    payments: PaymentRepository = Depends(create_payment_repository),
+    refunds: RefundRepository = Depends(create_refund_repository),
+    auth: AuthApplicationService = Depends(create_auth_service),   # 추가. 같은 요청 세션(get_db 공유)
+) -> PaymentApplicationService:
+    return PaymentApplicationService(session=session, reservations=reservations, payments=payments,
+                                     refunds=refunds, auth=auth, gateway=_payments_gateway, clock=_payments_clock)
+```
+- `AuthApplicationService` import는 이미 container 상단에 있다(`container.py:12`). `create_auth_service`는 auth 구역(위쪽)에 정의돼 있어 순서 문제 없음.
+- 한 요청 안에서 `get_db`는 같은 세션을 준다. 예약 취소 경로의 `create_reservation_refund_port -> create_payment_service`도 같은 `auth`·세션을 받는다.
+- R12: 서비스 생성자 안에서 서비스를 만들지 않고 container 팩토리만 만든다. 생성 그래프 `create_payment_service -> create_auth_service`는 auth가 payments를 모르므로 순환 없음(F-3). 검증은 `(cd src && uv run python -c "import main")`와 `tests/payments/test_wiring.py`.
+
+### 10.8 테스트 계획 (`tests/payments/`, DB 없음 우선)
+
+- `fakes.py`: `FakeAuth`(`use_points`·`earn_points`·`restore_points`·`revoke_points`를 호출 순서·인자·`commit` 값과 함께 기록. `use_points`는 단위·잔액 위반 시 `ValueError`, `revoke_points`는 `min(잔액, amount)` 반환). `Env`에 `auth=` 주입, 기존 3개 생성 지점(`test_service.py:53,88,394`, `test_payments_api.py:52`)에 `auth` 인자 추가.
+- `test_domain.py`: `request(use_point=)` — 0·100·총액과 같음(0원 결제, REQ-44)·총액 초과·음수·bool·float -> `InvalidPointAmountError`/`ValueError`; `amount = total − use_point`; `earn_point_amount` 경계(0, 99 -> 0, 100 -> 1, 199 -> 1, 200 -> 2), 포인트분 제외 기준(`total=10000, use_point=5000` -> amount 5000 -> 50); `restorable_point_amount`.
+- `test_service.py`
+  - 결제 성공: 호출 순서 `use_points -> earn_points`, 모든 호출 `commit=False`, `session.commits == 1`
+  - `use_point=0`이면 `use_points` 호출 없음, 적립 0이면 `earn_points` 호출 없음(결제 금액 50원)
+  - 0원 결제: `use_point == total`이면 `earn_points` 미호출, 결제 PAID 저장
+  - 단위·잔액 위반(`FakeAuth`가 `ValueError`): 결제 저장·예약 `mark_paid` 없음, `commits == 0`
+  - 게이트웨이 실패: `session.rollbacks >= 1`, `commits == 0`, `PaymentFailedError`(REQ-45), 적립 미호출
+  - 환불: `restore_points(payment.user_id, point_used)` -> `revoke_points(payment.user_id, earned)` 순서, `commit=False`, `commits == 1`; 위약금이 있는 정책에서도 복구액이 `point_used` 전액(REQ-49); `point_used == 0`이면 복구 미호출; 이미 환불된 결제는 두 메서드 모두 미호출(REQ-51); 환불자가 타인(관리자)이어도 `payment.user_id`로 호출
+  - `refund_for_cancelled_reservation`(C-18): 같은 검증 + `commit` 호출 없음(R13), `waive_penalty=True`에서도 복구
+  - 예외 전파: `restore_points`가 예외를 내면 환불 저장·예약 취소가 롤백(`rollbacks == 1`)
+- `test_payments_api.py`: `use_point` 필드 전달, 음수 400, 단위 위반 400 `VALIDATION_ERROR`.
+- `test_wiring.py`: `create_payment_service(..., auth=...)`가 `AuthApplicationService`를 주입하고 같은 세션을 쓰는지(`service.auth.session is service.session`).
+- DB 테스트(`@pytest.mark.db`, 실행은 이 작업 범위 밖): 결제 -> 잔액 -100/+1% -> 환불 -> 복구·회수 왕복, `point_log` 행 확인, 회수 시 잔액 부족(적립 직후 다른 곳에서 사용했을 때) 포기. 빠지면 R16 위반이므로 구현자가 `tests/payments/test_payments_db.py`에 추가하고 실행은 오케스트레이터가 한다.
+
+### 10.9 구현자 쓰기 범위 (`layer-implementer`, 한 명) — 확정본
+
+개발 DB 안내: `create_all`은 기존 `payments` 테이블을 바꾸지 못하므로, 로컬 DB를 재생성하거나 `ALTER TABLE payments ADD COLUMN point_used INTEGER NOT NULL DEFAULT 0 CHECK (point_used >= 0);`를 수동 적용한다(D-24). 구현자는 DB를 건드리지 않고 이 문구를 보고서에 남긴다. 대체안 A는 폐기(D-27 B 확정)이므로 `src/reservations/**`는 쓰지 않는다. `models.py`·`repositories.py`의 `point_used` 매핑은 구현자 범위, `schema.sql`·`SKILL.md`는 오케스트레이터 범위.
+
+
+| 범위 | 파일 |
+| --- | --- |
+| payments 모듈 | `src/payments/domain/{payment,exceptions,rules}.py`, `infrastructure/{models,repositories}.py`(D-27 B), `application/service.py`, `presentation/{schemas,router}.py` |
+| container | `src/container.py`의 **payments 구역만**(`create_payment_service`에 `auth` 추가). 다른 구역·`wire_dependencies`는 변경 없음 |
+| 테스트 | `tests/payments/**` |
+| 쓰지 않음(제안으로만) | `src/reservations/**`(대체안 A 때만 어댑터 한 줄, 승인 필요), `src/auth/**`, `.claude/skills/db-schema/{schema.sql,SKILL.md}`(S-6, 오케스트레이터), 개발 DB `ALTER`(D-24), `docs/reference/payments.md` |
+
+완료 게이트: `backend-invariants` §7의 세 명령. 정독 규칙(R3·R5·R8·R11~R13)은 `layer-checker`.
+
+### 10.10 정합 이슈 (C-번호)
+
+| # | 이슈 | 근거 | 처리 |
+| --- | --- | --- | --- |
+| C-18 | **예약 취소 경로가 포인트를 건드리지 않음.** `refund_for_cancelled_reservation`에는 포인트 코드가 없어, 이대로면 환불 API만 포인트를 복구하고 예약 취소는 포인트를 잃게 한다 | F-5 | `_apply_refund` 공용화(D-31). 어댑터(`adapters.py`) 수정 불필요(D-27 B) |
+| C-19 | 대체안 A(`used = total − amount`)는 reservations 어댑터가 `total_price`를 넘겨야 함 | F-6 | D-27 B 채택으로 회피. A 채택 시 reservations 담당 승인 필요 |
+| C-20 | **REQ-50의 "잔액 한도"가 복구분을 포함한 잔액인지** 문서에 없음. 복구 후 회수 순서(10.4)면 포함으로 동작. 또 REQ-37 상한(2,147,483,647)을 넘기는 `restore`·`earn` 시 auth가 오류를 낼지 상한으로 자를지 auth 작업 결과에 따라 환불·결제가 400으로 실패할 수 있음 | auth.md REQ-37·50, `user.py:22` | 질문 목록 Q-1·Q-2 |
+
+### 10.11 질문 목록 (Q-1~Q-7 모두 사용자 확정 2026-11-05, 표의 "임시 기본값"이 확정값)
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
+| --- | --- | --- | --- | --- |
+| Q-1 (D-27) | 사용 포인트 저장 방식: `payments.point_used` 컬럼(S-6) 도입 여부 | 10.1.1 | 도입. 승인 전에는 대체안 A + reservations 어댑터 한 줄 | 모듈 경계(R11), 예약 금액 변동 안전 |
+| Q-2 | 복구·적립이 REQ-37 상한을 넘길 때 동작(오류 vs 상한까지만) | REQ-37, C-20 | auth 작업 결과를 따름. payments는 예외를 그대로 전파해 환불 전체 롤백 | REQ-37은 auth 소유, payments는 호출만 |
+| Q-3 | REQ-50 "잔액 한도"에 같은 환불의 복구분 포함 여부 | REQ-50 | 포함(복구 먼저, 회수 나중) | 10.4 `_apply_refund` 순서 |
+| Q-4 (D-28) | 0원 결제의 게이트웨이 호출 | D-19 | 호출(모의는 항상 성공) | 흐름 단일화 |
+| Q-5 | 응답에 `point_used`·적립액 노출 여부 | `docs/reference/payments.md` | 노출 안 함 | 명세에 없음(R15) |
+| Q-6 | 회원 행을 쥔 채 게이트웨이 호출(실제 게이트웨이 도입 시) | 10.5 | 모의 단계라 허용 | 지금 영향 없음 |
+| Q-7 | `use_point` 총액 초과의 `error_code`(`INVALID_POINT_AMOUNT` vs `VALIDATION_ERROR`) | 명세에 에러 코드 없음 | `INVALID_POINT_AMOUNT`(400) | D-17 payments용 코드 체계 |
+
+코드에서 한곳에 모으는 값: `POINT_EARN_PERCENT`는 `domain/rules.py`, 사용 단위는 auth `User.POINT_USE_UNIT`, 0원 게이트웨이 분기는 게이트웨이 구현체.

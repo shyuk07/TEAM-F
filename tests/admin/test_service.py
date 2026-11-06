@@ -216,12 +216,14 @@ class FakeReservations:
         self.cancelled = cancelled
         self.reserved = reserved
 
-    async def cancel_reserved_for_user(self, user_id, *, reason):
-        self.rec.record("cancel_reserved_for_user", user_id=user_id, reason=reason)
+    async def cancel_active_for_user(self, user_id, *, reason):
+        self.rec.record("cancel_active_for_user", user_id=user_id, reason=reason)
         return self.cancelled
 
-    async def has_reserved_for_store(self, store_id):
-        self.rec.record("has_reserved_for_store", store_id=store_id)
+    async def has_reserved_for_store(self, store_id, *, excluding_user_id=None):
+        self.rec.record(
+            "has_reserved_for_store", store_id=store_id, excluding_user_id=excluding_user_id
+        )
         return self.reserved
 
 
@@ -364,15 +366,17 @@ async def test_withdraw_owner_full_call_order():
         "check_withdrawable",
         "lock_store_of_owner",
         "end_all_sales_of_store",
-        "cancel_reserved_for_user",
-        "has_reserved_for_store",
+        "has_reserved_for_store",  # 매장 확인이 취소보다 먼저 (D-32)
+        "cancel_active_for_user",
         "close_store_by_admin",
         "withdraw_user",
         "commit",
     ]
     assert result.status == "WITHDRAWN" and result.deleted_at == NOW
     assert result.cancelled_reservation_count == 0
-    assert ctx.rec.kwargs_of("cancel_reserved_for_user")[0]["reason"] == "약관 위반"
+    assert ctx.rec.kwargs_of("cancel_active_for_user")[0]["reason"] == "약관 위반"
+    # 본인 예약은 이어서 취소되므로 매장 확인에서 제외한다
+    assert ctx.rec.kwargs_of("has_reserved_for_store")[0]["excluding_user_id"] == USER_ID
     assert ctx.rec.kwargs_of("close_store_by_admin")[0]["reserved"] is False
     assert ctx.session.commits == 1
     ctx.assert_no_commit_flag_true()
@@ -383,7 +387,7 @@ async def test_withdraw_customer_skips_store_steps_but_cancels_reservations():
     ctx = Ctx(role="CUSTOMER", cancelled=3)
     result = await ctx.service.withdraw_user(USER_ID, "약관 위반")
     assert ctx.rec.events == [
-        "get_account", "check_withdrawable", "cancel_reserved_for_user", "withdraw_user", "commit",
+        "get_account", "check_withdrawable", "cancel_active_for_user", "withdraw_user", "commit",
     ]
     assert result.cancelled_reservation_count == 3
 
@@ -393,7 +397,7 @@ async def test_withdraw_owner_without_store_skips_store_steps():
     await ctx.service.withdraw_user(USER_ID, "x")
     assert ctx.rec.events == [
         "get_account", "check_withdrawable", "lock_store_of_owner",
-        "cancel_reserved_for_user", "withdraw_user", "commit",
+        "cancel_active_for_user", "withdraw_user", "commit",
     ]
 
 

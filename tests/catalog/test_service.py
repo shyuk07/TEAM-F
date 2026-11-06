@@ -148,6 +148,12 @@ class FakeOffers(DiscountOfferRepository):
             key=lambda o: o.id,
         )
 
+    async def find_ids_by_store(self, store_id, *, for_update=False):
+        if for_update:
+            self.events.append("offers_lock_store")
+        pids = {p.id for p in self.products.items.values() if p.store_id == store_id}
+        return sorted(o.id for o in self.items.values() if o.product_id in pids)
+
     async def find_by_store(self, store_id, *, statuses, now, page, size):
         self.last_statuses = tuple(statuses)
         return [], 0

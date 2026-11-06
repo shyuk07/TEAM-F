@@ -199,3 +199,92 @@ async def test_container_graph_resolves_and_shares_session(anyio_backend):
     assert refunds.payments.reservations.lifecycle is lifecycle  # 같은 lifecycle(같은 요청 캐시)
     for owner in (reservation_service, lifecycle, refunds.payments, payment_service):
         assert owner.session is session  # 한 요청 한 세션 (R13)
+
+
+# ── 회원 탈퇴 연동 조립 (reservations.md 15.6, D-36) ──
+def test_pickup_pending_port_is_overridden_with_store_reservation_query():
+    from container import create_pickup_pending_port, create_store_reservation_query
+
+    with pytest.raises(NotImplementedError):
+        create_pickup_pending_port()
+    fresh = FastAPI()
+    wire_dependencies(fresh)
+    assert fresh.dependency_overrides[create_pickup_pending_port] is create_store_reservation_query
+    assert app.dependency_overrides[create_pickup_pending_port] is create_store_reservation_query
+
+
+def test_pickup_endpoint_allows_suspended_owner_others_do_not():
+    from typing import get_type_hints
+
+    from auth.presentation.dependencies import CurrentUser, SuspendedAllowedOwnerUser
+    from reservations.presentation import router as router_module
+
+    def hint(fn, name):
+        return get_type_hints(fn, include_extras=True)[name]
+
+    assert hint(router_module.complete_pickup, "owner") == SuspendedAllowedOwnerUser
+    for fn in (router_module.cancel_reservation,):
+        assert hint(fn, "user") == CurrentUser
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_container_resolves_real_admin_and_pickup_pending_adapters(anyio_backend):
+    from fastapi import Depends
+
+    from admin.application.service import AdminApplicationService
+    from admin.presentation.dependencies import provide_admin_service
+    from database import get_db
+    from reservations.application.admin_adapters import ReservationAdminAdapter
+    from reservations.application.store_adapters import CatalogStoreOffersAdapter
+    from reservations.application.store_query import StoreReservationQuery
+    from stores.application.service import StoresApplicationService
+    from stores.presentation.dependencies import provide_stores_service
+
+    probe = FastAPI()
+    wire_dependencies(probe)
+    session = object()
+    probe.dependency_overrides[get_db] = lambda: session
+    seen = {}
+
+    @probe.get("/probe")
+    async def route(
+        admin: AdminApplicationService = Depends(provide_admin_service),
+        stores: StoresApplicationService = Depends(provide_stores_service),
+        reservations: ReservationApplicationService = Depends(deps.provide_reservation_service),
+    ):
+        seen.update(admin=admin, stores=stores, reservations=reservations)
+        return {}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=probe), base_url="http://t") as client:
+        assert (await client.get("/probe")).status_code == 200
+
+    adapter = seen["admin"].reservations
+    assert isinstance(adapter, ReservationAdminAdapter)
+    assert isinstance(adapter.query, StoreReservationQuery)
+    assert isinstance(adapter.query.store_offers, CatalogStoreOffersAdapter)
+    assert isinstance(seen["stores"].pickup_pending, StoreReservationQuery)
+    assert adapter.query.reservations.session is session  # 같은 요청 세션
+    assert adapter.service.session is session
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_admin_inconsistency_is_500_in_common_format(anyio_backend):
+    from admin.domain.exceptions import ReservationDataInconsistentError
+
+    small = FastAPI()
+    register_exception_handlers(small)
+
+    @small.get("/boom")
+    async def boom():
+        raise ReservationDataInconsistentError()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=small), base_url="http://t") as c:
+        r = await c.get("/boom")
+    assert r.status_code == 500
+    assert r.json() == {
+        "success": False,
+        "error_code": "DATA_INCONSISTENT",
+        "message": "예약과 결제 상태가 일치하지 않습니다. 관리자에게 문의해 주세요.",
+    }

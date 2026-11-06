@@ -7,7 +7,6 @@ from admin.application.ports import ReservationAdminPort
 from admin.application.service import AdminApplicationService
 from admin.domain.service import Clock as AdminClock
 from admin.infrastructure.clock import SystemClock as AdminSystemClock
-from admin.infrastructure.reservation_admin import NoReservationAdmin
 from admin.presentation.dependencies import provide_admin_service
 from auth.application.service import AuthApplicationService
 from auth.domain.repository.point_log_repository import PointLogRepository
@@ -47,11 +46,14 @@ from catalog.presentation.dependencies import (
 )
 from database import get_db
 from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
+from reservations.application.admin_adapters import ReservationAdminAdapter
 from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
 from reservations.application.catalog_stock_adapter import CatalogStockAdapter
 from reservations.application.lifecycle_service import ReservationLifecycleService
-from reservations.application.ports import RefundPort, StockPort
+from reservations.application.ports import RefundPort, StoreOffersPort, StockPort
 from reservations.application.service import ReservationApplicationService
+from reservations.application.store_adapters import CatalogStoreOffersAdapter
+from reservations.application.store_query import StoreReservationQuery
 from reservations.domain.repository import ReservationRepository
 from reservations.domain.service import Clock as ReservationsClock
 from reservations.domain.service import PickupCodeGenerator
@@ -83,7 +85,6 @@ from stores.domain.service import Clock as StoresClock
 from stores.domain.service import Geocoder
 from stores.infrastructure.clock import SystemClock
 from stores.infrastructure.geocoder import NaverGeocoder
-from stores.infrastructure.pickup_pending import NoPickupPendingReservations
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
 from stores.infrastructure.settings import get_naver_geocoding_settings
 from stores.presentation.dependencies import provide_store_repository, provide_stores_service
@@ -98,11 +99,9 @@ _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
-_pickup_pending: PickupPendingPort = NoPickupPendingReservations()  # 임시 미연계 (stores.md D21): reservations 후속 PR이 교체
 # 네이버 지오코딩: NAVER_MAP_* 환경변수가 없으면 개설이 503 (stores.md D28)
 _geocoder: Geocoder = NaverGeocoder(get_naver_geocoding_settings())
 _admin_clock: AdminClock = AdminSystemClock()
-_reservation_admin: ReservationAdminPort = NoReservationAdmin()  # 임시 (admin.md B-6, C10): reservations 후속 PR이 교체
 
 
 # ── auth ─────────────────────────────
@@ -219,7 +218,9 @@ def create_open_offers_port(
 
 
 def create_pickup_pending_port() -> PickupPendingPort:
-    return _pickup_pending
+    """자리 표시 함수. 예약 구역이 아래에 있어 여기서 직접 만들 수 없다.
+    wire_dependencies가 create_store_reservation_query(아래 예약 구역)로 override한다."""
+    raise NotImplementedError("wire_dependencies에서 create_store_reservation_query로 교체됩니다.")
 
 
 def create_geocoder() -> Geocoder:
@@ -306,6 +307,20 @@ def create_catalog_reservation_canceller(
     return OfferReservationCanceller(service)
 
 
+def create_store_offers_port(
+    offers: DiscountOfferRepository = Depends(create_discount_offer_repository),
+) -> StoreOffersPort:
+    return CatalogStoreOffersAdapter(offers)  # catalog 추상 레포지토리만 사용 (R11, R12)
+
+
+def create_store_reservation_query(
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+    store_offers: StoreOffersPort = Depends(create_store_offers_port),
+) -> StoreReservationQuery:
+    """stores PickupPendingPort와 admin 매장 확인을 둘 다 만족하는 읽기 전용 질의 (D-34)."""
+    return StoreReservationQuery(reservations=reservations, store_offers=store_offers)
+
+
 # ── payments ─────────────────────────
 def create_payment_repository(session: AsyncSession = Depends(get_db)) -> PaymentRepository:
     return SqlAlchemyPaymentRepository(session)
@@ -345,8 +360,11 @@ def create_reservation_refund_port(
 
 
 # ── admin ────────────────────────────
-def create_reservation_admin() -> ReservationAdminPort:
-    return _reservation_admin
+def create_reservation_admin(
+    service: ReservationApplicationService = Depends(create_reservation_service),
+    query: StoreReservationQuery = Depends(create_store_reservation_query),
+) -> ReservationAdminPort:
+    return ReservationAdminAdapter(service, query)  # 같은 요청 세션의 예약 서비스 (R13)
 
 
 def create_admin_service(
@@ -385,5 +403,7 @@ def wire_dependencies(app: FastAPI) -> None:
             # catalog 서비스가 받는 포트도 같은 방식으로 교체 (정의 순서 때문에 위쪽 함수를 옮기지 않는다)
             create_reservation_lookup: create_catalog_reservation_lookup,
             create_reservation_cancel: create_catalog_reservation_canceller,
+            # stores 서비스가 받는 PickupPendingPort를 예약 질의로 교체 (D-36)
+            create_pickup_pending_port: create_store_reservation_query,
         }
     )

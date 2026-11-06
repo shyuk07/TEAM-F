@@ -14,7 +14,7 @@ class OpenOffersPort(Protocol):
 class PickupPendingPort(Protocol):
     """픽업 대기 중인 예약이 있는지 묻는 읽기 포트. commit하지 않는다.
 
-    미연계: 구현은 NoPickupPendingReservations(항상 False). reservations 후속에서 교체한다.
+    RESERVED(픽업 대기) 예약만 센다. reservations의 StoreReservationQuery가 구조적으로 만족한다.
     """
 
     async def has_pickup_pending_for_store(self, store_id: uuid.UUID) -> bool: ...

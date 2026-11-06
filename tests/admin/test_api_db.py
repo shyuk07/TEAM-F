@@ -2,7 +2,7 @@
 
 ADMIN 계정은 가입 경로가 없으므로 기존 ensure_admin 경로로 만든다 (D29).
 EP 4는 DELETE 본문이 있어 client.request("DELETE", ..., json=)을 쓴다 (B-9).
-미연계(R16): RESERVED 예약 취소·남은 예약 검사는 NoReservationAdmin이라 DB 테스트로 만들지 않는다.
+예약 취소·남은 예약 검사의 DB 통합은 tests/reservations/test_withdrawal_db.py에서 한다.
 """
 
 import uuid
@@ -313,7 +313,7 @@ async def test_withdraw_customer(client):
     body = r.json()
     assert set(body) == {"id", "status", "deleted_at", "cancelled_reservation_count"}
     assert body["status"] == "WITHDRAWN" and body["deleted_at"] is not None
-    assert body["cancelled_reservation_count"] == 0  # 미연계: NoReservationAdmin (R16)
+    assert body["cancelled_reservation_count"] == 0  # 예약이 없는 회원
     row = await user_row(client, cid)
     assert row.status == "WITHDRAWN" and row.deleted_reason == "약관 위반"
     assert_error(await login(client, "cust@test.com"), 401, "INVALID_CREDENTIALS")

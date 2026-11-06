@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from admin.domain.exceptions import ReservationDataInconsistentError
 from auth.domain.exceptions import AuthenticationError, EmailDuplicatedError
 from reservations.domain.exceptions import ReservationConflictError
 from stores.domain.exceptions import GeocodingUnavailableError
@@ -35,6 +36,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ReservationConflictError)
     async def reservation_conflict(request: Request, exc: ReservationConflictError):
         return _response(409, exc.error_code, str(exc))
+
+    @app.exception_handler(ReservationDataInconsistentError)
+    async def reservation_data_inconsistent(request: Request, exc: ReservationDataInconsistentError):
+        # 롤백·ERROR 로그는 예약 서비스가 이미 했다. 여기서는 공통 형식의 500 응답만 만든다.
+        return _response(500, exc.error_code, str(exc))
 
     @app.exception_handler(GeocodingUnavailableError)
     async def geocoding_unavailable(request: Request, exc: GeocodingUnavailableError):
