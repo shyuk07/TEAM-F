@@ -157,6 +157,11 @@ class Store:
             return StoreStatus.SUSPENDED
         return StoreStatus.ACTIVE
 
+    @property
+    def is_publicly_visible(self) -> bool:
+        """공개 검색 노출 조건 (catalog D61). 레포지토리 find_visible_near의 SQL 조건과 같아야 한다."""
+        return self.is_approved and self.status == StoreStatus.ACTIVE
+
     def is_owned_by(self, user_id: uuid.UUID) -> bool:
         return self.owner_id == user_id
 

@@ -1124,3 +1124,116 @@ NAVER_MAP_CLIENT_SECRET=
 - 풀 연결 점유를 줄이는 세션 반납 구조(14.4)
 - OWNER 가입 시 `name` 필수화(auth, D37)
 - 주소 표기 정규화(도로명/지번 동일 판정)로 중복 판정 강화(D32)
+
+---
+
+## 15. 공개 검색용 노출 상점 조회 — catalog #3·#8의 선행 조건 (2026-11-06 추가)
+
+- 대상: catalog `GET /v1/products`(#3 상품 검색)·`GET /v1/offers`(#8 주변 할인 목록)가 쓰는 읽기 질의. 정본 요구는 `docs/design/catalog.md` 14.3절(`StorePort.find_visible_stores`, D65·D66·D77, Q42)이고, 이 절은 stores 쪽 구현 설계다. 엔드포인트·테이블·컬럼 추가는 없다(스키마 변경 없음, R14).
+- 사용자 결정(2026-11-06 "그대로 진행"): catalog Q31~Q44의 임시 기본값 확정과 이 절(C15)의 stores 작업 포함. 아래 D41~D47은 그 결과다.
+- 이 절은 기존 0~14절을 바꾸지 않고 더한다. 4.1절의 "catalog `StorePort`" 목록과 3.2절 레포지토리 메서드 표에 아래 메서드가 추가되는 것으로 읽는다.
+
+### 15.0 차단 이슈 확인
+
+| 확인 | 결과 |
+| --- | --- |
+| 필요한 컬럼 | `stores.latitude`·`longitude`(`Double`, NULL 가능), `approval_at`·`closed_at`·`suspended_at`(NULL 가능), `name` 모두 `src/stores/infrastructure/models.py`에 있다 |
+| 읽기 서비스 | `StoreQueryService`(`src/stores/application/query_service.py`)가 이미 catalog `StorePort`를 구조적으로 만족한다. container의 `create_store_port`도 이를 돌려준다 |
+| 의존성·환경변수·컨테이너 | 추가 없음. `container.py`·`main.py` 변경 없음(`create_store_port`가 같은 `StoreQueryService`를 반환) |
+| 기존 fake | `StoreRepository`는 ABC라 추상 메서드가 늘면 `tests/stores`의 fake 레포지토리가 구현하지 않으면 인스턴스를 만들 수 없다(C22) |
+
+### 15.1 도메인 (domain/)
+
+fastapi·sqlalchemy를 import하지 않는다(R1).
+
+| 대상 | 정의 |
+| --- | --- |
+| `StoreWithDistance` (불변 dataclass, `domain/store.py` 안 또는 `domain/store_distance.py`) | `store: Store`, `distance_km: float \| None`(위치 미지정이면 None, 반올림하지 않은 값) |
+| `Store.is_publicly_visible` (프로퍼티) | `is_approved and not is_closed and not is_suspended`. 공개 검색 노출 조건의 도메인 정의(D41) |
+
+- `is_publicly_visible`은 SQL 조건과 같은 결과여야 한다. 둘은 한 곳에서 파생되지 않고 도메인 프로퍼티 + SQL 두 곳에 있으므로 **같은 데이터로 두 방식을 비교하는 테스트**를 둔다(catalog.md C15, 15.6).
+- 거리 계산은 도메인에 두지 않는다. 계산은 레포지토리 구현체의 SQL이 한다(D43).
+
+### 15.2 인프라 (infrastructure/)
+
+**추상 (`domain/repository.py`)** — 2.3절 표에 추가:
+
+| 추상 메서드 | 시그니처 |
+| --- | --- |
+| `find_visible_near` | `async (*, latitude: float \| None = None, longitude: float \| None = None, radius_km: float \| None = None) -> list[StoreWithDistance]` |
+
+**계약** (catalog.md 14.3절과 같다):
+
+| 입력 | 결과 |
+| --- | --- |
+| `latitude`·`longitude` 둘 다 None | 노출 가능한 모든 상점, `distance_km=None`, **`name ASC, id ASC`**(D42). `radius_km`는 무시 |
+| 둘 다 있음 | 좌표가 있는 노출 가능 상점 중 하버사인 거리 `<= radius_km`, **거리 오름차순, 같으면 `id` 오름차순**. `radius_km`는 필수(None이면 `ValueError`, 기본 반경은 호출자 catalog가 채운다) |
+| 한쪽만 있음 | `ValueError` (방어. catalog가 먼저 막으므로 정상 흐름에서 도달하지 않음) |
+| 범위 밖 값 | 위도 -90~90, 경도 -180~180, `radius_km > 0`이 아니면 `ValueError` |
+
+- 노출 가능한 상점(D41): `approval_at IS NOT NULL AND closed_at IS NULL AND suspended_at IS NULL`.
+- 좌표 없는 상점(D44): 위치가 지정되면 거리를 구할 수 없어 결과에서 제외(`latitude IS NOT NULL AND longitude IS NOT NULL`), 위치가 없으면 포함하고 `distance_km=None`.
+- 읽기 전용: 잠금·`flush`·`commit` 없음(R5). 도메인 객체만 반환하고 `*Model`을 내보내지 않는다(R4).
+
+**`SqlAlchemyStoreRepository.find_visible_near`** (D43):
+
+- 거리식(구면, 지구 반지름 6371.0km): `d = 2 * 6371.0 * asin(sqrt(least(1.0, sin(radians(lat - :lat) / 2)^2 + cos(radians(:lat)) * cos(radians(lat)) * sin(radians(lng - :lng) / 2)^2)))`. SQLAlchemy `func.radians/sin/cos/asin/sqrt/least/power`로 만들고 `:lat`·`:lng`는 바인드 값. `least(1.0, …)`는 부동소수 오차로 `asin` 정의역을 벗어나는 오류를 막는다. 호출자가 거리 값을 다시 계산하지 않도록 같은 식을 `SELECT` 컬럼으로 함께 가져온다.
+- 선필터: 위도 범위 `latitude BETWEEN :lat - radius/111.0 AND :lat + radius/111.0`만 쓴다. 경도 범위는 날짜 변경선·극 근처에서 틀리기 쉬워 쓰지 않는다.
+- 조건: `<노출 조건>` AND (위치 지정 시) 좌표 NOT NULL AND `d <= :radius_km`. 경계 포함.
+- 정렬: 위치 지정 시 `ORDER BY d ASC, id ASC`, 미지정 시 `ORDER BY name ASC, id ASC`.
+- 반환: `[StoreWithDistance(store=_to_domain(model), distance_km=d or None), …]`. 페이지네이션 없음(catalog가 상점 id 배열로 자기 테이블을 페이지한다, catalog.md D74·Q39).
+- 인덱스·스키마 변경 없음. `stores` 행 수가 적다는 전제이며 규모가 커지면 `latitude` 인덱스를 별도 검토한다.
+
+### 15.3 응용 (application/) — `StoreQueryService`
+
+4.1절 표에 추가한다. catalog `StorePort.find_visible_stores`와 이름·키워드 인자가 같아야 구조적으로 만족한다.
+
+| 메서드 | 반환 | 시나리오 |
+| --- | --- | --- |
+| `async find_visible_stores(self, *, latitude: float \| None = None, longitude: float \| None = None, radius_km: float \| None = None)` | `list[StoreWithDistance]` | `stores.find_visible_near(latitude=…, longitude=…, radius_km=…)`만 호출해 그대로 돌려준다. `commit` 없음, 잠금 없음 |
+
+- `StoreQueryService`는 레포지토리만 받는 생성자를 그대로 유지한다(13.7·catalog.md 9.3의 읽기/쓰기 분리 유지, 생성 순환 없음). 쓰기 서비스 `StoresApplicationService`는 변경 없다.
+- 표현 계층 변경 없음(stores 엔드포인트 추가 없음).
+
+### 15.4 모듈 간 경계
+
+- catalog는 `StoreWithDistance.store`에서 `id, name, pickup_address, latitude, longitude`(+ 기존 `StoreInfo` 필드)를 읽는다. catalog `StoreInfo` Protocol과 `Store`가 구조적으로 맞는 필드이므로 stores는 catalog를 import하지 않는다(R11).
+- 트랜잭션: 같은 요청 세션 읽기 전용. catalog 조회와 한 시점이 아니며 허용한다(catalog.md D75).
+
+### 15.5 테스트 계획 (추가분, DB 테스트는 `@pytest.mark.db`, R16)
+
+- **domain**: `Store.is_publicly_visible` — 승인·미폐점·미정지만 True, 미승인/폐점/정지 각각 False, 폐점+정지 동시에 False.
+- **infrastructure (DB)**: 노출 조건 SQL과 `is_publicly_visible`의 일치(같은 데이터 6종 조합 비교, catalog.md C15); 위치 지정 시 거리 경계(정확히 `radius_km`인 점 포함, 직전 밖), 거리 오름차순·동률 `id` 오름차순, 좌표 없는 상점 제외; 위치 미지정 시 좌표 없는 상점 포함·`distance_km=None`·`name ASC, id ASC`; 알려진 두 지점(예: 서울시청–강남역 약 8.6km 근처)의 거리값이 하버사인 기준 ±0.05km; 극·날짜 변경선 근처에서 예외 없음; 한쪽만 지정·범위 밖 값 `ValueError`; 폐점·정지·미승인 상점이 결과에 없음.
+- **application**: `StoreQueryService.find_visible_stores`가 레포 호출 1회·그대로 전달·`commit` 0회.
+- **조립/호환**: `create_store_port()`가 돌려주는 객체가 `find_visible_stores`를 가졌는지(catalog.md CI-12). 기존 fake `StoreRepository`가 있다면 새 추상 메서드를 구현하도록 고친다(C22).
+
+### 15.6 구현 파일 목록 (layer-implementer)
+
+| 파일 | 변경 |
+| --- | --- |
+| `src/stores/domain/store.py` (또는 `store_distance.py`) | `StoreWithDistance`, `Store.is_publicly_visible` |
+| `src/stores/domain/repository.py` | 추상 `find_visible_near` |
+| `src/stores/infrastructure/repositories.py` | `find_visible_near` 구현(하버사인 SQL) |
+| `src/stores/application/query_service.py` | `find_visible_stores` |
+| `tests/stores/` | 15.5절. 기존 fake 레포지토리 갱신 |
+
+`container.py`·`main.py`·`models.py`·`schema.sql`·`pyproject.toml`·`error_handlers.py` 변경 없음. **구현 순서는 stores → catalog**(catalog #3·#8은 이 메서드가 있어야 동작한다).
+
+### 15.7 결정 표 (D41~D47) — 사용자 확정 2026-11-06 ("그대로 진행")
+
+| # | 항목 | 출처 | 결정 값 | 근거 | 코드 위치 | 상태 |
+| --- | --- | --- | --- | --- | --- | --- |
+| D41 | 공개 노출 상점 조건 | catalog.md D61 | `approval_at IS NOT NULL AND closed_at IS NULL AND suspended_at IS NULL` | requirements/catalog.md 정책 표, admin.md D17 | `Store.is_publicly_visible`, `find_visible_near` | 확정 |
+| D42 | 위치 미지정 시 정렬 | catalog.md Q42 | `name ASC, id ASC` | 사용자가 예측 가능, stores만으로 정렬 가능 | `find_visible_near` | 확정 |
+| D43 | 거리 계산 | catalog.md D66 | SQL 하버사인(구면, 6371.0km), `<= radius_km` 경계 포함, 위도 범위 선필터, `least(1.0, …)` 보정 | PostGIS 없음 | `SqlAlchemyStoreRepository` | 확정 |
+| D44 | 좌표 없는 상점 | catalog.md Q34 | 위치 지정 시 제외, 미지정 시 포함(`distance_km=None`) | 거리를 못 구함. C20(기존 좌표 NULL 행)과 일관 | `find_visible_near` | 확정 |
+| D45 | 반환 타입 | 설계 | 레포·서비스 모두 `list[StoreWithDistance]`(불변 dataclass, 도메인). 페이지네이션 없음 | catalog가 id 배열로 필터·페이지(catalog.md D74) | `domain` | 확정 |
+| D46 | 입력 검증 | 설계 | 한쪽만 지정·범위 밖·`radius_km` 누락은 `ValueError`(방어). 기본 반경 3km 등 정책은 catalog가 채움 | 정책 상수는 catalog 한 곳(`search.py`) | `find_visible_near` | 확정 |
+| D47 | 스키마·조립 변경 | R14 | 없음(컬럼·인덱스·container·main 변경 없음) | 14.0·15.0 확인 | - | 확정 |
+
+### 15.8 정합 이슈 (C22~C23)
+
+| # | 위치 | 이슈 | 제안 |
+| --- | --- | --- | --- |
+| C22 | 15.0, catalog.md CI-12 | `StoreRepository`(ABC)에 추상 메서드가 늘면 `tests/stores`의 fake 레포지토리가 인스턴스화되지 않고, catalog 쪽 `FakeStores`에도 `find_visible_stores`가 필요하다 | 구현 PR이 두 모듈의 fake를 함께 갱신 |
+| C23 | 15.1·15.2, catalog.md C15 | 노출 조건이 도메인 프로퍼티와 SQL 두 곳에 있어 어긋날 수 있다. 이후 상점 상태(예: 재개점)가 늘면 두 곳을 같이 고쳐야 한다 | 15.5의 일치 테스트가 안전망. 상태가 늘면 둘을 함께 수정 |
