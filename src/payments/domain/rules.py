@@ -15,5 +15,8 @@ PAID_PAYMENT_CONFLICT_RESERVATION_STATUSES = frozenset(
     {RESERVATION_PAYABLE_STATUS, RESERVATION_CANCELLED_STATUS}
 )
 
+# REQ-46: 결제 금액(포인트 사용분 제외)의 1%를 적립한다. 사용 단위(100P)는 auth User.POINT_USE_UNIT이 정본이다.
+POINT_EARN_PERCENT = 1
+
 # 미정(D-2): 위약금 계산 담당 확정 시 변경. D-1: 우선 0원(팀 합의).
 DEFAULT_CANCELLATION_POLICY: CancellationPolicy = FullRefundPolicy()

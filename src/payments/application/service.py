@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth.application.service import AuthApplicationService
 from payments.application.ports import ReservationPort
 from payments.domain.cancellation_policy import CancellationPolicy
 from payments.domain.exceptions import (
@@ -37,6 +38,7 @@ class PaymentApplicationService:
         reservations: ReservationPort,
         payments: PaymentRepository,
         refunds: RefundRepository,
+        auth: AuthApplicationService,
         gateway: PaymentGateway,
         clock: Clock,
         policy: CancellationPolicy = DEFAULT_CANCELLATION_POLICY,
@@ -45,6 +47,7 @@ class PaymentApplicationService:
         self.reservations = reservations
         self.payments = payments
         self.refunds = refunds
+        self.auth = auth
         self.gateway = gateway
         self.clock = clock
         self.policy = policy
@@ -53,8 +56,9 @@ class PaymentApplicationService:
     # 검사 순서: 404(예약 없음) -> 403(본인 아님) -> 500(데이터 불일치) -> 409(이미 결제) -> 400(결제 불가 상태)
     # 500: 예약이 CANCELLED/PENDING_PAYMENT인데 PAID 결제가 이미 있음(RD-38). 정상 중복 결제(예약 RESERVED)는 409.
     # 이미 결제된 예약은 상태가 바뀌어 있으므로 중복(409) 검사가 상태(400) 검사보다 먼저여야 한다.
-    # TODO(D-10): 포인트 사용·적립(use_point, auth 연동)은 미정이라 구현하지 않았다.
-    async def pay(self, user_id: UUID, reservation_id: UUID) -> Payment:
+    # 포인트(REQ-42~48): use_points -> 게이트웨이 -> 저장 -> earn_points -> mark_paid -> commit 1회.
+    # 어느 단계든 실패하면 rollback으로 사용·적립이 함께 되돌아간다(REQ-45). auth 호출은 commit=False(R13).
+    async def pay(self, user_id: UUID, reservation_id: UUID, use_point: int = 0) -> Payment:
         snapshot = await self.reservations.get(reservation_id, for_update=True)
         if snapshot is None:
             raise ReservationNotFoundError()
@@ -65,19 +69,26 @@ class PaymentApplicationService:
             raise PaymentAlreadyExistsError()
         snapshot.ensure_payable_state()
 
-        payment = Payment.request(reservation_id, user_id, snapshot.total_price, self.clock.now())
-        result = await self.gateway.charge(payment)
-        if not result.success:
-            # 1차: 실패한 결제는 DB에 저장하지 않는다.
-            # models.py의 payments.reservation_id가 UNIQUE라서 FAILED를 저장하면
-            # 같은 예약을 다시 결제할 수 없게 된다. (실패 기록 저장은 2차 스키마 정렬 때 결정)
-            payment.fail(result.failure_response, self.clock.now())
-            await self.session.rollback()
-            raise PaymentFailedError()
-        payment.approve(result.provider_payment_id, self.clock.now())
-
+        # use_point 총액 초과·음수는 auth 호출 전에 InvalidPointAmountError로 막힌다.
+        payment = Payment.request(
+            reservation_id, user_id, snapshot.total_price, self.clock.now(), use_point=use_point
+        )
         try:
+            if payment.point_used > 0:
+                await self.auth.use_points(user_id, payment.point_used, commit=False)
+            # 0원 결제도 게이트웨이를 호출한다(D-28).
+            result = await self.gateway.charge(payment)
+            if not result.success:
+                # 1차: 실패한 결제는 DB에 저장하지 않는다.
+                # models.py의 payments.reservation_id가 UNIQUE라서 FAILED를 저장하면
+                # 같은 예약을 다시 결제할 수 없게 된다. (실패 기록 저장은 2차 스키마 정렬 때 결정)
+                payment.fail(result.failure_response, self.clock.now())
+                raise PaymentFailedError()
+            payment.approve(result.provider_payment_id, self.clock.now())
             await self.payments.save(payment)  # 동시 결제면 UNIQUE 위반 -> PaymentAlreadyExistsError(409)
+            earn = payment.earn_point_amount()
+            if earn > 0:
+                await self.auth.earn_points(user_id, earn, commit=False)
             await self.reservations.mark_paid(reservation_id, commit=False)
         except Exception:
             await self.session.rollback()
@@ -141,6 +152,7 @@ class PaymentApplicationService:
         try:
             await self.refunds.save(refund)  # 동시 환불이면 UNIQUE 위반 -> 409
             await self.payments.save(payment)
+            await self._apply_refund(payment)
             # RD-2: 환불 API도 예약 취소 + 재고 복구까지. 재고 복구가 안 되면 503으로 중단되고 위 저장은 롤백된다.
             try:
                 await self.reservations.cancel_for_refund(payment.reservation_id, reason, commit=False)
@@ -180,7 +192,18 @@ class PaymentApplicationService:
         refund = payment.refund(penalty, reason, now)
         await self.refunds.save(refund)
         await self.payments.save(payment)
+        await self._apply_refund(payment)
         return refund
+
+    # 환불 공통 포인트 처리(commit하지 않음). 복구가 먼저, 회수가 다음이다(REQ-49·50).
+    # 대상은 결제자(payment.user_id)다. payment.refund() 성공 뒤에만 부르므로 중복 환불은 여기 오지 않는다(REQ-51).
+    async def _apply_refund(self, payment: Payment) -> None:
+        restored = payment.restorable_point_amount()
+        if restored > 0:
+            await self.auth.restore_points(payment.user_id, restored, commit=False)
+        earned = payment.earn_point_amount()
+        if earned > 0:
+            await self.auth.revoke_points(payment.user_id, earned, commit=False)  # 실제 회수액은 무시(REQ-50)
 
     # 예약 취소(직전 PENDING_PAYMENT)가 부르는 읽기 전용 확인(RD-39). 쓰기·commit·잠금 없음.
     # 결제가 없거나 PAID가 아니면 통과(RD-40 미정이라 REFUNDED도 막지 않음). PAID면 불일치 예외(500).

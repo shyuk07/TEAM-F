@@ -25,6 +25,48 @@ class FakeSession:
         self.rollbacks += 1
 
 
+class FakeAuth:
+    """AuthApplicationService 대역. 호출 (이름, user_id, amount, commit)을 순서대로 기록한다."""
+
+    POINT_USE_UNIT = 100
+
+    def __init__(self, balance: int = 100000):
+        self.balance = balance
+        self.calls: list[tuple[str, uuid.UUID, int, bool]] = []
+        self.raise_on: dict[str, Exception] = {}
+
+    def names(self) -> list[str]:
+        return [c[0] for c in self.calls]
+
+    async def use_points(self, user_id, amount, *, commit=True):
+        self.calls.append(("use_points", user_id, amount, commit))
+        if "use_points" in self.raise_on:
+            raise self.raise_on["use_points"]
+        if amount <= 0 or amount % self.POINT_USE_UNIT or amount > self.balance:
+            raise ValueError("포인트를 사용할 수 없습니다.")
+        self.balance -= amount
+
+    async def earn_points(self, user_id, amount, *, commit=True):
+        self.calls.append(("earn_points", user_id, amount, commit))
+        if "earn_points" in self.raise_on:
+            raise self.raise_on["earn_points"]
+        self.balance += amount
+
+    async def restore_points(self, user_id, amount, *, commit=True):
+        self.calls.append(("restore_points", user_id, amount, commit))
+        if "restore_points" in self.raise_on:
+            raise self.raise_on["restore_points"]
+        self.balance += amount
+
+    async def revoke_points(self, user_id, amount, *, commit=True) -> int:
+        self.calls.append(("revoke_points", user_id, amount, commit))
+        if "revoke_points" in self.raise_on:
+            raise self.raise_on["revoke_points"]
+        actual = min(self.balance, amount)
+        self.balance -= actual
+        return actual
+
+
 class FakePaymentRepository(PaymentRepository):
     """메모리 저장소. 실제 DB처럼 reservation_id UNIQUE를 흉내 낸다."""
 

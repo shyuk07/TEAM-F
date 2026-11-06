@@ -136,7 +136,8 @@ CREATE INDEX ix_pickup_reservations_offer_id ON pickup_reservations (offer_id);
 CREATE TABLE payments (
     id                   UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id       UUID         NOT NULL REFERENCES pickup_reservations (id),
-    amount               INTEGER      CHECK (amount >= 0),
+    amount               INTEGER      CHECK (amount >= 0),           -- 실제 결제 금액 = 예약 총액 - point_used
+    point_used           INTEGER      NOT NULL DEFAULT 0 CHECK (point_used >= 0),  -- 결제에 사용한 포인트 (payments.md S-6)
     status               VARCHAR(30),                      -- READY, PAID, 실패 상태(확인 필요)
     provider_payment_id  VARCHAR(255),
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),

@@ -11,6 +11,7 @@ from payments.domain.refund import RefundStatus
 # 결제 요청
 class PaymentCreate(BaseModel):
     reservation_id: UUID
+    use_point: int = Field(0, ge=0, description="사용할 포인트(100P 단위, 선택)")
 
 
 # 결제 응답

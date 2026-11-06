@@ -4,12 +4,14 @@ import pytest
 from fastapi import FastAPI
 
 from container import (
+    create_auth_service,
     create_payment_repository,
     create_payment_reservation_port,
     create_payment_service,
     create_refund_repository,
     wire_dependencies,
 )
+from auth.application.service import AuthApplicationService
 from main import app
 from payments.application.service import PaymentApplicationService
 from payments.domain.repository.payment_repository import PaymentRepository
@@ -46,10 +48,15 @@ def test_create_payment_service_uses_abstract_implementations():
         reservations=reservations,
         payments=create_payment_repository(session=session),  # type: ignore[arg-type]
         refunds=create_refund_repository(session=session),  # type: ignore[arg-type]
+        auth=create_auth_service(  # type: ignore[arg-type]
+            session=session, users=object(), point_logs=object(), blacklist=object()
+        ),
     )
     assert isinstance(service, PaymentApplicationService)
     assert isinstance(service.payments, PaymentRepository)
     assert isinstance(service.refunds, RefundRepository)
+    assert isinstance(service.auth, AuthApplicationService)
+    assert service.auth.session is service.session  # 같은 요청 세션(R13)
     assert isinstance(service.gateway, PaymentGateway)
     assert isinstance(service.clock, Clock)
 

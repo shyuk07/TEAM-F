@@ -14,6 +14,7 @@ from payments.application.service import PaymentApplicationService
 from payments.domain.rules import RESERVATION_PAID_STATUS
 from payments.presentation.dependencies import provide_payment_service
 from tests.payments.fakes import (
+    FakeAuth,
     FakeGateway,
     FakePaymentRepository,
     FakeRefundRepository,
@@ -54,6 +55,7 @@ def service():
         reservations=FakeReservationPort(),
         payments=FakePaymentRepository(),
         refunds=FakeRefundRepository(),
+        auth=FakeAuth(),
         gateway=FakeGateway(),
         clock=FixedClock(),
     )
@@ -347,3 +349,50 @@ async def test_refund_invalid_reason_is_400(client, service, reason):
 async def test_refund_reason_200_chars_ok(client, service):
     payment_id = await paid(client, service)
     assert (await refund_post(client, payment_id, reason="가" * 200)).status_code == 201
+
+
+# ---------- use_point (REQ-42~44) ----------
+async def pay_with_point(client, reservation_id, use_point):
+    return await client.post(
+        "/v1/payments",
+        json={"reservation_id": str(reservation_id), "use_point": use_point},
+        headers=headers(CUSTOMER_ID),
+    )
+
+
+async def test_pay_with_use_point_reduces_amount(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, total_price=15000)
+
+    response = await pay_with_point(client, reservation_id, 5000)
+
+    assert response.status_code == 201
+    assert response.json()["amount"] == 10000
+    assert set(response.json()) == {"id", "reservation_id", "amount", "status", "paid_at"}
+
+
+async def test_pay_negative_use_point_is_400_validation_error(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, total_price=15000)
+
+    response = await pay_with_point(client, reservation_id, -100)
+
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_pay_use_point_over_total_is_400_invalid_point_amount(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, total_price=15000)
+
+    response = await pay_with_point(client, reservation_id, 15100)
+
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "INVALID_POINT_AMOUNT"
+    assert response.json()["success"] is False
+
+
+async def test_pay_use_point_unit_violation_is_400(client, service):
+    reservation_id = service.reservations.add(CUSTOMER_ID, total_price=15000)
+
+    response = await pay_with_point(client, reservation_id, 150)
+
+    assert response.status_code == 400
+    assert response.json()["success"] is False

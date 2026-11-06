@@ -118,3 +118,104 @@ async def test_cancel_unpaid_reservation_is_200(client):
 
     assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
     assert await scalar(client, "SELECT count(*) FROM refunds") == 0
+
+
+# ---------- 포인트 (REQ-42~51, 실제 auth 서비스·point_log) ----------
+async def set_balance(c, email, balance):
+    async with c.session_factory() as s:
+        await s.execute(
+            text("UPDATE users SET users_point = :b WHERE email = :e"), {"b": balance, "e": email}
+        )
+        await s.commit()
+
+
+async def balance(c, email):
+    return await scalar(c, "SELECT users_point FROM users WHERE email = :e", e=email)
+
+
+async def pay_point(c, token, rid, use_point):
+    return await c.post(
+        "/v1/payments", json={"reservation_id": rid, "use_point": use_point}, headers=bearer(token)
+    )
+
+
+async def test_pay_with_point_then_refund_round_trip(client):
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    rid, _ = await seed(client, me, offer_id)  # 총액 6000
+    await set_balance(client, "me@test.com", 2000)
+
+    r = await pay_point(client, me, rid, 1000)
+
+    assert r.status_code == 201, r.text
+    assert r.json()["amount"] == 5000
+    assert await scalar(client, "SELECT point_used FROM payments") == 1000
+    assert await balance(client, "me@test.com") == 2000 - 1000 + 50  # 사용 -1000, 적립 +1%(5000)
+    assert await scalar(client, "SELECT count(*) FROM point_log WHERE point_type = 'USE'") == 1
+    assert await scalar(client, "SELECT count(*) FROM point_log WHERE point_type = 'EARN'") == 1
+
+    refund = await client.post(
+        f"/v1/payments/{r.json()['id']}/refunds", json={"reason": "변심"}, headers=bearer(me)
+    )
+
+    assert refund.status_code == 201, refund.text
+    assert await balance(client, "me@test.com") == 2000  # 복구 +1000, 회수 -50
+    assert await scalar(client, "SELECT count(*) FROM point_log WHERE point_type = 'RESTORE'") == 1
+    assert await scalar(client, "SELECT count(*) FROM point_log WHERE point_type = 'REVOKE'") == 1
+
+
+async def test_cancel_path_restores_and_revokes_points(client):
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    rid, _ = await seed(client, me, offer_id)
+    await set_balance(client, "me@test.com", 1000)
+    assert (await pay_point(client, me, rid, 1000)).status_code == 201
+
+    r = await client.post(f"/v1/reservations/{rid}/cancel", headers=bearer(me))
+
+    assert r.status_code == 200, r.text
+    assert await balance(client, "me@test.com") == 1000
+    assert await scalar(client, "SELECT count(*) FROM point_log WHERE point_type = 'RESTORE'") == 1
+
+
+async def test_pay_with_insufficient_balance_is_400_and_changes_nothing(client):
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    rid, _ = await seed(client, me, offer_id)
+    await set_balance(client, "me@test.com", 500)
+
+    r = await pay_point(client, me, rid, 1000)
+
+    assert r.status_code == 400
+    assert await scalar(client, "SELECT count(*) FROM payments") == 0
+    assert await balance(client, "me@test.com") == 500
+    assert await scalar(client, "SELECT status FROM pickup_reservations") != "RESERVED"
+
+
+async def test_pay_unit_violation_is_400(client):
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    rid, _ = await seed(client, me, offer_id)
+    await set_balance(client, "me@test.com", 5000)
+
+    r = await pay_point(client, me, rid, 150)
+
+    assert r.status_code == 400
+    assert await balance(client, "me@test.com") == 5000
+    assert await scalar(client, "SELECT count(*) FROM payments") == 0
+
+
+async def test_refund_revoke_gives_up_when_balance_short(client):
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    rid, _ = await seed(client, me, offer_id)
+    r = await pay_point(client, me, rid, 0)  # 적립 60
+    assert r.status_code == 201
+    await set_balance(client, "me@test.com", 10)  # 적립분을 다른 곳에 써서 부족
+
+    refund = await client.post(
+        f"/v1/payments/{r.json()['id']}/refunds", json={"reason": "변심"}, headers=bearer(me)
+    )
+
+    assert refund.status_code == 201, refund.text
+    assert await balance(client, "me@test.com") == 0  # 있는 만큼(10)만 회수, 모자란 만큼 포기
