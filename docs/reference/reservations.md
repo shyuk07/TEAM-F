@@ -238,6 +238,73 @@
 | 500 | 서버 오류 |
 
 > **확인 필요**
-> - 상점주가 `reservation_id`를 알 방법이 없습니다. 상점주용 예약 목록 API(예: `GET /v1/stores/{store_id}/reservations`)가 필요하거나, `pickup_code`만으로 처리하는 방식(예: `POST /v1/stores/{store_id}/pickups`)을 검토해야 합니다.
+> - ~~상점주가 `reservation_id`를 알 방법이 없습니다.~~ → 해결: [5. 상점주용 매장 예약 목록 조회](#5-상점주용-매장-예약-목록-조회)에서 예약 ID를 확인합니다.
 > - `pickup_code` 발급 시점과 형식
 > - 픽업 시간(`pickup_start` ~ `pickup_end`) 밖에서 처리할 수 있는지
+
+---
+
+## 5. 상점주용 매장 예약 목록 조회
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| GET | `/v1/stores/{store_id}/reservations` | 상점주(본인 상점) | 200 OK |
+
+상점주가 자기 상점의 예약을 조회한다. 픽업 완료 처리에 필요한 예약 ID를 확인하는 용도다. 상점의 모든 할인(판매 중단·마감 포함)에 걸린 예약을 대상으로 하며, 결제 대기·예약 확정·픽업 완료·취소 예약을 모두 볼 수 있다. 고객 정보(회원 ID·이메일·전화번호)와 픽업 코드는 응답에 넣지 않는다. 픽업은 고객이 제시한 코드로 확인한다. 관리자도 이 API를 쓸 수 없다. 관리자에게 정지된 상점주도 [픽업 완료](#4-픽업-완료)와 같이 본인 상점 예약은 조회할 수 있다. 탈퇴한 계정의 토큰은 401이다.
+
+**헤더**
+- `Authorization: Bearer {access_token}`
+
+**경로 매개변수**
+| 이름 | 타입 | 설명 |
+| --- | --- | --- |
+| `store_id` | UUID | 상점 ID |
+
+**쿼리 매개변수**
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `status` | string | X | `PENDING_PAYMENT` / `RESERVED` / `PICKED_UP` / `CANCELLED` 중 하나. 없으면 전체 |
+| `page` | integer | X | 1부터. 기본 1 |
+| `size` | integer | X | 1~100. 기본 20 |
+
+정렬은 예약 시각 내림차순(같으면 예약 ID 내림차순)이다. `total`은 `status` 조건에 맞는 전체 건수다. 예약이 없으면 빈 목록을 돌려준다.
+
+**응답**
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `reservations` | array | 예약 목록 |
+| `reservations[].id` | UUID | 예약 ID |
+| `reservations[].product_name` | string | 상품명(예약 당시) |
+| `reservations[].quantity` | integer | 예약 수량 |
+| `reservations[].total_price` | integer | 예약 금액 |
+| `reservations[].status` | string | 예약 상태 |
+| `reservations[].created_at` | datetime | 예약 시각 |
+| `page` | integer | 현재 페이지 |
+| `size` | integer | 페이지 크기 |
+| `total` | integer | 조건에 맞는 전체 건수 |
+
+```json
+{
+  "reservations": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "product_name": "샌드위치",
+      "quantity": 2,
+      "total_price": 6000,
+      "status": "RESERVED",
+      "created_at": "2025-10-29T15:00:00+09:00"
+    }
+  ],
+  "page": 1,
+  "size": 20,
+  "total": 1
+}
+```
+
+**에러**
+| HTTP | error_code | 상황 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | `status`·`page`·`size` 형식 오류 |
+| 401 | `UNAUTHORIZED` | 로그인 필요, 탈퇴한 계정 |
+| 403 | `FORBIDDEN` | 상점주가 아님(고객·관리자) / 본인 상점의 예약만 조회할 수 있습니다. (정지된 상점주도 본인 상점은 조회 가능) |
+| 404 | `NOT_FOUND` | 상점을 찾을 수 없습니다. |
+| 500 | | 서버 오류 |

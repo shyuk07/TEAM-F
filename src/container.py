@@ -72,6 +72,7 @@ from reservations.application.ports import RefundPort, StoreOffersPort, StockPor
 from reservations.application.service import ReservationApplicationService
 from reservations.application.store_adapters import CatalogStoreOffersAdapter
 from reservations.application.store_query import StoreReservationQuery
+from reservations.application.store_reservation_service import StoreReservationListService
 from reservations.domain.repository import ReservationRepository
 from reservations.domain.service import Clock as ReservationsClock
 from reservations.domain.service import PickupCodeGenerator
@@ -81,6 +82,7 @@ from reservations.infrastructure.repositories import SqlAlchemyReservationReposi
 from reservations.presentation.dependencies import (
     provide_reservation_lifecycle_service,
     provide_reservation_service,
+    provide_store_reservation_list_service,
 )
 from payments.application.ports import ReservationPort
 from payments.application.service import PaymentApplicationService
@@ -364,6 +366,17 @@ def create_store_reservation_query(
     return StoreReservationQuery(reservations=reservations, store_offers=store_offers)
 
 
+def create_store_reservation_list_service(
+    reservations: ReservationRepository = Depends(create_reservation_repository),
+    stores: StoreQueryService = Depends(create_store_query_service),  # StoreOwnerPort를 구조적으로 만족
+    store_offers: StoreOffersPort = Depends(create_store_offers_port),
+) -> StoreReservationListService:
+    """상점주용 예약 목록 조회(읽기 전용, R-REQ24·25)."""
+    return StoreReservationListService(
+        reservations=reservations, stores=stores, store_offers=store_offers
+    )
+
+
 # ── payments ─────────────────────────
 def create_payment_repository(session: AsyncSession = Depends(get_db)) -> PaymentRepository:
     return SqlAlchemyPaymentRepository(session)
@@ -462,6 +475,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_reservation_cancel: create_catalog_reservation_canceller,
             provide_reservation_service: create_reservation_service,
             provide_reservation_lifecycle_service: create_reservation_lifecycle_service,
+            provide_store_reservation_list_service: create_store_reservation_list_service,
             provide_admin_service: create_admin_service,
             provide_payment_service: create_payment_service,
             # 중첩 Depends도 override가 적용된다: create_reservation_service가 받는 RefundPort를 결제 어댑터로 교체

@@ -123,6 +123,10 @@ class ResRepo(ReservationRepository):
     async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
         return [r for r in self.store.all() if r.user_id == user_id and r.status in statuses]
 
+    async def find_by_offers(self, offer_ids, *, status, page, size):  # 이 파일에서는 쓰지 않음(추상 메서드 충족용)
+        rows = [r for r in self.store.all() if r.offer_id in offer_ids]
+        return rows, len(rows)
+
     async def exists_by_offers_and_status(self, offer_ids, status, *, excluding_user_id=None):
         return any(
             r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id
