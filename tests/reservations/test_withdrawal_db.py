@@ -40,8 +40,9 @@ async def test_withdraw_customer_cancels_pending_and_reserved_and_keeps_picked_u
     owner, offer_id, _ = await seed_offer(client, stock=10)
     me = await token_for(client, "me@test.com")
     uid = str(await user_id(client, "me@test.com"))
-    pending = (await reserve(client, me, offer_id, 2)).json()["id"]
+    # 같은 할인 결제 대기는 1건(R-REQ28): 먼저 결제를 끝낸 뒤 결제 대기 예약을 만든다
     reserved = await make_reserved(client, me, offer_id, 3)
+    pending = (await reserve(client, me, offer_id, 2)).json()["id"]
     picked, code = await seed(client, me, offer_id, 1, paid=True)
     await client.post(
         f"/v1/reservations/{picked}/pickup", json={"pickup_code": code}, headers=bearer(owner)

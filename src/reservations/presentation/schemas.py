@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 class ReservationCreateRequest(BaseModel):
     offer_id: uuid.UUID = Field(..., description="예약할 할인 상품 ID")
-    quantity: StrictInt = Field(..., ge=1, description="예약 수량")
+    quantity: StrictInt = Field(..., ge=1, description="예약 수량 (1~5, 상한은 도메인 규칙 R-REQ1에서 검사)")
 
 
 class ReservationCreateResponse(BaseModel):

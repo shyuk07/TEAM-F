@@ -113,7 +113,8 @@ async def test_create_unknown_offer_is_404(client, env):
 
 
 async def test_create_out_of_stock_is_409(client, env):
-    r = await client.post(CREATE_URL, json={"offer_id": str(env[3].id), "quantity": 99}, headers=headers())
+    # 재고 3, 수량 4: 수량 상한(5) 안에서 재고 부족 (R-REQ1 이후 99는 400)
+    r = await client.post(CREATE_URL, json={"offer_id": str(env[3].id), "quantity": 4}, headers=headers())
     assert r.status_code == 409
     assert r.json() == err("OUT_OF_STOCK", "재고가 부족합니다.")
 
@@ -149,7 +150,7 @@ async def test_create_last_unit_then_sold_out_is_409_not_reservable(client, env)
 
 async def test_create_conflict_saves_nothing(client, env):
     _, session, repo, offer, _ = env
-    r = await client.post(CREATE_URL, json={"offer_id": str(offer.id), "quantity": 99}, headers=headers())
+    r = await client.post(CREATE_URL, json={"offer_id": str(offer.id), "quantity": 4}, headers=headers())
     assert r.status_code == 409
     assert session.commits == 0 and repo.items == {} and offer.remaining_stock == 3
     assert env[0].stock.stock_logs.logs == []
