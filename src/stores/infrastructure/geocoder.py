@@ -5,19 +5,19 @@ import httpx
 from stores.domain.coordinates import Coordinates
 from stores.domain.exceptions import AddressNotFoundError, GeocodingUnavailableError
 from stores.domain.service import Geocoder
-from stores.infrastructure.settings import NaverGeocodingSettings
+from stores.infrastructure.settings import KakaoGeocodingSettings
 
 logger = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT_SECONDS = 3.0
 
 
-class NaverGeocoder(Geocoder):
-    """네이버 지도 Geocoding. 엔드포인트·헤더·응답 필드는 가정이다(stores.md D27, 확인 필요)."""
+class KakaoGeocoder(Geocoder):
+    """카카오 로컬 API 주소 검색. 엔드포인트·헤더·응답 필드는 stores.md D42 기준."""
 
     def __init__(
         self,
-        settings: NaverGeocodingSettings | None,
+        settings: KakaoGeocodingSettings | None,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         self._settings = settings
@@ -30,8 +30,7 @@ class NaverGeocoder(Geocoder):
             raise GeocodingUnavailableError()
         timeout = httpx.Timeout(settings.timeout_seconds, connect=CONNECT_TIMEOUT_SECONDS)
         headers = {
-            "x-ncp-apigw-api-key-id": settings.client_id,
-            "x-ncp-apigw-api-key": settings.client_secret,
+            "Authorization": f"KakaoAK {settings.rest_api_key}",
             "Accept": "application/json",
         }
         try:
@@ -39,7 +38,7 @@ class NaverGeocoder(Geocoder):
                 timeout=timeout, follow_redirects=False, transport=self._transport
             ) as client:
                 response = await client.get(
-                    settings.url, params={"query": address}, headers=headers
+                    settings.url, params={"query": address, "size": 1}, headers=headers
                 )
         except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as err:
             logger.warning("geocoding unavailable: reason=%s", type(err).__name__)
@@ -55,20 +54,17 @@ class NaverGeocoder(Geocoder):
             data = response.json()
             if not isinstance(data, dict):
                 raise TypeError("body is not an object")
-            status = data.get("status")
-            if status is not None and status != "OK":
-                raise ValueError("status is not OK")
-            addresses = data["addresses"]
-            if not isinstance(addresses, list):
-                raise TypeError("addresses is not a list")
-            total = (data.get("meta") or {}).get("totalCount")
+            documents = data["documents"]
+            if not isinstance(documents, list):
+                raise TypeError("documents is not a list")
+            total = (data.get("meta") or {}).get("total_count")
             if total is not None and (isinstance(total, bool) or not isinstance(total, int)):
-                raise TypeError("totalCount is not an int")
-            if total == 0 or not addresses:
+                raise TypeError("total_count is not an int")
+            if total == 0 or not documents:
                 not_found = True
             else:
                 not_found = False
-                first = addresses[0]
+                first = documents[0]
                 # x = 경도, y = 위도 (둘 다 문자열)
                 coordinates = Coordinates(
                     latitude=float(first["y"]), longitude=float(first["x"])

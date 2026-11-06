@@ -71,17 +71,17 @@ def test_dependency_graph_resolves_without_cycle():
         walk(get_dependant(path="/", call=fn), {fn})
 
 
-def test_create_geocoder_returns_naver_geocoder_singleton():
+def test_create_geocoder_returns_kakao_geocoder_singleton():
     import container
     from stores.domain.service import Geocoder
-    from stores.infrastructure.geocoder import NaverGeocoder
+    from stores.infrastructure.geocoder import KakaoGeocoder
 
     geocoder = container.create_geocoder()
-    assert isinstance(geocoder, Geocoder) and isinstance(geocoder, NaverGeocoder)
+    assert isinstance(geocoder, Geocoder) and isinstance(geocoder, KakaoGeocoder)
     assert container.create_geocoder() is geocoder
 
 
-def test_import_main_succeeds_without_naver_keys():
+def test_import_main_succeeds_without_kakao_keys():
     """키가 없어도 서버가 시작된다 (stores.md D28). 빈 값으로 덮어써 .env의 실제 키도 무시한다."""
     import os
     import subprocess
@@ -90,8 +90,7 @@ def test_import_main_succeeds_without_naver_keys():
 
     env = dict(os.environ)
     env.update(
-        NAVER_MAP_CLIENT_ID="",
-        NAVER_MAP_CLIENT_SECRET="",
+        KAKAO_REST_API_KEY="",
         DATABASE_URL="postgresql+asyncpg://x:x@localhost/x",
         JWT_SECRET_KEY="test-secret-key-for-pytest-0123456789abcdef",
         PYTHONIOENCODING="utf-8",

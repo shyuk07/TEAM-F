@@ -118,17 +118,17 @@ async def test_invalid_uuid_400(client, method, url, body):
     assert_error(r, 400, "VALIDATION_ERROR")
 
 
-async def test_old_prefix_and_removed_auth_admin_endpoints_are_gone(client):
-    # main 7594d43이 auth 라우터의 관리자 EP 2개(회원 조회, 블랙리스트 정리)를 삭제했다 (D42 대체)
+async def test_old_prefix_is_gone_and_auth_admin_endpoints_coexist(client):
+    # auth 관리자 EP 2개는 main a343f05(PR #27)에서 복원됐다 (D42: auth 라우터에 둔다)
     h = await admin_headers(client)
     cid = await customer(client)
     assert (await client.patch(f"/admin/owners/{RANDOM}/approve", headers=h)).status_code == 404
-    r = await client.get(f"/v1/admin/users/{cid}", headers=h)  # 경로는 DELETE만 남아 405
-    assert r.status_code == 405
+    r = await client.get(f"/v1/admin/users/{cid}", headers=h)  # auth 라우터의 GET
+    assert r.status_code == 200 and r.json()["id"] == cid
     r = await client.post("/v1/admin/token-blacklist/purge", headers=h)
-    assert r.status_code == 404
-    r = await client.request("DELETE", f"/v1/admin/users/{cid}", json={"reason": "탈퇴"}, headers=h)
     assert r.status_code == 200
+    r = await client.request("DELETE", f"/v1/admin/users/{cid}", json={"reason": "탈퇴"}, headers=h)
+    assert r.status_code == 200  # 같은 경로, 다른 메서드 (admin 라우터)
 
 
 # ── EP 1 ──

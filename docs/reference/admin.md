@@ -371,9 +371,11 @@
 
 ---
 
-## 삭제된 auth 관리자 API
+## auth 라우터의 관리자 API
 
-auth 라우터에 있던 `GET /v1/admin/users/{user_id}`(관리자 회원 조회)와 `POST /v1/admin/token-blacklist/purge`(만료 토큰 블랙리스트 정리)는 main `7594d43`에서 삭제됐다("관리자 API는 admin 모듈에 둔다"). 설계 D42(auth에 그대로 둠)는 이 변경으로 대체됐다. 지금 `/v1/admin/users/{user_id}`에는 DELETE(4번)만 있어 GET은 405, purge는 404다.
+다음 두 API는 같은 `/v1/admin` 접두사를 쓰지만 auth 라우터에 있다(설계 D42). main `7594d43`에서 한때 삭제됐다가 `a343f05`(PR #27)에서 복원됐다. 문서는 auth.md에 있다.
+- `GET /v1/admin/users/{user_id}`: [관리자 회원 조회](auth.md#6-관리자-회원-조회). 같은 경로의 DELETE는 이 문서 4번(회원 강제 탈퇴)이며, 메서드가 달라 충돌하지 않는다.
+- `POST /v1/admin/token-blacklist/purge`: [만료 토큰 블랙리스트 정리](auth.md#7-만료-토큰-블랙리스트-정리)
 
 ## 개발 DB 반영
 

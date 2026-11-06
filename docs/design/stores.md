@@ -10,6 +10,8 @@
 
 - 2026-11-05 갱신(상점 개설 완성): 사용자 정본(개설 명세, 2026-11-05)과 확정 결정 2건(네이버 지오코딩, 공용 auth 401/403 문구 유지)을 **14절**에 설계했다. 지오코딩(D2), 상점명+주소 중복(D10), 개설 시 좌표를 14절이 대체한다. 기존 D1~D25 값은 유지하고 D2·D10의 상태만 갱신했으며 D26~D40, C17~C21을 추가했다. 0~13절 중 개설 관련 옛 서술(4.2 `open_store`, 5.2 "구현하지 않는다" 문장, 5.3 `StoreResponse`의 좌표 nullable)은 이력이며 현재 상태는 14절이 우선한다.
 
+- 2026-11-06 갱신(지오코더 교체): 사용자 결정으로 지오코더를 **네이버 → 카카오**로 바꾼다. **15절**에 설계했고 D41~D46, C22~C23을 추가했다. 14절의 네이버 고유 서술(14.2 환경변수·HTTP 가정·`NaverGeocoder`, 14.6, 14.8의 네이버 항목, 14.9·14.10의 네이버 파일·환경변수)과 D27은 **대체됨(이력)**이며 현재 상태는 15절이 우선한다. D26·D28·D29·D30·D35·D36·D39의 네이버 고유 부분만 15절로 대체하고 나머지 값은 유지한다. 주소 검사 순서(D40), 키 없이 서버 시작(D28), 오류 매핑(D29)은 변경 없음.
+
 ---
 
 ## 0. 차단 이슈
@@ -1092,20 +1094,20 @@ NAVER_MAP_CLIENT_SECRET=
 
 | # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 | 코드 위치 | 확인 |
 | --- | --- | --- | --- | --- | --- | --- |
-| D26 | 지오코더 추상과 위치 | 사용자 확정 1, R8, layer-architecture §5.2 | `Geocoder(ABC).geocode(address) -> Coordinates`를 `stores/domain/service.py`(Clock 옆)에 두고, 구현체 `NaverGeocoder`는 infrastructure, container가 주입. 결과 없음은 `AddressNotFoundError`, 그 밖의 실패는 `GeocodingUnavailableError`로 구현체가 낸다 | 서비스 if 제거(R3), 모듈별 `Clock` 선례(D13) | `domain/service.py`, `infrastructure/geocoder.py`, container | 확정(사용자 결정의 구체화, 별도 확인 불필요) |
-| D27 | 네이버 엔드포인트·헤더·응답 필드 | 사용자 확정 1, 인터넷 없음 | `GET https://maps.apigw.ntruss.com/map-geocode/v2/geocode`, 헤더 `x-ncp-apigw-api-key-id`/`x-ncp-apigw-api-key`, 쿼리 `query`, 응답 `addresses[].x`(경도)·`y`(위도) 문자열, `meta.totalCount`. **URL은 `NAVER_MAP_GEOCODE_URL`로 교체 가능** | 사용자 제공 정보 + 기억(구 도메인 `naveropenapi.apigw.ntruss.com` 존재) | `infrastructure/settings.py`, `geocoder.py` | **필요**(NCP 콘솔·공식 문서로 현행 도메인·헤더·오류 본문 확인) |
-| D28 | 자격증명 없을 때 동작 | 사용자 요청 | **fail-fast하지 않는다.** 키가 없으면 서버는 정상 시작(경고 로그 1회), `POST /v1/stores`만 503 `GEOCODING_UNAVAILABLE`. 대체 구현(고정 좌표 등)으로 폴백하지 않는다. 키 이름 `NAVER_MAP_CLIENT_ID`/`NAVER_MAP_CLIENT_SECRET` | 팀원이 키 없이 auth·catalog·reservations를 개발·테스트해야 함, `import main` 게이트(R12)가 키에 의존하면 안 됨. 가짜 좌표로 상점이 저장되는 폴백은 데이터 오염(R16 정신). 대안: lifespan에서 fail-fast(JWT 선례) — 모든 개발자에게 키를 요구 | `infrastructure/settings.py`, container `_geocoder` | **확정(사용자, 2026-11-05)**: 키 없이 서버 시작(경고 로그), 개설은 503 `GEOCODING_UNAVAILABLE`. fail-fast 없음 |
+| D26 | 지오코더 추상과 위치 | 사용자 확정 1, R8, layer-architecture §5.2 | `Geocoder(ABC).geocode(address) -> Coordinates`를 `stores/domain/service.py`(Clock 옆)에 두고, 구현체 `NaverGeocoder`(**2026-11-06 대체: `KakaoGeocoder`, D41**)는 infrastructure, container가 주입. 결과 없음은 `AddressNotFoundError`, 그 밖의 실패는 `GeocodingUnavailableError`로 구현체가 낸다 | 서비스 if 제거(R3), 모듈별 `Clock` 선례(D13) | `domain/service.py`, `infrastructure/geocoder.py`, container | 확정(사용자 결정의 구체화, 별도 확인 불필요) |
+| D27 | ~~네이버 엔드포인트·헤더·응답 필드~~ **대체됨(2026-11-06, D42)** | 사용자 확정 1, 인터넷 없음 | (이력) `GET https://maps.apigw.ntruss.com/map-geocode/v2/geocode`, 헤더 `x-ncp-apigw-api-key-id`/`x-ncp-apigw-api-key`, 쿼리 `query`, 응답 `addresses[].x`(경도)·`y`(위도) 문자열, `meta.totalCount`. **URL은 `NAVER_MAP_GEOCODE_URL`로 교체 가능** | 사용자 제공 정보 + 기억(구 도메인 `naveropenapi.apigw.ntruss.com` 존재) | `infrastructure/settings.py`, `geocoder.py` | **필요**(NCP 콘솔·공식 문서로 현행 도메인·헤더·오류 본문 확인) |
+| D28 | 자격증명 없을 때 동작 | 사용자 요청 | **fail-fast하지 않는다.** 키가 없으면 서버는 정상 시작(경고 로그 1회), `POST /v1/stores`만 503 `GEOCODING_UNAVAILABLE`. 대체 구현(고정 좌표 등)으로 폴백하지 않는다. 키 이름 ~~`NAVER_MAP_CLIENT_ID`/`NAVER_MAP_CLIENT_SECRET`~~ (**2026-11-06 대체: `KAKAO_REST_API_KEY`, D43**) | 팀원이 키 없이 auth·catalog·reservations를 개발·테스트해야 함, `import main` 게이트(R12)가 키에 의존하면 안 됨. 가짜 좌표로 상점이 저장되는 폴백은 데이터 오염(R16 정신). 대안: lifespan에서 fail-fast(JWT 선례) — 모든 개발자에게 키를 요구 | `infrastructure/settings.py`, container `_geocoder` | **확정(사용자, 2026-11-05)**: 키 없이 서버 시작(경고 로그), 개설은 503 `GEOCODING_UNAVAILABLE`. fail-fast 없음 |
 | D29 | 지오코딩 실패의 HTTP 매핑 | 사용자 요청, 명세에 5xx 없음 | 0건 → 400 `ADDRESS_NOT_FOUND`. 네트워크·타임아웃·리다이렉트·업스트림 4xx/5xx·응답 형식 오류·자격증명 없음 → **503 `GEOCODING_UNAVAILABLE`**(공통 형식). 업스트림 400을 "주소 없음"으로 바꾸지 않는다 | 사용자 입력 오류(400)와 서비스 장애(5xx)를 구분, 502 대신 503은 일시적·재시도 가능을 뜻함. 모든 업스트림 실패를 한 코드로 합쳐 클라이언트 처리를 단순화 | `domain/exceptions.py`, `error_handlers.py`(모듈 밖 2번) | **확정(사용자, 2026-11-05)**: 네트워크·타임아웃·업스트림 오류·키 없음 → 503 `GEOCODING_UNAVAILABLE`, 0건 → 400 `ADDRESS_NOT_FOUND`. 명세에 없는 코드라 `docs/reference/stores.md` 추가는 14.10 6번 |
-| D30 | 타임아웃·재시도·클라이언트 수명 | 사용자 요청 | 총 5초, 연결 3초, 재시도 없음, 호출마다 `httpx.AsyncClient` 생성·종료(공유 클라이언트·lifespan 종료 훅 없음), `follow_redirects=False`. 환경변수 `NAVER_MAP_TIMEOUT_SECONDS`로 조정 | 개설은 드문 쓰기 경로, 쓰기 요청은 사용자 재시도가 안전, `main.py` 수정 회피 | `infrastructure/geocoder.py`, `settings.py` | 불필요 |
+| D30 | 타임아웃·재시도·클라이언트 수명 | 사용자 요청 | 총 5초, 연결 3초, 재시도 없음, 호출마다 `httpx.AsyncClient` 생성·종료(공유 클라이언트·lifespan 종료 훅 없음), `follow_redirects=False`. 환경변수 ~~`NAVER_MAP_TIMEOUT_SECONDS`~~ (**대체: `KAKAO_TIMEOUT_SECONDS`, D43**)로 조정 | 개설은 드문 쓰기 경로, 쓰기 요청은 사용자 재시도가 안전, `main.py` 수정 회피 | `infrastructure/geocoder.py`, `settings.py` | 불필요 |
 | D31 | 외부 호출 위치와 트랜잭션 | 사용자 요청 | 입력 검증 → 이미 개설·중복 조회 → 지오코딩 → `Store.open` → `save` → `commit`. 지오코딩 중 행 잠금·쓰기 없음, 요청 세션의 연결 하나만 최대 5초 점유(허용) | 14.4 | `application/service.open_store` | 불필요 |
 | D32 | "동일한 상점명과 주소" 정의 | 명세 에러 표, 사용자 요청 | 비교 대상은 저장될 값 그대로: `name`·`pickup_address` 둘 다 **NFC 정규화 + 앞뒤 공백 제거 + 내부 연속 공백을 한 칸으로** 한 뒤 **정확 일치(대소문자 구분)**. 대상에 **폐점·정지 상점도 포함**(소프트 삭제된 행이 남아 있고 재개점이 같은 행을 쓰기 때문). 좌표·도로명 주소 동일성은 보지 않음(표기가 다른 같은 주소는 다른 것으로 취급) | 명세 "이미 존재"에 폐점 제외 문구 없음, DB 제약과 앱 확인이 같은 규칙이어야 함, 한국어 NFD 입력(macOS) 방지. 대소문자·표기 정규화는 오탐 위험이 커서 하지 않음 | `domain/store.py`(`_normalize_text`), `repositories.exists_by_name_and_address` | 불필요(범위를 바꾸려면 D33과 함께 사용자 결정) |
 | D33 | 중복의 DB 강제 | R14, 14.7 | `stores`에 `UNIQUE (name, pickup_address)` 이름 `uq_stores_name_address` **추가 제안**(스키마 변경). 앱 확인은 친절한 400과 지오코딩 호출 절감용, 확정적 방어는 제약. 승인 전에는 `models.py`·`schema.sql`을 바꾸지 않는다 | 앱 확인만으로는 동시 요청을 못 막음. 인덱스 크기 상한 안(14.3) | `models.py`, `schema.sql`, SKILL.md | **확정(사용자, 2026-11-05)**: `UNIQUE (name, pickup_address)` `uq_stores_name_address` 추가 승인. 14.3 대안은 폐기. `models.py`·`schema.sql`·SKILL.md를 함께 고친다(R14) |
 | D34 | 개설 시 좌표 필수 | 명세 응답 `latitude: double`, R3 | `Store.open`의 `coordinates` 필수, `StoreResponse.latitude/longitude`는 `float`(None 불가). `Store.__init__`은 레거시 행을 위해 None 허용 유지 | 명세, 개설이 항상 좌표를 가진다는 규칙을 도메인이 책임 | `domain/store.py`, `presentation/schemas.py` | 불필요 |
-| D35 | 저장·응답하는 주소 | 명세 응답 `pickup_address` | 정규화한 **사용자 입력**. 네이버가 돌려주는 `roadAddress`로 대체하지 않는다 | 명세 "주소를 좌표로 변환"만 요구, 개설 후 주소 변경 불가라 입력 보존이 안전, 중복 비교 기준이 사용자 입력과 같음 | `application/service.open_store` | 불필요 |
-| D36 | 검색 결과가 여러 건일 때 | 네이버 응답 | **첫 번째** 항목 사용(네이버가 관련도순으로 정렬한다고 가정, D27 확인 항목에 포함). 모호성 때문에 거절하지 않음 | "변환 실패 시만 개설 불가"라는 명세, 복수 결과를 거절하면 합법 주소가 막힘 | `infrastructure/geocoder.py` | 불필요 |
+| D35 | 저장·응답하는 주소 | 명세 응답 `pickup_address` | 정규화한 **사용자 입력**. 네이버가 돌려주는 `roadAddress`로 대체하지 않는다 (**카카오로 교체 후에도 동일**: `documents[].address_name`으로 대체하지 않는다, D44) | 명세 "주소를 좌표로 변환"만 요구, 개설 후 주소 변경 불가라 입력 보존이 안전, 중복 비교 기준이 사용자 입력과 같음 | `application/service.open_store` | 불필요 |
+| D36 | 검색 결과가 여러 건일 때 | 네이버 응답 | **첫 번째** 항목 사용(네이버가 관련도순으로 정렬한다고 가정, D27 확인 항목에 포함. **카카오도 첫 번째 사용**, D44). 모호성 때문에 거절하지 않음 | "변환 실패 시만 개설 불가"라는 명세, 복수 결과를 거절하면 합법 주소가 막힘 | `infrastructure/geocoder.py` | 불필요 |
 | D37 | 상호가 없는 상점주 (D3 유지) | auth `name` 선택값 | 기존 D3 유지: 400 "상점명은 1자 이상 150자 이하여야 합니다."를 **지오코딩 전에** 판정. 가입 시 OWNER에 `name` 필수화는 auth 소관의 후속 제안 | 명세 "가입 시 등록한 상호로 자동 설정" | `Store.normalize_name` | 불필요 |
 | D38 | `httpx` 런타임 의존성 | 14.0, R16 | `uv add httpx`(모듈 밖 변경 제안 1) | dev 그룹에만 있어 배포(`--no-dev`)에서 깨짐 | `pyproject.toml` | **확정(사용자, 2026-11-05)**: `uv add httpx`를 런타임 의존성으로 추가 |
-| D39 | 테스트의 지오코더 주입 방식 | 사용자 확정 1 | `Geocoder` 상속 `FakeGeocoder`를 서비스 테스트에 직접 주입, API 테스트는 `app.dependency_overrides[create_geocoder]`. `NaverGeocoder`는 `httpx.MockTransport`로만 검증. 네트워크 금지 | R8(생성자 추상), 기존 `create_pickup_pending_port` override 선례(13.8) | `tests/**` | 불필요 |
+| D39 | 테스트의 지오코더 주입 방식 | 사용자 확정 1 | `Geocoder` 상속 `FakeGeocoder`를 서비스 테스트에 직접 주입, API 테스트는 `app.dependency_overrides[create_geocoder]`. `NaverGeocoder`(**대체: `KakaoGeocoder`, D45**)는 `httpx.MockTransport`로만 검증. 네트워크 금지 | R8(생성자 추상), 기존 `create_pickup_pending_port` override 선례(13.8) | `tests/**` | 불필요 |
 | D40 | 에러 검사 순서 | 명세 에러 표 | 14.5의 표. 주소 → 상점명 → 이미 개설 → 중복 → 지오코딩 → 경합. 명세 표와의 차이는 "주소 못 찾음"이 "이미 개설" 뒤라는 것 하나(모두 400) | 외부 호출 비용·한도 절감(D31). 명세는 표를 검사 순서로 못 박지 않음 | `application/service.open_store` | 불필요 |
 
 ### 14.12 정합 이슈 (C17~C21)
@@ -1124,3 +1126,136 @@ NAVER_MAP_CLIENT_SECRET=
 - 풀 연결 점유를 줄이는 세션 반납 구조(14.4)
 - OWNER 가입 시 `name` 필수화(auth, D37)
 - 주소 표기 정규화(도로명/지번 동일 판정)로 중복 판정 강화(D32)
+
+---
+
+## 15. 지오코더 교체: Naver → Kakao (2026-11-06 추가)
+
+사용자 결정(2026-11-06): 지오코더는 **카카오 로컬 API**를 쓴다. 오케스트레이터 기본값: 네이버를 **완전히 대체**한다(`NaverGeocoder`·`NAVER_MAP_*` 제거, 둘을 병행하지 않음). 도메인·응용·표현 계층은 변경 없다(추상 `Geocoder`, `Coordinates`, `AddressNotFoundError`/`GeocodingUnavailableError`, 검사 순서 D40, D28·D29 동작 그대로). 바뀌는 곳은 인프라 구현체·설정, container의 stores 구역, 테스트, `.env.example`뿐이다.
+
+### 15.0 차단 이슈 확인 (실행 결과)
+
+| 항목 | 명령 | 결과 |
+| --- | --- | --- |
+| 계층 검사 | `PYTHONIOENCODING=utf-8 uv run python .claude/skills/layer-check/check_layers.py` | `위반 없음`(주의 `[넓은예외]`는 `error_handlers.py`의 기존 항목) |
+| import | `(cd src && DATABASE_URL=postgresql+asyncpg://x:x@localhost/x uv run python -c "import main")` | 성공(`IMPORT_OK`) |
+| 의존성 | `httpx`는 D38로 이미 런타임 의존성 | 추가 의존성 없음(`pyproject.toml` 변경 없음) |
+| 카카오 API 실제 응답 | (실행 불가: 인터넷·키 없음) | 15.2 값은 가정. 단 아래 값은 공개 문서로 알려진 안정적 형태라 별도 질문으로 올리지 않고 D42에 "수동 1회 확인"으로 둔다 |
+| 참조 위치 | `Grep` | 네이버 참조: `src/stores/infrastructure/{geocoder,settings}.py`, `src/container.py:87,89,102-103`, `tests/stores/test_geocoder.py`, `tests/stores/test_wiring.py:74-94`, `tests/conftest.py:69`(주석), `.env.example:13-19`, `docs/reference/stores.md:65-71` |
+
+### 15.1 도메인·응용·표현
+변경 없음. `Geocoder(ABC)`(`stores/domain/service.py`), `Coordinates`, `exceptions.py`는 그대로이며 `Geocoder`의 독스트링이 네이버를 언급하면 "외부 지오코딩"으로만 고친다(있을 때만).
+
+### 15.2 인프라 (infrastructure/)
+
+| 파일 | 변경 |
+| --- | --- |
+| `infrastructure/settings.py` | `NaverGeocodingSettings` → `KakaoGeocodingSettings`(frozen dataclass: `rest_api_key`, `url`, `timeout_seconds`), `get_naver_geocoding_settings` → `get_kakao_geocoding_settings(env=None) -> KakaoGeocodingSettings \| None`. `DEFAULT_GEOCODE_URL`(이름 유지)의 값만 카카오 URL로 |
+| `infrastructure/geocoder.py` | `NaverGeocoder` → `KakaoGeocoder(Geocoder)`. 생성자 `(settings: KakaoGeocodingSettings \| None, transport=None)` 형태 유지. 호출 흐름(1~8 단계, 14.2)은 그대로이고 헤더와 `_parse`만 바뀜 |
+
+**환경변수** (D43)
+
+| 키 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `KAKAO_REST_API_KEY` | 개설에 필요 | (없음) | 카카오 디벨로퍼스 앱의 REST API 키. **로그·예외·응답·`repr`에 넣지 않는다**(R16) |
+| `KAKAO_GEOCODE_URL` | 아니오 | `https://dapi.kakao.com/v2/local/search/address.json` | 엔드포인트 교체용 |
+| `KAKAO_TIMEOUT_SECONDS` | 아니오 | `5` | 총 타임아웃(초). 연결은 3초 상한(`CONNECT_TIMEOUT_SECONDS` 유지). 숫자 아님·0 이하·`inf`면 기본값 + 경고 로그(값 미포함). 경고 문구의 변수명도 `KAKAO_TIMEOUT_SECONDS`로 |
+
+- `get_kakao_geocoding_settings()`: `load_dotenv()` 후 읽고(env 인자가 있으면 그것만), 키가 비었거나 공백이면 `None` + 경고 로그 1회(문구는 `KAKAO_REST_API_KEY이 없어 상점 개설(POST /v1/stores)은 503 GEOCODING_UNAVAILABLE로 거절됩니다.`, 값 미포함). 예외 없음(D28).
+- `KakaoGeocodingSettings.__repr__`는 키를 빼고 `KakaoGeocodingSettings(url=..., timeout_seconds=...)`만 낸다(현 `NaverGeocodingSettings.__repr__` 방식 그대로). 필드는 `dataclass(frozen=True)`이되 `field(repr=False)`로 이중 방어해도 된다.
+- 네이버 변수(`NAVER_MAP_*`)는 읽지 않는다. 남아 있어도 무시하며 경고하지 않는다.
+
+**카카오 HTTP 호출 — 가정값 (D42)**
+
+| 항목 | 값 |
+| --- | --- |
+| 메서드·URL | `GET https://dapi.kakao.com/v2/local/search/address.json` |
+| 인증 헤더 | `Authorization: KakaoAK {rest_api_key}`, `Accept: application/json` (네이버의 헤더 2개 대신 하나) |
+| 쿼리 | `query={주소}` (필수, httpx `params`로 인코딩 위임), **`size=1` 전송**, `analyze_type`은 **보내지 않음**(기본 `similar`) |
+| 정상 응답 | HTTP 200 `{"meta": {"total_count": N, "pageable_count": M, "is_end": bool}, "documents": [{"address_name", "address_type", "x": "127.02...", "y": "37.49...", "address": {...}, "road_address": {...}}]}`. **`x`=경도, `y`=위도, 둘 다 문자열**(네이버와 같은 순서) |
+| 결과 없음 | HTTP 200, `documents == []`(`meta.total_count == 0`) |
+| 오류 | 인증 실패 401, 권한·앱 비활성 403, 쿼터 초과 429, 잘못된 요청 400, 서버 오류 5xx. 본문은 `{"errorType", "message"}` 형태이나 **본문은 보지 않고 상태 코드만** 본다 |
+
+`analyze_type`·`size` 권고: `analyze_type`은 기본값 `similar`(비슷한 주소까지 허용)이 첫 결과 사용(D36)에 맞고, `exact`는 표기가 조금만 달라도 0건이 되어 400이 늘어난다. 보내지 않는다. `size=1`은 첫 결과만 쓰므로 응답 크기·지연을 줄이는 용도로 보낸다(유효 범위 1~30). 요청 형태 테스트가 `size`도 단언한다.
+
+**`KakaoGeocoder._parse` 규칙** (네이버 `_parse`를 이렇게 바꾼다)
+
+1. `status` 필드 검사는 **삭제**한다(카카오 응답에는 없음).
+2. 본문이 JSON 객체가 아님 → `GeocodingUnavailableError`.
+3. `documents`가 없거나 list가 아님 → `GeocodingUnavailableError`. `meta.total_count`가 있는데 bool이거나 int가 아님 → `GeocodingUnavailableError`(기존 `totalCount` 검사와 같은 방식, 키 이름만 `total_count`).
+4. `meta.total_count == 0` 또는 `documents`가 비어 있음 → `AddressNotFoundError`(400). 단 `total_count`가 0보다 큰데 `documents`가 비면 `AddressNotFoundError`로 둔다(첫 결과가 없으므로 사용자 입력 문제로 취급, 기존 코드의 `total == 0 or not addresses` 규칙 유지).
+5. 첫 항목에서 `latitude=float(first["y"])`, `longitude=float(first["x"])`. `KeyError`/`TypeError`/`ValueError`(NaN·범위 밖 포함)는 `GeocodingUnavailableError`.
+6. 카카오 주소 검색은 **지번·도로명 주소 전용**이라 "강남역", 상호명 같은 키워드형 입력은 0건이 될 수 있다. 그래도 **400 `ADDRESS_NOT_FOUND`**로 둔다(D29). 키워드 검색 API(`keyword.json`)로 폴백하지 않는다(범위 밖, D46).
+
+HTTP 상태 비-200(3xx, 400, 401, 403, 429, 5xx 전부)은 기존대로 `GeocodingUnavailableError`(D29). 카카오 400은 키·요청 오류일 수 있으므로 "주소 없음"으로 바꾸지 않는다.
+
+### 15.3 조립 — `src/container.py` (stores 구역만)
+
+```python
+from stores.infrastructure.geocoder import KakaoGeocoder
+from stores.infrastructure.settings import get_kakao_geocoding_settings
+
+# 카카오 지오코딩: KAKAO_REST_API_KEY가 없으면 개설이 503 (stores.md D28, D43)
+_geocoder: Geocoder = KakaoGeocoder(get_kakao_geocoding_settings())
+```
+`create_geocoder`와 `create_stores_service`는 변경 없다. 변경 대상은 `container.py:87`(import), `:89`(import), `:102-103`(주석·싱글턴)뿐이다.
+
+### 15.4 테스트 계획 (네트워크 금지, D45)
+- `tests/stores/test_geocoder.py`를 카카오 형태로 **재작성**(같은 케이스 구성, `httpx.MockTransport`만): 성공(`x`→경도, `y`→위도), 요청 형태(`GET`, URL, `Authorization == "KakaoAK <key>"`, `query`·`size=1` 쿼리, `analyze_type` 없음, 네이버 헤더 없음), 복수 결과 첫 번째, 0건(`{"meta": {"total_count": 0, ...}, "documents": []}`, `documents`만 빈 경우)은 `AddressNotFoundError`, 업스트림 400/401/403/429/500/503은 `Unavailable`, 리다이렉트 미추적, 네트워크 오류 5종, 형식 오류(비객체·`documents` 누락·list 아님·`total_count` 문자열/bool·`x`/`y` 누락·비숫자·NaN·범위 밖), `InvalidURL`(키가 메시지에 새지 않음), `httpx.StreamError`, 설정 없음 → HTTP 호출 없음, 실패 로그에 키 미포함.
+- 설정 테스트: `KAKAO_REST_API_KEY` 있음 → 객체(기본 URL·5.0), 없음·공백 → `None` + 경고에 변수명만(값 없음), 잘못된 타임아웃 → 기본 5초, 커스텀 `KAKAO_TIMEOUT_SECONDS`·`KAKAO_GEOCODE_URL`, `repr`에 키 미포함, `NAVER_MAP_*`가 있어도 무시됨.
+- `tests/stores/test_wiring.py:74-94`: `test_create_geocoder_returns_kakao_geocoder_singleton`(`KakaoGeocoder` import), `test_import_main_succeeds_without_kakao_keys`(환경변수 `KAKAO_REST_API_KEY=""`).
+- `tests/conftest.py:69` 주석에서 `NaverGeocoder` → `KakaoGeocoder`. `tests/fakes.py`의 `FakeGeocoder`는 변경 없음.
+- 실제 카카오 호출 테스트는 만들지 않는다. 키가 생기면 구현자가 한 번 수동 호출해 15.2 가정(특히 `size=1` 수용, 오류 상태 코드)을 확인한다.
+
+### 15.5 구현 파일 목록 (layer-implementer)
+
+| 모듈 | 파일 | 변경 |
+| --- | --- | --- |
+| stores | `src/stores/infrastructure/settings.py` | 수정: `KakaoGeocodingSettings`, `get_kakao_geocoding_settings`, 환경변수·기본 URL·경고 문구 교체, 네이버 코드 삭제 |
+| stores | `src/stores/infrastructure/geocoder.py` | 수정: `KakaoGeocoder`(헤더 `Authorization: KakaoAK`, `size=1`, `_parse` 15.2), `NaverGeocoder` 삭제 |
+| stores | `tests/stores/test_geocoder.py` | 카카오 형태로 재작성(15.4) |
+| stores | `tests/stores/test_wiring.py` | 74-94행 이름·import·환경변수 교체 |
+| container | `src/container.py` | stores 구역 3곳(15.3)만 |
+
+삭제할 파일은 없다(파일명은 유지). `check_layers.py`·`import main`(키 없이)·`uv run pytest -rs`(db skip 0) 게이트는 §7 그대로.
+
+### 15.6 모듈 밖 변경 제안 (이 문서는 쓰지 않는다, 오케스트레이터가 적용)
+
+| # | 파일 | 변경 |
+| --- | --- | --- |
+| 1 | `.env.example` | 13-19행의 네이버 블록을 아래로 교체(값은 비움, R16) |
+| 2 | `tests/conftest.py` | 69행 주석의 `NaverGeocoder` → `KakaoGeocoder`(동작 변경 없음) |
+| 3 | `docs/reference/stores.md` | 65행 "지오코딩" 문단을 `카카오 로컬 API(주소 검색)`로, 66행 설정을 `KAKAO_REST_API_KEY`(필수)·`KAKAO_GEOCODE_URL`·`KAKAO_TIMEOUT_SECONDS`(선택)로, 69행 "확인 필요"의 네이버 엔드포인트 항목을 카카오 항목(엔드포인트 `https://dapi.kakao.com/v2/local/search/address.json`, 헤더 `Authorization: KakaoAK`는 가정, 설계 D42, 다르면 `KAKAO_GEOCODE_URL`로 교체)으로, 71행 취소선 항목 괄호를 `해결됨: 카카오 로컬 API`로. 추가 문장: "카카오 주소 검색은 지번·도로명 주소 전용이라 상호·건물명 같은 키워드형 입력은 `ADDRESS_NOT_FOUND`가 될 수 있다." |
+| 4 | `docs/design/stores.md` 외 문서 | `docs/design/admin.md` 등에 네이버 언급이 있으면 정합 확인(이번 조사 범위에서는 `tests/`·`src/`·`.env.example`·`docs/reference/stores.md`·이 문서에서만 확인) |
+| 5 | `README.md` | 환경변수 표가 있다면 `KAKAO_REST_API_KEY` 등 3개(없으면 변경 없음, 현재 네이버 언급 없음) |
+
+`.env.example` 교체분:
+```
+# 상점 개설 시 주소를 좌표로 바꾸는 카카오 로컬 API(주소 검색). 비워 두면 서버는 뜨지만
+# POST /v1/stores 가 503 GEOCODING_UNAVAILABLE 로 거절됩니다.
+KAKAO_REST_API_KEY=
+# 선택: 엔드포인트와 타임아웃(초). 기본값은 stores 설계 15.2 참고
+# KAKAO_GEOCODE_URL=https://dapi.kakao.com/v2/local/search/address.json
+# KAKAO_TIMEOUT_SECONDS=5
+```
+
+### 15.7 결정 표 (D41~D46) — 임시 기본값은 확정이 아니라 제안
+
+| # | 항목 | 출처 | 기본값 | 근거 | 코드 위치 | 확인 |
+| --- | --- | --- | --- | --- | --- | --- |
+| D41 | 지오코더 구현체 교체 범위 | 사용자 결정 2026-11-06, 오케스트레이터 기본값 | `NaverGeocoder`·`NaverGeocodingSettings`·`get_naver_geocoding_settings`·`NAVER_MAP_*`를 **제거**하고 `KakaoGeocoder`·`KakaoGeocodingSettings`·`get_kakao_geocoding_settings`로 대체. 병행·선택 설정 없음. 파일명·`Geocoder` 추상·`transport` 이음새 유지 | 구현체가 둘이면 키 설정·테스트가 늘고 사용자 결정은 카카오 하나. 추상이 있어 되돌리기 쉬움(R8) | `infrastructure/settings.py`, `geocoder.py`, container | 확정(사용자 결정 + 오케스트레이터 기본값) |
+| D42 | 카카오 엔드포인트·헤더·응답·쿼리 | 사용자 제공 값, 인터넷 없음 | 15.2 표. 헤더 `Authorization: KakaoAK {key}`, 쿼리 `query`+`size=1`(`analyze_type` 미전송), 응답 `documents[].x`(경도)·`y`(위도) 문자열, `meta.total_count`, 오류는 상태 코드만 판단. URL은 `KAKAO_GEOCODE_URL`로 교체 가능 | 사용자 제공 정보. D27의 불확실성(도메인·헤더 이원화)이 카카오에는 없어 질문으로 올리지 않음 | `settings.py`, `geocoder.py` | 불필요(키 확보 후 수동 1회 호출로 `size=1`·오류 코드 확인, 어긋나면 이 표와 구현체만 수정) |
+| D43 | 환경변수 이름과 기본값 | D28 유지 | `KAKAO_REST_API_KEY`(필수, 없으면 `None` → 개설 503, 서버는 시작), `KAKAO_GEOCODE_URL`, `KAKAO_TIMEOUT_SECONDS`(기본 5, 연결 3초 상한 유지). `repr`에 키 미포함, 로그에는 변수명만. D28·D30의 나머지(경고 1회, 폴백 없음, 호출마다 클라이언트 생성, 재시도 없음, `follow_redirects=False`) 유지 | 네이버와 같은 구조에 키가 하나로 줄어든 것뿐 | `settings.py`, `.env.example` | 불필요 |
+| D44 | 결과 선택과 저장 주소 | D35·D36 유지 | 여러 건이면 첫 번째 사용(`size=1`이라도 방어적으로 `documents[0]`), 저장·응답 주소는 정규화한 사용자 입력이며 `address_name`으로 대체하지 않는다 | D35·D36 동일 근거 | `geocoder.py`, `application/service.open_store` | 불필요 |
+| D45 | 테스트 방식 | D39 유지 | `KakaoGeocoder`는 `httpx.MockTransport`로만 검증(15.4), 서비스·API 테스트는 `FakeGeocoder`. 네트워크 금지. 기존 케이스를 카카오 응답 형태로 옮기며 **케이스를 줄이지 않는다**(검사 약화 금지) | R16, 작업 원칙 | `tests/stores/test_geocoder.py`, `test_wiring.py` | 불필요 |
+| D46 | 키워드형 입력과 `analyze_type` | 사용자 요청 | 카카오 주소 검색이 0건이면 400 `ADDRESS_NOT_FOUND`(키워드·상호명 입력 포함). 키워드 검색 API 폴백 없음. `analyze_type` 미전송(기본 `similar`) | 명세 "변환 실패 시 개설 불가", 폴백은 별도 API·쿼터·오탐(엉뚱한 장소 좌표) 위험으로 범위 밖 | `geocoder.py` | 불필요(폴백을 원하면 후속에서 사용자 결정) |
+
+### 15.8 정합 이슈 (C22~C23)
+
+| # | 위치 | 이슈 | 영향 | 제안 |
+| --- | --- | --- | --- | --- |
+| C22 | 14절 본문 전반(14.2, 14.6, 14.8, 14.9, 14.10), D26~D40 | 네이버 고유 서술이 이 문서에 남아 있어 읽는 사람이 현행으로 오해할 수 있다 | 문서 혼동 | 이력으로 둔다(헤더 갱신 이력에 명시, D26·D27·D28·D30·D35·D36·D39 행에 대체 표시). 현재 상태는 15절이 우선. 14.2의 네이버 표는 삭제하지 않는다 |
+| C23 | `docs/reference/stores.md:65-71` | 명세가 네이버·`NAVER_MAP_*`를 정본으로 적고 있다 | R15 문서 불일치 | 15.6 3번(오케스트레이터가 정본 갱신). 구현 PR과 같은 PR에서 적용 |
+
+### 15.9 사용자 확인 필요
+없음. D41 기본값(네이버 완전 대체)만 오케스트레이터 제안이라 되돌리고 싶으면 알려 달라고 보고서에 한 줄 남긴다. D42의 카카오 응답 값은 사용자 제공 정보이며, 실제 키로 수동 1회 호출 확인은 구현자 몫이다.

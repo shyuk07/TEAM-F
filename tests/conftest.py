@@ -66,7 +66,7 @@ async def client(session_factory):
         async with session_factory() as session:
             yield session
 
-    geocoder = FakeGeocoder()  # 네트워크 금지: 실제 NaverGeocoder를 쓰지 않는다 (stores.md 14.8)
+    geocoder = FakeGeocoder()  # 네트워크 금지: 실제 KakaoGeocoder를 쓰지 않는다 (stores.md 14.8)
     app.dependency_overrides[get_db] = override
     app.dependency_overrides[create_geocoder] = lambda: geocoder
     transport = httpx.ASGITransport(app=app)
