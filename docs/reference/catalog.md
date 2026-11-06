@@ -68,7 +68,7 @@
 | `name` | string | O | 1~200자 |
 | `category` | string | X | 최대 80자 |
 | `description` | string | X | |
-| `original_price` | int | O | 0보다 큼 |
+| `original_price` | int | O | 1 이상 99,999,999 이하 (1억 이상 거부) |
 | `product_image` | string[] | X | 최대 10개 |
 
 ```json
@@ -87,6 +87,7 @@
 | HTTP | 메시지 |
 | --- | --- |
 | 400 | 정상 가격은 0보다 커야 합니다. |
+| 400 | 정상 가격은 1억 원 미만이어야 합니다. |
 | 400 | 승인되지 않은 상점에는 상품을 등록할 수 없습니다. |
 | 401 | 인증이 필요합니다. |
 | 403 | 본인 상점에만 상품을 등록할 수 있습니다. |
@@ -276,7 +277,7 @@
 | `name` | string | 1~200자 |
 | `category` | string | 최대 80자 |
 | `description` | string | |
-| `original_price` | int | 0보다 큼 |
+| `original_price` | int | 1 이상 99,999,999 이하 (1억 이상 거부) |
 | `product_image` | string[] | 최대 10개 |
 
 ```json
@@ -326,7 +327,35 @@
 | 403 | 본인 상점의 상품만 변경할 수 있습니다. |
 | 404 | 상품을 찾을 수 없습니다. |
 
-> **확인 필요:** 다시 노출하는 API가 없습니다. 필요하면 `POST /v1/products/{product_id}/activate`를 제안합니다.
+
+## 6-1. 상품 재노출
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/products/{product_id}/activate` | 상점주 (본인 상점) | 200 OK |
+
+노출 중단된 상품을 다시 노출합니다(`is_active = true`). 예전 할인은 되살아나지 않습니다. 노출 상태 전환은 수정(`PATCH`)이 아니라 이 EP와 §6으로만 합니다.
+
+**헤더**
+- `Authorization: Bearer {access_token}`
+
+**경로 매개변수**
+| 이름 | 타입 | 설명 |
+| --- | --- | --- |
+| `product_id` | UUID | 상품 ID |
+
+**요청 본문:** 없음
+
+**응답:** [Product](#product-상품) (`is_active`는 `true`)
+
+**에러** (검사 순서: 상품 존재 → 소유자 → 폐점 → 이미 노출 중)
+| HTTP | error_code | 메시지 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | `product_id`가 UUID 형식이 아님 |
+| 400 | `STORE_CLOSED` | 폐점된 상점에서는 상품을 다시 노출할 수 없습니다. |
+| 400 | `PRODUCT_ALREADY_ACTIVE` | 이미 노출 중인 상품입니다. |
+| 401 | `UNAUTHORIZED` | 인증이 필요합니다. |
+| 403 | `FORBIDDEN` | 본인 상점의 상품만 변경할 수 있습니다. |
+| 404 | `NOT_FOUND` | 상품을 찾을 수 없습니다. |
 
 ---
 

@@ -191,6 +191,15 @@ async def deactivate_product(product_id: uuid.UUID, owner: OwnerUser, service: S
 
 
 @router.post(
+    "/products/{product_id}/activate",
+    response_model=ProductResponse,
+    summary="상품 재노출",
+)
+async def activate_product(product_id: uuid.UUID, owner: OwnerUser, service: Service):
+    return await service.reactivate_product(owner.id, product_id)
+
+
+@router.post(
     "/products/{product_id}/offers",
     response_model=OfferResponse,
     status_code=201,

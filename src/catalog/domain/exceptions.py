@@ -49,6 +49,10 @@ class ProductAlreadyInactiveError(ValueError):
     error_code = "PRODUCT_ALREADY_INACTIVE"
 
 
+class ProductAlreadyActiveError(ValueError):
+    error_code = "PRODUCT_ALREADY_ACTIVE"
+
+
 class ProductHasOpenOfferError(ValueError):
     error_code = "PRODUCT_HAS_OPEN_OFFER"
 

@@ -530,6 +530,7 @@ class CatalogApplicationService:
 | 4 | GET | `/v1/products/{product_id}` | - | `ProductDetailResponse` | 200 | 404(없음, 또는 비활성+비소유) |
 | 5 | PATCH | `/v1/products/{product_id}` | `ProductUpdateRequest` | `ProductResponse` | 200 | 400(항목 없음, 할인가 이하), 401, 403, 404 |
 | 6 | POST (상품 노출 중단) | `/v1/products/{product_id}/deactivate` | 없음 | `ProductResponse` | 200 | 400(이미 비활성, 진행 중 할인), 401, 403, 404 |
+| 6-1 | POST (상품 재노출) | `/v1/products/{product_id}/activate` | 없음 | `ProductResponse` | 200 | 400(이미 노출 중 `PRODUCT_ALREADY_ACTIVE`, 폐점 `STORE_CLOSED`), 401, 403, 404 (D79) |
 | 7 | POST | `/v1/products/{product_id}/offers` | `OfferCreateRequest` | `OfferResponse` | 201 | 400(가격·시간·비활성 상품·진행 중 할인·상점), 401, 403, 404 |
 | 8 | GET | `/v1/offers` | 쿼리(14.5절) | `NearbyOfferListResponse` | 200 | 400(`lat`·`lng` 한쪽만, `distance` 정렬에 위치 없음, status·sort 허용 외, 범위·형식). 401·403·404 없음. 인증 없음(공개) |
 | 9 | GET | `/v1/stores/{store_id}/offers` | 쿼리(`status` 반복 가능) | `OfferListResponse` | 200 | 400(status 값 등), 404(상점) |
@@ -804,6 +805,9 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D75 | 읽기 전용·오류 코드 | R5, D14 | 두 EP는 잠금·`commit`이 없고 상점 조회와 상품·할인 조회가 한 시점이 아니다(허용). 형식·범위 오류는 전역 핸들러의 400 `VALIDATION_ERROR` | 읽기 전용, D14 | 서비스, router | 확정(사용자 결정) |
 | D76 | #3 응답 구조 (D77로 대체) | 사용자 결정(Q30) | ~~`items[]` = `product` + `store` + `distance` + `unit` + `has_active_offer` 평면 구조(상품 단위)~~ → 사용자가 상점 단위 묶음으로 다시 결정해 **폐기**. `StoreSummaryResponse`(`id, name, pickup_address, latitude, longitude`)와 "`StoreInfo`로 채운다"는 부분은 D77이 이어받는다 | - | - | 폐기 |
 | D77 | #3 응답 구조: 상점 단위 묶음 (D76 대체) | 사용자 결정 | `items[]` 한 건 = 검색 조건(`keyword`·`category`·반경)에 맞는 상품을 1개 이상 가진 **상점 하나**: `{store: {id, name, pickup_address, latitude, longitude}, distance, unit, products: [ProductResponse 필드 + has_active_offer, …]}`. `products[]`에는 그 상점의 조건 일치 상품을 전부 담는다(상한 없음, Q44). **`page`·`size`·`total`은 상점 수 기준.** 조건 일치 상품이 없는 상점은 나오지 않는다. #8 응답은 바뀌지 않는다. `store`는 `StoreWithDistance.store`(`StoreInfo`)로 채워 stores·`StorePort` 추가 변경이 없다 | 사용자 결정, `StoreInfo`가 5개 필드를 이미 가짐 | `schemas.py`, `StoreSearchHit`, 레포 쿼리(14.4) | 확정(사용자 결정) |
+| D78 | 정상 가격 상한 | requirements REQ-3(사용자 결정 "1억 이상 입력 금지") | 1 이상 99,999,999 이하. 상한은 새 입력(`Product.register`, `apply_changes`)에서만 검사하고 생성자(DB 복원)는 검사하지 않는다. 기존 행이 1억 이상이어도 읽기가 깨지지 않게 하기 위함. DB `CHECK`는 추가하지 않는다 | 사용자 결정, 기존 데이터 호환 | `product.py` 모듈 상수 `MAX_PRICE`, `Product._validate_new_price` | 확정(사용자 결정) |
+| D79 | 상품 재노출 EP | requirements 상태와 전이(노출 중단 → 노출 중), 명세 §6 "확인 필요" | `POST /v1/products/{product_id}/activate`. 노출 상태 전환은 #6·#6-1 전용 명령으로만 하고 PATCH(#5)로 받지 않는다. 검사 순서: 상품 존재(404) → 소유자(403) → 폐점(`STORE_CLOSED`) → 이미 노출 중(`PRODUCT_ALREADY_ACTIVE`). 상품 행 `FOR UPDATE` 후 `commit`. 예전 할인은 되살리지 않는다 | 사용자 결정. 전환마다 조건이 달라 PATCH에 섞으면 REQ-10과 함께 원인 파악이 어렵다 | `Product.reactivate`, `reactivate_product`, router | 확정(사용자 결정) |
+| D80 | 폐점 상점의 상품 숨김 (CI-15 해결) | requirements 정책 표(폐점 상점의 상품 조회: 상점주 외 불가) | `StoreRef.are_products_visible_to`: 폐점 또는 정지면 소유자에게만 보인다. #2·#4만 쓰고 #9·#10(할인)은 기존 `is_visible_to`(정지만)를 유지한다. 숨김 응답은 기존과 같은 404 `StoreNotFoundError` | 사용자 결정(상품에만 적용, 할인은 할인 요구 조건에서 결정) | `store_ref.py`, `list_products`, `get_product` | 확정(사용자 결정) |
 | Q12 | 종료되는 할인의 남은 재고를 `stock_log`로 기록하거나 복구하는가 | 재고 영향 | 기록·복구하지 않고 `remaining_stock` 유지 (D40) | #13 재등록의 기존 할인 종료와 같은 방식 | `close` | 확정 |
 | Q14 | 폐점된 상점의 할인도 중단 허용 | 현재 코드 | 허용(#12는 `ensure_not_closed`를 호출하지 않음). #11 재개는 폐점이면 막는다 | 이미 열려 있던 할인을 닫는 동작은 폐점과 모순되지 않는다 | `deactivate_offer` | 확정 |
 | Q16 | #12 `reason` 검증 범위 | 명세(필수·최대 200자) | `min_length=1`, 공백만이면 거부 | "필수"를 빈 값 거부로 해석 | `OfferDeactivateRequest` | 확정 |
@@ -863,7 +867,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | CI-12 | 14.3·14.4 ↔ 기존 fake/구현 | `StorePort`에 메서드가 늘고 `ProductRepository`·`DiscountOfferRepository`(ABC)에 추상 메서드가 늘면 `tests/catalog/test_service.py`의 `FakeStores`·`FakeProducts`·`FakeOffers`가 구현하지 않아 인스턴스 생성(ABC) 또는 호출(Protocol)에서 깨진다. `StorePort`는 Protocol이라 stores 구현이 없어도 import·조립은 성공하고 호출할 때 `AttributeError`가 난다 | 구현 PR이 fake 3종을 함께 갱신하고 `test_wiring.py`가 `create_store_port()` 결과에 `find_visible_stores`가 있는지 확인한다 |
 | CI-13 | 14.4 `has_active_offer` ↔ #9 기본 목록 | 같은 "진행 중 할인" 집합을 두 곳이 쓴다 | `OPEN_OFFER_STATUSES`·`_status_clause`만 쓰고 별도 조건을 만들지 않는다. CI-5의 비교 테스트를 `has_active_offer`까지 넓힌다 |
 | CI-14 | 14.4 SQL `rate` ↔ 도메인 `discount_rate` | 도메인은 파이썬 정수 연산(버림, D1), SQL 정렬은 두 번째 구현이다. `int4 * 100`은 원가가 21억 근처에서 오버플로하고 DB `CHECK`는 원가 0을 허용해 0으로 나눌 수 있다 | `::bigint` 캐스트와 `NULLIF(original_price, 0)`를 쓰고 도메인 값과 비교하는 테스트를 둔다 |
-| CI-15 | 기존 #2·#4·#9 ↔ requirements 정책 표 | requirements는 "폐점 상점의 상품은 상점주 외에는 존재하지 않는 것처럼 다룬다"인데 현재 `StoreRef.is_visible_to`는 정지만 숨기고 폐점은 숨기지 않는다(`src/catalog/domain/store_ref.py:64-66`). 이번 검색은 폐점 상점을 숨기므로 단건·목록 조회와 규칙이 어긋난다 | 이번 범위 밖. 별도 요청으로 `is_visible_to`에 폐점 조건을 추가할지 결정한다 (D63·Q31과 함께) |
+| CI-15 | 기존 #2·#4·#9 ↔ requirements 정책 표 | requirements는 "폐점 상점의 상품은 상점주 외에는 존재하지 않는 것처럼 다룬다"인데 현재 `StoreRef.is_visible_to`는 정지만 숨기고 폐점은 숨기지 않는다(`src/catalog/domain/store_ref.py:64-66`). 이번 검색은 폐점 상점을 숨기므로 단건·목록 조회와 규칙이 어긋난다 | **닫힘(D80).** 상품(#2·#4)만 폐점 상점을 숨긴다. 할인(#9·#10)은 할인 요구 조건에서 다시 정한다 |
 
 ### 13.3 예약·결제 연계 이슈
 

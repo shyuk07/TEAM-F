@@ -36,6 +36,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 11 | catalog | [상품 상세](catalog.md#4-상품-상세) | GET | `/v1/products/{product_id}` | 공개 | 200 |
 | 12 | catalog | [상품 수정](catalog.md#5-상품-수정) | PATCH | `/v1/products/{product_id}` | 상점주(본인) | 200 |
 | 13 | catalog | [상품 노출 중단](catalog.md#6-상품-노출-중단) | POST | `/v1/products/{product_id}/deactivate` | 상점주(본인) | 200 |
+| 13-1 | catalog | [상품 재노출](catalog.md#6-1-상품-재노출) | POST | `/v1/products/{product_id}/activate` | 상점주(본인) | 200 |
 | 14 | catalog | [할인 등록](catalog.md#7-할인-등록) | POST | `/v1/products/{product_id}/offers` | 상점주(본인) | 201 |
 | 15 | catalog | [주변 할인 목록](catalog.md#8-주변-할인-목록) | GET | `/v1/offers` | 공개 | 200 |
 | 16 | catalog | [상점 할인 목록](catalog.md#9-상점-할인-목록) | GET | `/v1/stores/{store_id}/offers` | 공개 | 200 |

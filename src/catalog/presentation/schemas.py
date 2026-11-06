@@ -30,7 +30,7 @@ class ProductCreateRequest(BaseModel):
     name: str = Field(..., description="상품명 (1~200자)")
     category: str | None = Field(None, description="카테고리 (최대 80자)")
     description: str | None = Field(None, description="설명")
-    original_price: int = Field(..., description="정상 가격 (0보다 큼)")
+    original_price: int = Field(..., description="정상 가격 (1 이상 1억 미만)")
     product_image: list[str] | None = Field(None, description="이미지 URL (최대 10개)")
 
 
@@ -38,7 +38,7 @@ class ProductUpdateRequest(BaseModel):
     name: str | None = Field(None, description="상품명 (1~200자)")
     category: str | None = Field(None, description="카테고리 (최대 80자)")
     description: str | None = Field(None, description="설명")
-    original_price: int | None = Field(None, description="정상 가격 (0보다 큼)")
+    original_price: int | None = Field(None, description="정상 가격 (1 이상 1억 미만)")
     product_image: list[str] | None = Field(None, description="이미지 URL (최대 10개)")
 
 
