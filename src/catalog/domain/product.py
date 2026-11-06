@@ -1,6 +1,7 @@
 import uuid
 
 from catalog.domain.exceptions import (
+    ProductAlreadyActiveError,
     ProductAlreadyInactiveError,
     ProductHasOpenOfferError,
     ProductInactiveError,
@@ -9,6 +10,7 @@ from catalog.domain.exceptions import (
 MAX_NAME_LENGTH = 200
 MAX_CATEGORY_LENGTH = 80
 MAX_IMAGES = 10
+MAX_PRICE = 99_999_999  # requirements REQ-3: 1억 이상 거부
 _CHANGEABLE = {"name", "category", "description", "original_price", "product_image"}
 
 
@@ -57,6 +59,14 @@ class Product:
             raise ValueError("정상 가격은 0보다 커야 합니다.")
         return price
 
+    @classmethod
+    def _validate_new_price(cls, price: int | None) -> int:
+        """새로 입력되는 가격용. 상한은 상한 도입 전 저장된 값의 복원을 막지 않도록 여기서만 검사한다."""
+        price = cls._validate_price(price)
+        if price > MAX_PRICE:
+            raise ValueError("정상 가격은 1억 원 미만이어야 합니다.")
+        return price
+
     @staticmethod
     def _validate_images(images: list[str] | None) -> list[str]:
         if images is None:
@@ -80,7 +90,7 @@ class Product:
         return cls(
             store_id=store_id,
             name=name,
-            original_price=original_price,
+            original_price=cls._validate_new_price(original_price),
             category=category,
             description=description,
             product_image=product_image,
@@ -101,7 +111,7 @@ class Product:
         if "description" in changes:
             new["description"] = changes["description"]
         if "original_price" in changes:
-            price = self._validate_price(changes["original_price"])
+            price = self._validate_new_price(changes["original_price"])
             if open_offer_sale_price is not None and price <= open_offer_sale_price:
                 raise ValueError("정상 가격은 진행 중인 할인 가격보다 커야 합니다.")
             new["original_price"] = price
@@ -118,6 +128,11 @@ class Product:
         if has_open_offer:
             raise ProductHasOpenOfferError("진행 중인 할인 판매가 있어 비활성화할 수 없습니다.")
         self.is_active = False
+
+    def reactivate(self) -> None:
+        if self.is_active:
+            raise ProductAlreadyActiveError("이미 노출 중인 상품입니다.")
+        self.is_active = True
 
     def ensure_active_for_offer(self) -> None:
         if not self.is_active:

@@ -236,7 +236,11 @@ async def test_offer_sorts_price_and_discount_rate_match_domain(session_factory,
     specs = [(2_100_000_000, 1_000_000_000), (10000, 9000), (6000, 3000), (7, 3)]
     made = []
     for k, (orig, sale) in enumerate(specs):
-        p = await make_product(client, t, s, name=f"p{k}", original_price=orig)
+        p = await make_product(client, t, s, name=f"p{k}", original_price=min(orig, 99_999_999))
+        if orig > 99_999_999:  # 가격 상한(REQ-3) 도입 전에 저장된 값을 가정해 DB에 직접 쓴다 (CI-14)
+            async with session_factory() as ss:
+                (await ss.get(ProductModel, uuid.UUID(p["id"]))).original_price = orig
+                await ss.commit()
         o = await make_offer(client, t, p["id"], sale_price=sale)
         made.append((o["id"], orig, sale))
     now = datetime.now(timezone.utc)  # 할인 sales_start(생성 시각) 이후

@@ -244,6 +244,16 @@ class CatalogApplicationService:
         await self.session.commit()
         return product
 
+    async def reactivate_product(self, user_id: uuid.UUID, product_id: uuid.UUID) -> Product:
+        product = await self._get_product(product_id, for_update=True)
+        store = await self._load_store(product.store_id)
+        store.ensure_owner(user_id, "본인 상점의 상품만 변경할 수 있습니다.")
+        store.ensure_not_closed("상품을 다시 노출")
+        product.reactivate()
+        await self.products.save(product)
+        await self.session.commit()
+        return product
+
     async def deactivate_offer(
         self,
         user_id: uuid.UUID,
@@ -385,7 +395,7 @@ class CatalogApplicationService:
         size: int,
     ) -> Page[Product]:
         store = await self._load_store(store_id)
-        store.ensure_visible_to(viewer_id)
+        store.ensure_products_visible_to(viewer_id)
         if not is_active and not store.is_owned_by(viewer_id):
             raise NotStoreOwnerError("본인 상점의 비활성 상품만 조회할 수 있습니다.")  # D6
         items, total = await self.products.find_by_store(
@@ -396,7 +406,7 @@ class CatalogApplicationService:
     async def get_product(self, viewer_id: uuid.UUID | None, product_id: uuid.UUID) -> ProductDetailView:
         product = await self._get_product(product_id)
         store = await self._load_store(product.store_id)
-        store.ensure_visible_to(viewer_id)
+        store.ensure_products_visible_to(viewer_id)
         if not product.is_active and not store.is_owned_by(viewer_id):
             raise ProductNotFoundError()  # D7
         return ProductDetailView(product=product, store_name=store.name, pickup_address=store.pickup_address)
