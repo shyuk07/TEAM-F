@@ -3,7 +3,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from auth.domain.exceptions import EmailDuplicatedError, TokenRevokedError
+from auth.domain.exceptions import AccountLockedError, EmailDuplicatedError, TokenRevokedError
 from error_handlers import register_exception_handlers
 
 pytestmark = pytest.mark.anyio
@@ -33,6 +33,10 @@ def make_app():
     @app.get("/dup")
     async def dup():
         raise EmailDuplicatedError()
+
+    @app.get("/locked")
+    async def locked():
+        raise AccountLockedError(601)
 
     @app.get("/value")
     async def value():
@@ -95,3 +99,15 @@ async def test_validation_message():
     assert r.status_code == 400
     assert r.json()["error_code"] == "VALIDATION_ERROR"
     assert r.json()["message"].startswith("x: ")
+
+
+async def test_account_locked_is_429_common_format_with_retry_after():
+    r = await get("/locked")
+    assert r.status_code == 429
+    assert r.json() == {
+        "success": False,
+        "error_code": "ACCOUNT_LOCKED",
+        "message": "로그인 시도가 너무 많아 계정이 잠겼습니다. 11분 뒤에 다시 시도해 주세요.",
+    }
+    assert r.headers["retry-after"] == "601"
+    assert "www-authenticate" not in r.headers

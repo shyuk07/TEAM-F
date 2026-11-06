@@ -49,7 +49,10 @@ class ResetCodeGenerator(ABC):
 
 
 class PasswordResetNotifier(ABC):
-    """재설정 코드를 회원에게 전달한다(메일 등). 실패해도 요청 응답에는 드러내지 않는다."""
+    """재설정 코드를 회원에게 전달한다(메일 등). 실패해도 요청 응답에는 드러내지 않는다.
+
+    구현체는 비동기 논블로킹이어야 한다(응답 뒤 같은 이벤트 루프에서 실행되므로, 막으면 다음 요청이 느려진다).
+    """
 
     @abstractmethod
     async def send_code(self, email: str, code: str, expires_at: datetime) -> None: ...

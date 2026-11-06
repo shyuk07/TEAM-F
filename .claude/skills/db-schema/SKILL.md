@@ -61,6 +61,8 @@ erDiagram
         varchar deleted_reason
         int token_version
         text token_keep_jti
+        int failed_login_count
+        timestamptz login_locked_until
     }
     point_log {
         uuid id PK
@@ -192,7 +194,7 @@ erDiagram
 | `payments.reservation_id` | `pickup_reservations` | 1 : N | 불가 | `failed_at`이 있어 재시도를 고려해 1:N. 성공 결제는 예약당 1건 (확인 필요) |
 | `refunds.payment_id` | `payments` | 1 : N | 불가 | 부분 환불을 허용하지 않으면 1:1로 `UNIQUE` 추가 (확인 필요) |
 
-`password_reset_codes.user_id`는 `users`와 1 : 0..1(PK이자 FK)입니다. 회원당 재설정 코드 1개를 덮어쓰고, 성공하면 지웁니다. `users.token_version`·`token_keep_jti`는 비밀번호 변경·재설정 때 기존 토큰을 무효화하는 토큰 세대입니다.
+`password_reset_codes.user_id`는 `users`와 1 : 0..1(PK이자 FK)입니다. 회원당 재설정 코드 1개를 덮어쓰고, 성공하면 지웁니다. `users.token_version`·`token_keep_jti`는 비밀번호 변경·재설정 때 기존 토큰을 무효화하는 토큰 세대입니다. `users.failed_login_count`·`login_locked_until`은 로그인 연속 실패 잠금 상태입니다(5번째 실패에서 잠금 시각을 정하고 횟수는 0).
 
 `token_blacklist`는 다른 테이블과 관계가 없습니다. 토큰의 `jti`와 만료 시각만 저장하고, 만료가 지난 행은 지워도 됩니다.
 

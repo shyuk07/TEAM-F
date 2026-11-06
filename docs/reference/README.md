@@ -131,7 +131,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
 노션에 나온 `error_code`: `VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED`
 
-auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
+auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400), `ACCOUNT_LOCKED`(로그인 연속 5회 실패 잠금, 429, `Retry-After`, 맞는 비밀번호일 때만). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
 
 ### 상태 코드
 | 코드 | 쓰임 |
@@ -140,6 +140,7 @@ auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일
 | 400 | 도메인 규칙 위반 (도메인의 `ValueError`) |
 | 401 | 토큰 없음, 만료, 로그아웃된 토큰, 로그인 실패 |
 | 403 | 역할이나 소유권 없음 (`PermissionError`) |
+| 429 | 로그인 연속 실패 잠금 (auth `ACCOUNT_LOCKED`, `Retry-After` 헤더) |
 | 404 | 대상 없음 (`LookupError`) |
 | 409 | 중복이나 상태 충돌 (노션 예약·결제·회원가입 페이지에서 사용) |
 | 422 | 요청 형식 오류 (FastAPI·Pydantic 기본) |

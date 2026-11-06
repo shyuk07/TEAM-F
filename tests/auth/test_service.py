@@ -17,7 +17,7 @@ from auth.domain.service import PasswordHasher
 from auth.domain.user import Role, User
 from auth.infrastructure.security import JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
-from tests.auth.fakes import FakeClock
+from tests.auth.fakes import FakeClock, FakeCodes
 
 pytestmark = pytest.mark.anyio
 
@@ -62,6 +62,7 @@ class FakeUsers(UserRepository):
         self.race_row = None  # 경쟁 시 저장 실패 뒤에 보이게 되는 다른 요청의 행
 
     async def find_by_id(self, user_id, for_update=False):
+        self.locked_reads = getattr(self, "locked_reads", 0) + (1 if for_update else 0)
         return self.items.get(user_id)
 
     async def find_by_email(self, email):
@@ -115,7 +116,7 @@ def build(race=False):
     db = FakeSession()
     parts = dict(users=FakeUsers(race), point_logs=FakeLogs(), blacklist=FakeBlacklist(),
                  hasher=FakeHasher(), tokens=JwtTokenProvider(AuthSettings(secret_key="k" * 40)),
-                 clock=FakeClock())
+                 clock=FakeClock(), codes=FakeCodes())
     return AuthApplicationService(db, **parts), db, parts
 
 
@@ -230,6 +231,9 @@ def test_constructor_requires_all_dependencies():
     # R8: 기본 구현체를 만들지 않는다
     with pytest.raises(TypeError):
         AuthApplicationService(FakeSession())
+    import inspect
+
+    assert inspect.signature(AuthApplicationService.__init__).parameters["codes"].default is inspect.Parameter.empty
 
 
 async def test_missing_user_raises_user_not_found_error():

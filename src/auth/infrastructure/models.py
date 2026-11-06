@@ -18,6 +18,7 @@ class UserModel(Base):
             "status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN')",
             name="ck_users_status",
         ),
+        CheckConstraint("failed_login_count >= 0", name="ck_users_failed_login_nonneg"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -43,6 +44,8 @@ class UserModel(Base):
     deleted_reason: Mapped[str | None] = mapped_column(String(500))
     token_version: Mapped[int] = mapped_column(server_default="0")
     token_keep_jti: Mapped[str | None] = mapped_column(Text)
+    failed_login_count: Mapped[int] = mapped_column(server_default="0")
+    login_locked_until: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class PointLogModel(Base):

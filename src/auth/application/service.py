@@ -1,3 +1,4 @@
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,6 +14,7 @@ from auth.domain.exceptions import (
     UserNotFoundError,
 )
 from auth.domain.point_log import PointLog, PointType
+from auth.domain.repository.password_reset_code_repository import PasswordResetCodeRepository
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
@@ -21,6 +23,8 @@ from auth.domain.token_claims import TokenClaims
 from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User
 
 MAX_PAGE_SIZE = 100
+
+logger = logging.getLogger("auth.login")
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,7 @@ class AuthApplicationService:
         hasher: PasswordHasher,
         tokens: TokenProvider,
         clock: Clock,
+        codes: PasswordResetCodeRepository,
     ):
         self.session = session
         self.users = users
@@ -76,6 +81,7 @@ class AuthApplicationService:
         self.hasher = hasher
         self.tokens = tokens
         self.clock = clock
+        self.codes = codes
 
     async def signup(
         self,
@@ -130,14 +136,26 @@ class AuthApplicationService:
         return user
 
     async def login(self, email: str, password: str) -> LoginResult:
-        user = await self.users.find_by_email(User.normalize_email(email))
-        if user is None:
+        snapshot = await self.users.find_by_email(User.normalize_email(email))  # 행 잠금 없음
+        if snapshot is None:  # 가입되지 않음: 잠금·저장 없음
             self.hasher.dummy_verify(password)
             raise InvalidCredentialsError()
-        if not self.hasher.verify(password, user.password_hash):
-            raise InvalidCredentialsError()
+        verified = self.hasher.verify(password, snapshot.password_hash)  # bcrypt는 행 잠금 밖 (D-잠금판정순서)
         now = self.clock.now()
-        user.ensure_can_login(now)  # 비밀번호 검증 성공 뒤에만 상태를 알려 준다 (D8)
+        user = await self.users.find_by_id(snapshot.id, for_update=True)  # D-잠금경합
+        if user is None or user.password_hash != snapshot.password_hash:
+            raise InvalidCredentialsError()
+        if not verified:
+            if user.record_login_failure(now):  # 탈퇴·잠금 중이면 False
+                await self.users.save(user)
+                await self.session.commit()  # 횟수를 남기려고 커밋한 뒤 예외 (R5)
+                if user.is_login_locked(now):
+                    logger.warning("로그인 연속 실패로 계정 잠금: user_id=%s", user.id)
+            raise InvalidCredentialsError()
+        user.ensure_can_login(now)  # 탈퇴 401 -> 잠금 429 -> 정지 403 (비밀번호가 맞을 때만 알린다, D8)
+        if user.clear_login_failures():
+            await self.users.save(user)
+            await self.session.commit()
         token, _ = self.tokens.issue(user.id, user.role, token_version=user.token_version)
         return LoginResult(token=token, status=user.effective_status(now).value)
 
@@ -304,6 +322,7 @@ class AuthApplicationService:
         await self.users.save(user)
         if expired > 0:
             await self.point_logs.add(PointLog.record(user.id, PointType.EXPIRE, -expired, 0))
+        await self.codes.delete(user.id)  # REQ-35: 탈퇴하면 재설정 코드도 지운다 (회원 행 -> 코드 행 순)
         await self._finish(commit)
         return user
 
