@@ -1,3 +1,6 @@
+import math
+
+
 class AuthenticationError(Exception):
     """인증 실패 (HTTP 401로 변환)."""
 
@@ -11,6 +14,19 @@ class AuthenticationError(Exception):
 class InvalidCredentialsError(AuthenticationError):
     error_code = "INVALID_CREDENTIALS"
     default_message = "이메일 또는 비밀번호가 올바르지 않습니다."
+
+
+class AccountLockedError(Exception):
+    """로그인 연속 실패 잠금 (HTTP 429로 변환). ValueError·PermissionError·AuthenticationError를 상속하지 않는다."""
+
+    error_code = "ACCOUNT_LOCKED"
+
+    def __init__(self, retry_after_seconds: int):
+        self.retry_after_seconds = max(1, int(retry_after_seconds))
+        minutes = max(1, math.ceil(self.retry_after_seconds / 60))
+        super().__init__(
+            f"로그인 시도가 너무 많아 계정이 잠겼습니다. {minutes}분 뒤에 다시 시도해 주세요."
+        )
 
 
 class TokenRevokedError(AuthenticationError):

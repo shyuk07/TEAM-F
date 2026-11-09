@@ -28,7 +28,11 @@ CREATE TABLE users (
     -- 토큰 세대 (비밀번호 변경·재설정 시 기존 토큰 무효화, auth D-토큰무효화, S-A2)
     token_version    INTEGER      NOT NULL DEFAULT 0,
     token_keep_jti   TEXT,                                 -- 비밀번호 변경에 쓴 토큰 하나만 유지
-    CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN'))
+    -- 로그인 잠금 (auth D-로그인잠금, REQ-13). 5번째 연속 실패에서 locked_until을 정하고 횟수는 0으로 되돌린다
+    failed_login_count INTEGER    NOT NULL DEFAULT 0,
+    login_locked_until TIMESTAMPTZ,                        -- NULL이거나 과거면 잠금 아님
+    CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN')),
+    CONSTRAINT ck_users_failed_login_nonneg CHECK (failed_login_count >= 0)
 );
 
 CREATE TABLE point_log (

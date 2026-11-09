@@ -1,8 +1,10 @@
+import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
 from auth.domain.exceptions import (
+    AccountLockedError,
     AccountSuspendedError,
     AdminAccountProtectedError,
     AuthenticationError,
@@ -78,6 +80,8 @@ class User:
     PASSWORD_MIN_LENGTH = 8
     PASSWORD_MAX_BYTES = 72
     POINT_USE_UNIT = 100
+    LOGIN_MAX_FAILURES = 5
+    LOGIN_LOCK_DURATION = timedelta(minutes=10)
 
     def __init__(
         self,
@@ -101,6 +105,8 @@ class User:
         deleted_reason: str | None = None,
         token_version: int = 0,
         token_keep_jti: str | None = None,
+        failed_login_count: int = 0,
+        login_locked_until: datetime | None = None,
     ):
         email = self.normalize_email(email)
         self._validate_email(email)
@@ -116,6 +122,8 @@ class User:
             raise ValueError("포인트는 0 이상이어야 합니다.")
         if token_version < 0:
             raise ValueError("토큰 세대는 0 이상이어야 합니다.")
+        if failed_login_count < 0:
+            raise ValueError("로그인 실패 횟수는 0 이상이어야 합니다.")
         if created_at is not None and created_at.tzinfo is None:
             raise ValueError("created_at은 timezone 정보가 있어야 합니다.")
         status = UserStatus(status)
@@ -125,6 +133,7 @@ class User:
             ("suspended_at", suspended_at),
             ("suspended_until", suspended_until),
             ("deleted_at", deleted_at),
+            ("login_locked_until", login_locked_until),
         ):
             _require_aware(value, field)
         if status in (UserStatus.PENDING, UserStatus.REJECTED) and role is not Role.OWNER:
@@ -158,6 +167,8 @@ class User:
         self.deleted_reason = deleted_reason
         self.token_version = token_version
         self.token_keep_jti = token_keep_jti
+        self.failed_login_count = failed_login_count
+        self.login_locked_until = login_locked_until
 
     @staticmethod
     def normalize_email(email: str) -> str:
@@ -394,6 +405,7 @@ class User:
         self.validate_raw_password(new)
         self.password_hash = hasher.hash(new)
         self.invalidate_tokens(None)
+        self.clear_login_failures()  # D-재설정잠금해제
 
     def invalidate_tokens(self, keep_jti: str | None = None) -> None:
         self.token_version += 1
@@ -418,10 +430,40 @@ class User:
         self._add_points(amount)
         return normalized
 
+    # ── 로그인 잠금 (D-로그인잠금, REQ-13) ─────────────────
+    def is_login_locked(self, now: datetime) -> bool:
+        _require_aware(now, "now")
+        return self.login_locked_until is not None and now < self.login_locked_until
+
+    def login_lock_remaining_seconds(self, now: datetime) -> int:
+        if not self.is_login_locked(now):
+            return 0
+        return max(1, math.ceil((self.login_locked_until - now).total_seconds()))
+
+    def record_login_failure(self, now: datetime) -> bool:
+        """비밀번호 불일치 기록. 저장할 변화가 있으면 True. 탈퇴·잠금 중이면 변화 없음(횟수 제외·연장 없음)."""
+        _require_aware(now, "now")
+        if self.status is UserStatus.WITHDRAWN or self.is_login_locked(now):
+            return False
+        self.login_locked_until = None  # 지난 잠금 값 정리
+        self.failed_login_count += 1
+        if self.failed_login_count >= self.LOGIN_MAX_FAILURES:
+            self.login_locked_until = now + self.LOGIN_LOCK_DURATION
+            self.failed_login_count = 0
+        return True
+
+    def clear_login_failures(self) -> bool:
+        changed = self.failed_login_count != 0 or self.login_locked_until is not None
+        self.failed_login_count = 0
+        self.login_locked_until = None
+        return changed
+
     def ensure_can_login(self, now: datetime) -> None:
-        """탈퇴는 존재하지 않는 계정처럼(D9), 정지는 상점주 외 403(D8, D39). PENDING·REJECTED는 허용(D5)."""
+        """탈퇴(401, D9) -> 잠금(429) -> 정지는 상점주 외 403(D8, D39). PENDING·REJECTED는 허용(D5)."""
         if self.status is UserStatus.WITHDRAWN:
             raise InvalidCredentialsError()
+        if self.is_login_locked(now):
+            raise AccountLockedError(self.login_lock_remaining_seconds(now))
         if self.is_suspended(now) and self.role is not Role.OWNER:
             raise AccountSuspendedError()
 

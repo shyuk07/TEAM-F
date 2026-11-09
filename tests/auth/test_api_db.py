@@ -11,6 +11,7 @@ from auth.domain.point_log import PointType
 from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role
 from auth.infrastructure.repositories import (
+    SqlAlchemyPasswordResetCodeRepository,
     SqlAlchemyPointLogRepository,
     SqlAlchemyTokenBlacklistRepository,
     SqlAlchemyUserRepository,
@@ -33,6 +34,7 @@ def auth_service(db):
         BcryptPasswordHasher(),
         JwtTokenProvider(),
         SystemClock(),
+        SqlAlchemyPasswordResetCodeRepository(db),
     )
 
 
