@@ -13,7 +13,15 @@ TZ = DateTime(timezone=True)
 class PickupReservationModel(Base):
     __tablename__ = "pickup_reservations"
     # S-3: schema.sql의 price 컬럼은 매핑하지 않는다. NULL 허용 컬럼은 schema.sql 그대로 둔다(S-2).
-    __table_args__ = (CheckConstraint("quantity >= 1", name="ck_reservations_quantity"),)
+    __table_args__ = (
+        CheckConstraint("quantity >= 1", name="ck_reservations_quantity"),
+        CheckConstraint(
+            "cancelled_by IN ('CUSTOMER', 'STORE', 'SYSTEM')", name="ck_reservation_cancelled_by"
+        ),
+        CheckConstraint(
+            "cancelled_by IS NULL OR status = 'CANCELLED'", name="ck_reservation_cancelled_by_status"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
@@ -36,3 +44,4 @@ class PickupReservationModel(Base):
     store_name: Mapped[str | None] = mapped_column(String(150))
     pickup_address: Mapped[str | None] = mapped_column(String(500))
     product_name: Mapped[str | None] = mapped_column(String(200))
+    cancelled_by: Mapped[str | None] = mapped_column(String(20))

@@ -147,6 +147,7 @@ erDiagram
         timestamptz created_at
         timestamptz cancelled_at
         timestamptz picked_up_at
+        varchar cancelled_by
     }
     payments {
         uuid id PK
@@ -216,7 +217,7 @@ erDiagram
 | `TIMESTAMPZ` (`stock_log`, `point_log`) | 오타 | `TIMESTAMPTZ` |
 | `products.store_id ... DEFAULT AS` | 문법 오류 | `DEFAULT` 제거 |
 | `stores.approval_at VARCHAR(20)` | API 명세는 "개설 시각"(datetime)으로 사용 | `approval_at TIMESTAMPTZ` |
-| 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 값에 이름 있는 `CHECK`: `discount_offers.status`(`ck_offer_status`, `SUSPENDED` 포함), `point_log.point_type`(`ck_point_log_type`, `GRANT`·`EXPIRE` 포함), `users.status`(`ck_users_status`) |
+| 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 값에 이름 있는 `CHECK`: `discount_offers.status`(`ck_offer_status`, `SUSPENDED` 포함), `point_log.point_type`(`ck_point_log_type`, `GRANT`·`EXPIRE` 포함), `users.status`(`ck_users_status`), `pickup_reservations.cancelled_by`(`ck_reservation_cancelled_by`: `CUSTOMER`·`STORE`·`SYSTEM`, NULL 허용. `ck_reservation_cancelled_by_status`: 값이 있으면 `status = 'CANCELLED'`) |
 | FK 없음 | 참조 무결성 보장 안 됨 | FK 11개와 인덱스 추가 |
 | PK·`created_at` 기본값 없음 | 앱에서 매번 넣어야 함 | `gen_random_uuid()`, `now()` |
 | 재고·금액 검증 없음 | 음수, 초과 재고 가능 | `remaining_stock BETWEEN 0 AND initial_stock`, 금액 `>= 0`, `quantity >= 1`, `pickup_end > pickup_start` |

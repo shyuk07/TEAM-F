@@ -36,6 +36,7 @@ from payments.domain.payment import Payment, PaymentStatus
 from payments.domain.refund import Refund
 from payments.domain.repository.payment_repository import PaymentRepository
 from payments.domain.repository.refund_repository import RefundRepository
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.offer_ref import OfferRef
 from reservations.domain.pickup_reservation import PickupReservation
 from reservations.domain.pickup_reservation import ReservationStatus as S
@@ -319,7 +320,7 @@ class Env:
         if status == S.RESERVED:
             reservation.mark_paid()
         elif status == S.CANCELLED:
-            reservation.cancel(NOW)
+            reservation.cancel(NOW, CancelActor.CUSTOMER)
         await self.res.save(reservation)
         await self.tx.commit()
         self._reset()
