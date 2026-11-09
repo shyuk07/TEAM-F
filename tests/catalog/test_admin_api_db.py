@@ -9,7 +9,12 @@ from sqlalchemy.exc import IntegrityError
 
 from auth.infrastructure import models as auth_models  # noqa: F401
 from catalog.application.service import CatalogApplicationService
-from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
+from catalog.domain.discount_offer import (
+    OPEN_OFFER_STATUSES,
+    OWNER_DEFAULT_OFFER_STATUSES,
+    DiscountOffer,
+    OfferStatus,
+)
 from catalog.domain.exceptions import OfferAlreadySuspendedError
 from catalog.domain.product import Product
 from catalog.infrastructure import models as catalog_models
@@ -122,13 +127,13 @@ async def test_status_clause_matches_effective_status_with_suspended(client):
     async with client.session_factory() as s:
         offers = SqlAlchemyDiscountOfferRepository(s)
         for status in OfferStatus:
-            rows, total = await offers.find_by_store(sid, statuses=[status], now=now, page=1, size=100)
+            rows, total = await offers.find_by_store(sid, statuses=[status], now=now, exposed_only=False, page=1, size=100)
             expected = {o.id for o in saved.values() if o.effective_status(now) == status}
             assert {o.id for o, _ in rows} == expected and total == len(expected), status
         assert {k for k, o in saved.items() if o.effective_status(now) == OfferStatus.SUSPENDED} == {
             "susp_on_sale", "susp_sold_out", "susp_scheduled", "susp_expired",
         }
-        rows, _ = await offers.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, page=1, size=100)
+        rows, _ = await offers.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, exposed_only=False, page=1, size=100)
         assert {o.id for o, _ in rows} == {saved[k].id for k in ("on_sale", "sold_out", "scheduled")}
         # 정지된 할인은 진행 중으로 센다 (D22)
         assert await offers.exists_open_by_store(sid, now)
@@ -268,8 +273,8 @@ async def test_store_offer_list_hides_suspended_offer_and_rejects_status_filter(
     url = f"/v1/stores/{store_id}/offers"
     ids = lambda r: {i["id"] for i in r.json()["items"]}  # noqa: E731
     assert ids(await client.get(url)) == {keep["id"]}
-    r = await client.get(url, headers=bearer(token))  # 소유자도 기본 목록에서는 제외 (D20)
-    assert ids(r) == {keep["id"]}
+    r = await client.get(url, headers=bearer(token))  # 소유자 기본 목록은 정지 할인 포함 (D84, 기존 D20 단언 교체)
+    assert ids(r) == {keep["id"], gone["id"]}
     for status in ("CLOSED", "ON_SALE", "SOLD_OUT", "SCHEDULED"):
         assert gone["id"] not in ids(await client.get(url, params={"status": status}))
     r = await client.get(url, params={"status": "SUSPENDED"})
@@ -354,3 +359,122 @@ async def test_invalid_offer_response_status_includes_suspended_for_owner_detail
     await suspend_offer_row(client, o["id"])
     r = await client.get(f"/v1/offers/{o['id']}", headers=bearer(token))
     assert r.status_code == 200 and r.json()["offer"]["status"] == "SUSPENDED"
+
+
+# ── #9 공개 범위·소유자 기본 목록 (D83, D84), find_by_store(exposed_only) ──
+async def _setup_exposure(client, n=5):
+    """상품 n개에 할인 1개씩: 0번은 상품 노출 중단, 1번은 정지, 나머지는 정상."""
+    token, store_id = await owner_with_store(client)
+    offers = []
+    for i in range(n):
+        p = await make_product(client, token, store_id, name=f"상품{i}")
+        o = await make_offer(client, token, p["id"], sales_end=iso(datetime.now(timezone.utc) + (2 + i) * H),
+                             pickup_start=iso(datetime.now(timezone.utc) + H),
+                             pickup_end=iso(datetime.now(timezone.utc) + 9 * H))
+        offers.append((p, o))
+    async with client.session_factory() as s:
+        pm = await s.get(catalog_models.ProductModel, uuid.UUID(offers[0][0]["id"]))
+        pm.is_active = False
+        await s.commit()
+    await suspend_offer_row(client, offers[1][1]["id"])
+    return token, store_id, offers
+
+
+async def test_find_by_store_exposed_only_filters_in_sql_with_total(client):
+    token, store_id, offers = await _setup_exposure(client, n=5)
+    now = datetime.now(timezone.utc)
+    sid = uuid.UUID(store_id)
+    async with client.session_factory() as s:
+        repo = SqlAlchemyDiscountOfferRepository(s)
+        rows, total = await repo.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, exposed_only=True, page=1, size=2)
+        assert total == 3 and len(rows) == 2
+        rows, total = await repo.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, exposed_only=True, page=2, size=2)
+        assert total == 3 and len(rows) == 1
+        ids = {o.id for o, _ in (await repo.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, exposed_only=True, page=1, size=10))[0]}
+        assert ids == {uuid.UUID(offers[i][1]["id"]) for i in (2, 3, 4)}
+        # exposed_only=False: 노출 중단 상품의 할인 포함
+        rows, total = await repo.find_by_store(sid, statuses=OPEN_OFFER_STATUSES, now=now, exposed_only=False, page=1, size=10)
+        assert total == 4 and uuid.UUID(offers[0][1]["id"]) in {o.id for o, _ in rows}
+        # 정지 할인: 소유자 기본 집합에서만, exposed_only=False일 때만
+        rows, total = await repo.find_by_store(sid, statuses=OWNER_DEFAULT_OFFER_STATUSES, now=now, exposed_only=False, page=1, size=10)
+        assert total == 5 and uuid.UUID(offers[1][1]["id"]) in {o.id for o, _ in rows}
+        rows, total = await repo.find_by_store(sid, statuses=[OfferStatus.SUSPENDED], now=now, exposed_only=True, page=1, size=10)
+        assert total == 0 and rows == []
+        rows, total = await repo.find_by_store(sid, statuses=[OfferStatus.SUSPENDED], now=now, exposed_only=False, page=1, size=10)
+        assert total == 1
+
+
+async def test_list_store_offers_api_public_vs_owner(client):
+    token, store_id, offers = await _setup_exposure(client, n=4)
+    url = f"/v1/stores/{store_id}/offers"
+    other = await token_for(client, "other@test.com", "OWNER")
+    for headers in ({}, bearer(other)):
+        r = await client.get(url, headers=headers)
+        assert r.status_code == 200 and r.json()["total"] == 2
+        assert {i["id"] for i in r.json()["items"]} == {offers[2][1]["id"], offers[3][1]["id"]}
+        r = await client.get(url, params={"status": "SUSPENDED"}, headers=headers)
+        assert r.status_code == 400 and r.json() == err(
+            400, "VALIDATION_ERROR", "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다."
+        )
+    r = await client.get(url, headers=bearer(token))
+    assert r.status_code == 200 and r.json()["total"] == 4
+    by_id = {i["id"]: i for i in r.json()["items"]}
+    assert by_id[offers[1][1]["id"]]["status"] == "SUSPENDED"
+    r = await client.get(url, params={"status": "SUSPENDED"}, headers=bearer(token))
+    assert r.status_code == 200 and [i["id"] for i in r.json()["items"]] == [offers[1][1]["id"]]
+
+
+async def test_owner_suspended_filter_includes_suspended_offer_of_inactive_product(client):
+    """소유자는 상품 노출 조건이 없다(D84): 노출 중단 상품의 정지 할인도 SUSPENDED 조회에 나온다."""
+    token, store_id, offers = await _setup_exposure(client, n=2)
+    await suspend_offer_row(client, offers[0][1]["id"])  # 0번 상품은 is_active=False
+    url = f"/v1/stores/{store_id}/offers"
+    r = await client.get(url, params={"status": "SUSPENDED"}, headers=bearer(token))
+    assert r.status_code == 200 and r.json()["total"] == 2
+    assert {i["id"] for i in r.json()["items"]} == {offers[0][1]["id"], offers[1][1]["id"]}
+    other = await token_for(client, "other2@test.com", "OWNER")
+    r = await client.get(url, params={"status": "SUSPENDED"}, headers=bearer(other))
+    assert r.status_code == 400 and r.json() == err(
+        400, "VALIDATION_ERROR", "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다."
+    )
+
+
+async def test_list_store_offers_hidden_store_404_for_non_owner_200_for_owner(client):
+    token, store_id, offers = await _setup_exposure(client, n=2)
+    url = f"/v1/stores/{store_id}/offers"
+    await suspend_store_row(client, store_id)
+    assert (await client.get(url)).status_code == 404
+    assert (await client.get(url, params={"status": "SUSPENDED"})).status_code == 404
+    assert (await client.get(url, headers=bearer(token))).status_code == 200
+    async with client.session_factory() as s:
+        sm = await s.get(stores_models.StoreModel, uuid.UUID(store_id))
+        sm.suspended_at = None
+        sm.suspended_reason = None
+        sm.closed_at = datetime.now(timezone.utc)
+        await s.commit()
+    r = await client.get(url)
+    assert r.status_code == 404 and r.json()["error_code"] == "NOT_FOUND"
+    assert (await client.get(url, headers=bearer(token))).status_code == 200
+
+
+async def test_resume_in_suspended_store_400_but_pause_adjust_allowed(client):
+    token, store_id, offers = await _setup_exposure(client, n=3)
+    oid = offers[2][1]["id"]
+    h = bearer(token)
+    assert (await client.patch(f"/v1/offers/{oid}", json={"is_active": False}, headers=h)).status_code == 200
+    await suspend_store_row(client, store_id)
+    r = await client.patch(f"/v1/offers/{oid}", json={"is_active": True}, headers=h)
+    assert r.status_code == 400 and r.json() == err(400, "STORE_SUSPENDED", "관리자에 의해 정지된 상점입니다.")
+    # 폐점 + 정지 -> STORE_CLOSED
+    async with client.session_factory() as s:
+        (await s.get(stores_models.StoreModel, uuid.UUID(store_id))).closed_at = datetime.now(timezone.utc)
+        await s.commit()
+    r = await client.patch(f"/v1/offers/{oid}", json={"is_active": True}, headers=h)
+    assert r.status_code == 400 and r.json()["error_code"] == "STORE_CLOSED"
+    # 정지 상점에서 중단·재고 조정은 허용
+    async with client.session_factory() as s:
+        (await s.get(stores_models.StoreModel, uuid.UUID(store_id))).closed_at = None
+        await s.commit()
+    oid4 = offers[0][1]["id"]
+    r = await client.patch(f"/v1/offers/{oid4}", json={"is_active": False}, headers=h)
+    assert r.status_code == 200

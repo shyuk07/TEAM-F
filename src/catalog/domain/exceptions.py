@@ -161,3 +161,12 @@ class ReservationDataInconsistentError(Exception):
 
     def __init__(self, message: str | None = None):
         super().__init__(message or self.default_message)
+
+
+class OfferStatusNotAllowedError(ValueError):
+    """400 VALIDATION_ERROR: 허용되지 않는 status 필터 값 (D84, Q45)"""
+
+    error_code = "VALIDATION_ERROR"
+
+    def __init__(self, message: str = "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다."):
+        super().__init__(message)

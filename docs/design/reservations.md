@@ -168,7 +168,8 @@ FK는 문자열(`ForeignKey("users.id")`, `ForeignKey("discount_offers.id")`)로
 | `find_by_id(reservation_id, for_update=False)` | `PickupReservation \| None` | `for_update`면 `.with_for_update().execution_options(populate_existing=True)` (catalog와 같은 방식. 같은 세션 안에서 앞서 잠금 없이 읽어 둔 값이 낡았을 수 있어 `populate_existing` 필수) |
 | `find_by_user(user_id, *, status, page, size)` | `tuple[list[PickupReservation], int]` | `status`가 None이면 전체. **정렬 `created_at DESC, id DESC`** 고정. `total`은 같은 조건의 `COUNT(*)`. 잠금 없음 |
 | `find_by_offer(offer_id, *, for_update=False)` | `list[PickupReservation]` | 일괄 취소용. **`ORDER BY id`** 로 잠금 순서를 고정(교착 방지). `for_update`면 위와 같은 잠금 |
-| `exists_by_offer(offer_id)` | `bool` | catalog `has_reservations_for_offer`용. **상태와 관계없이** 한 건이라도 있으면 True(catalog D28) |
+| `exists_by_offer(offer_id)` | `bool` | **(D-39로 catalog 어댑터에서는 더 쓰지 않음)** 상태와 관계없이 한 건이라도 있으면 True. 삭제 여부는 C-21 |
+| `exists_non_cancelled_by_offer(offer_id)` | `bool` | catalog `has_reservations_for_offer`용(catalog D28·D81, 요구 조건 REQ-17). **`CANCELLED`가 아닌** 예약(`PENDING_PAYMENT`·`RESERVED`·`PICKED_UP`)이 한 건이라도 있으면 True. 구현: `SELECT id FROM pickup_reservations WHERE offer_id = :id AND status <> 'CANCELLED' LIMIT 1`(`offer_id` 인덱스). 잠금 없음(호출 측 catalog #11이 할인 행을 먼저 `FOR UPDATE`로 잠그고, 예약 생성도 할인 잠금 아래에서 insert하므로 직렬화된다). 추상 `ReservationRepository`에 선언하고 `SqlAlchemyReservationRepository`가 구현 |
 | `save(reservation)` | `PickupReservation` | `id is None`이면 INSERT(`created_at`이 있으면 함께 저장) 후 `flush()`로 `id`·`created_at` 채움. 있으면 `session.get`으로 모델을 얻어 가변 필드(`status`, `cancelled_at`, `picked_up_at`)만 갱신하고 `flush()`. 없으면 `ReservationNotFoundError`. **`commit()` 금지**(R5) |
 | `_to_domain(model)` | 정적 메서드 | `*Model`은 밖으로 나가지 않음(R4) |
 
@@ -350,7 +351,7 @@ class RefundPort(Protocol):              # 결제 모듈. commit하지 않는다
 | catalog 포트 교체(CI-10, CI-11) | `create_reservation_lookup(reservations=Depends(create_reservation_repository)) -> ReservationLookupPort` → `OfferReservationLookup(reservations)`. `create_reservation_cancel(service=Depends(create_reservation_service)) -> ReservationCancelPort` → `OfferReservationCanceller(service)`. 둘 다 이제 요청마다 만들고 싱글턴 `_reservation_lookup`, `_reservation_cancel`은 삭제 |
 | `wire_dependencies` 매핑 추가 | `provide_reservation_service: create_reservation_service`, `provide_reservation_lifecycle_service: create_reservation_lifecycle_service` (catalog 매핑 4개는 유지) |
 
-어댑터 파일(`application/catalog_adapters.py`, reservations가 소유): `OfferReservationLookup`(레포지토리 `exists_by_offer` 호출), `OfferReservationCanceller`(`ReservationApplicationService.cancel_all_for_offer` 호출). 둘 다 catalog의 포트를 import하지 않고 구조적으로 맞춥니다(catalog가 쓰는 쪽이므로 포트 정의는 catalog `application/ports.py`).
+어댑터 파일(`application/catalog_adapters.py`, reservations가 소유): `OfferReservationLookup`(레포지토리 `exists_non_cancelled_by_offer` 호출, D-39. 메서드 이름 `has_reservations_for_offer`는 catalog 포트 서명이라 그대로), `OfferReservationCanceller`(`ReservationApplicationService.cancel_all_for_offer` 호출). 둘 다 catalog의 포트를 import하지 않고 구조적으로 맞춥니다(catalog가 쓰는 쪽이므로 포트 정의는 catalog `application/ports.py`).
 
 ### 5.2 의존 방향과 생성 순환 해결 (layer-architecture §3.4, §4, §6)
 
@@ -952,6 +953,7 @@ async def has_pickup_pending_for_store(self, store_id) -> bool:  # stores Pickup
 | D-36 | 조립: `create_pickup_pending_port`는 자리 표시 + override, `create_reservation_admin`은 직접 `Depends` | R9, R12, 기존 `create_reservation_lookup` 방식 | 확정(방식) |
 | D-37 | 불일치(RD-38·RD-39)는 일괄 취소에서도 **전부 롤백 + ERROR 로그 1건 + 500**. 불일치 예약이 1건이라도 있으면 탈퇴 전체가 실패한다. admin 쪽 번역 예외는 admin이 정의 | RD-38, `cancel_all_for_offer` 선례, R7 | **확정** (사용자, 2026-11-05, Q-A3) |
 | D-38 | 픽업 EP 1건만 `SuspendedAllowedOwnerUser`로 교체. 소유 확인·상태·시간 검사는 불변 | admin D35·D39 확정, auth B-2 | 확정 |
+| D-39 | catalog 할인 수정 가드용 예약 존재 판정은 **취소되지 않은 예약만** 센다. `ReservationRepository.exists_non_cancelled_by_offer(offer_id)`를 추가하고 `OfferReservationLookup.has_reservations_for_offer`가 그것을 호출한다. catalog 포트 서명은 불변 | `docs/requirements/catalog-offers.md` REQ-17(확정 2026-11-06), catalog.md D81 | 확정(요구 조건 확정) |
 
 ### 15.10 정합 이슈 (C-번호)
 
@@ -963,6 +965,7 @@ async def has_pickup_pending_for_store(self, store_id) -> bool:  # stores Pickup
 | C-18 | **auth** | 자진 탈퇴 EP(REQ-33)·비밀번호 재확인(REQ-36)·남은 포인트 소멸(REQ-34 ④, `withdraw_user` 확장)은 auth 작업. 조율을 `AuthApplicationService` 밖에 두지 않으면 R12 순환(15.4.6). 포인트 소멸은 환불 복구(⑤) **뒤**여야 한다(⑦) |
 | C-19 | **stores** | `PickupPendingPort`의 docstring("미연계")과 `NoPickupPendingReservations` 삭제. stores.md D21 갱신 |
 | C-20 | **docs/design/admin.md** | 13절 A-1·A-2·A-4와 admin D12·D41·D43·D44는 이 절이 대체한다(admin.md는 수정하지 않았음, 담당자에게 전달) |
+| C-21 | **reservations** (`src/reservations/domain/repository.py:30`, `infrastructure/repositories.py:63`, `application/catalog_adapters.py:19-20`) ↔ catalog D81 | D-39 구현: 추상·구현에 `exists_non_cancelled_by_offer` 추가, 어댑터 호출 교체. 추상 메서드가 늘어 `tests/reservations/fakes.py:79`와 `tests/payments/test_integration.py:120`의 fake 레포지토리도 구현해야 한다(인스턴스 생성 실패, catalog CI-12와 같은 유형). `tests/reservations/test_adapters.py:197-199`는 "취소 예약만 있으면 False, 그 외 True"로 단언을 보강한다 | `exists_by_offer`는 이번에 지우지 않는다(사용처가 사라지면 삭제는 사용자 결정, catalog CI-17) |
 
 ### 15.11 질문 목록과 기본값 (**확정, 사용자 2026-11-05**: Q-A1~Q-A9 모두 아래 "임시 기본값" 열의 값 그대로 확정. Q-A4·Q-A9는 admin·catalog·stores 변경 허락을 받아 범위 확장 승인)
 
