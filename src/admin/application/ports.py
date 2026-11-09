@@ -51,6 +51,22 @@ class PointHistoryInfo(Protocol):
     total: int
 
 
+class UserListItemInfo(Protocol):
+    id: uuid.UUID
+    email: str
+    name: str | None
+    role: str
+    status: str  # 실효 상태 (D55)
+    created_at: datetime
+
+
+class UserPageInfo(Protocol):
+    items: list[UserListItemInfo]
+    page: int
+    size: int
+    total: int
+
+
 class StoreAdminInfo(Protocol):
     id: uuid.UUID | None
     owner_id: uuid.UUID
@@ -112,6 +128,16 @@ class AccountAdminPort(Protocol):
     ) -> PointLogInfo: ...
 
     async def list_points(self, user_id: uuid.UUID, page: int, size: int) -> PointHistoryInfo: ...
+
+    async def list_users(
+        self,
+        *,
+        role: str | None = None,
+        status: str | None = None,
+        email: str | None = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> UserPageInfo: ...
 
 
 class StoreAdminPort(Protocol):

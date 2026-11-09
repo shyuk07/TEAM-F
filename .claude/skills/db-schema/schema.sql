@@ -92,6 +92,23 @@ CREATE TABLE products (
 );
 CREATE INDEX ix_products_store_id ON products (store_id);
 
+-- 상품 이미지 업로드 바이트 (docs/design/catalog.md 15.2). 5242880 = 5 MiB = 앱 상수 MAX_IMAGE_BYTES
+CREATE TABLE product_images (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id    UUID         NOT NULL REFERENCES products (id),
+    content_type  VARCHAR(20)  NOT NULL,
+    size_bytes    INTEGER      NOT NULL,
+    data          BYTEA        NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_product_images_content_type
+        CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+    CONSTRAINT ck_product_images_size
+        CHECK (size_bytes BETWEEN 1 AND 5242880),
+    CONSTRAINT ck_product_images_size_matches
+        CHECK (octet_length(data) = size_bytes)
+);
+CREATE INDEX ix_product_images_product_id ON product_images (product_id);
+
 CREATE TABLE discount_offers (
     id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id       UUID        NOT NULL REFERENCES products (id),

@@ -105,6 +105,25 @@ class PointHistoryPageResponse(_FromAttributes):
     total: int
 
 
+class UserListItemResponse(_FromAttributes):
+    id: uuid.UUID
+    email: str
+    name: str | None
+    role: str
+    status: str = Field(
+        ...,
+        description="PENDING / APPROVED / REJECTED / SUSPENDED / WITHDRAWN (기간이 지난 정지는 APPROVED)",
+    )
+    created_at: datetime = Field(..., description="가입 시각")
+
+
+class UserPageResponse(_FromAttributes):
+    items: list[UserListItemResponse]
+    page: int
+    size: int
+    total: int = Field(..., description="필터에 맞는 전체 건수")
+
+
 class PointGrantResponse(_FromAttributes):
     id: uuid.UUID | None
     user_id: uuid.UUID

@@ -1,6 +1,6 @@
 ---
 name: db-schema
-description: 마감 직전 프로젝트의 PostgreSQL 테이블 11개(users, point_log, token_blacklist, password_reset_codes, stores, products, discount_offers, stock_log, pickup_reservations, payments, refunds)의 컬럼, 관계(FK), 모듈 배치, SQLAlchemy 매핑 규칙입니다. models.py, repositories.py, 시드 데이터, 조인 쿼리를 작성하거나 ERD를 확인할 때 사용합니다.
+description: 마감 직전 프로젝트의 PostgreSQL 테이블 12개(users, point_log, token_blacklist, password_reset_codes, stores, products, product_images, discount_offers, stock_log, pickup_reservations, payments, refunds)의 컬럼, 관계(FK), 모듈 배치, SQLAlchemy 매핑 규칙입니다. models.py, repositories.py, 시드 데이터, 조인 쿼리를 작성하거나 ERD를 확인할 때 사용합니다.
 ---
 
 # PostgreSQL 스키마와 관계도
@@ -35,6 +35,7 @@ erDiagram
     users |o--o{ stock_log : "재고 변경 주체"
     stores ||--o{ products : "판매 상품"
     products ||--o{ discount_offers : "마감 할인"
+    products ||--o{ product_images : "업로드 이미지"
     discount_offers ||--o{ stock_log : "재고 변경 기록"
     discount_offers ||--o{ pickup_reservations : "예약 대상"
     pickup_reservations ||--o{ payments : "결제 시도"
@@ -106,6 +107,14 @@ erDiagram
         int original_price
         bool is_active
         json product_image
+    }
+    product_images {
+        uuid id PK
+        uuid product_id FK
+        varchar content_type
+        int size_bytes
+        bytea data
+        timestamptz created_at
     }
     discount_offers {
         uuid id PK
@@ -184,6 +193,7 @@ erDiagram
 | `point_log.created_by` | `users` | 0..1 : N | 가능 | 관리자 지급(`GRANT`)의 처리 관리자. 시스템 이벤트는 NULL (`docs/design/admin.md` S9) |
 | `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별). 별도로 `UNIQUE (name, pickup_address)` `uq_stores_name_address`: 동일한 상점명·주소의 상점 금지, 폐점·정지 상점 포함 (`docs/design/stores.md` D33) |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
+| `product_images.product_id` | `products` | 1 : N | 불가 | 업로드한 이미지 바이트. 상품당 최대 10개(외부 URL과 합산)는 앱에서 검사 |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |
 | `stock_log.user_id` | `users` | 0..1 : N | 가능 | 시스템이 조정하면 NULL |
@@ -201,7 +211,7 @@ erDiagram
 | --- | --- | --- |
 | `auth` | `users`, `point_log`, `token_blacklist`, `password_reset_codes` | `user.py`, `point_log.py`, `token_blacklist.py` |
 | `stores` | `stores` | `store.py` |
-| `catalog` | `products`, `discount_offers`, `stock_log` | `product.py`, `discount_offer.py`, `stock_log.py` |
+| `catalog` | `products`, `product_images`, `discount_offers`, `stock_log` | `product.py`, `product_image.py`, `discount_offer.py`, `stock_log.py` |
 | `reservations` | `pickup_reservations` | `pickup_reservation.py` (`reservation.py`는 대응 테이블 없음, 확인 필요) |
 | `payments` | `payments`, `refunds` | `payment.py`, `refund.py` |
 
@@ -218,6 +228,7 @@ erDiagram
 | `stores.approval_at VARCHAR(20)` | API 명세는 "개설 시각"(datetime)으로 사용 | `approval_at TIMESTAMPTZ` |
 | 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 값에 이름 있는 `CHECK`: `discount_offers.status`(`ck_offer_status`, `SUSPENDED` 포함), `point_log.point_type`(`ck_point_log_type`, `GRANT`·`EXPIRE` 포함), `users.status`(`ck_users_status`) |
 | FK 없음 | 참조 무결성 보장 안 됨 | FK 11개와 인덱스 추가 |
+| (신규 테이블) `product_images` | 상품 이미지 업로드용으로 추가 (`docs/design/catalog.md` 15.2) | `content_type` 3종(`ck_product_images_content_type`), `size_bytes` 1~5 MiB(`ck_product_images_size`), `octet_length(data) = size_bytes`(`ck_product_images_size_matches`) CHECK 3개 |
 | PK·`created_at` 기본값 없음 | 앱에서 매번 넣어야 함 | `gen_random_uuid()`, `now()` |
 | 재고·금액 검증 없음 | 음수, 초과 재고 가능 | `remaining_stock BETWEEN 0 AND initial_stock`, 금액 `>= 0`, `quantity >= 1`, `pickup_end > pickup_start` |
 | `users.email` 중복 허용 | 같은 이메일로 여러 계정 | `UNIQUE` |
@@ -270,6 +281,7 @@ class DiscountOfferModel(Base):
 | `UUID` | `UUID(as_uuid=True)` | `uuid.UUID` |
 | `TIMESTAMPTZ` | `DateTime(timezone=True)` | `datetime` (항상 timezone 포함) |
 | `JSONB` / `JSON` | `postgresql.JSONB` / `JSON` | `dict` / `list` |
+| `BYTEA` | `LargeBinary` (`deferred=True`, 비동기 세션에서 읽을 때는 `undefer` 필수) | `bytes` |
 | `DOUBLE PRECISION` | `Double` | `float` |
 | `VARCHAR(n)` | `String(n)` | `str` |
 | NULL 허용 컬럼 | `Mapped[X \| None]` | |

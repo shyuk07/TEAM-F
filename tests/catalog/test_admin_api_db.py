@@ -20,6 +20,7 @@ from catalog.domain.product import Product
 from catalog.infrastructure import models as catalog_models
 from catalog.infrastructure.repositories import (
     SqlAlchemyDiscountOfferRepository,
+    SqlAlchemyProductImageRepository,
     SqlAlchemyProductRepository,
     SqlAlchemyStockLogRepository,
 )
@@ -193,6 +194,7 @@ def _service(s):
         session=s, stores=_Stores(), products=SqlAlchemyProductRepository(s),
         offers=SqlAlchemyDiscountOfferRepository(s), stock_logs=SqlAlchemyStockLogRepository(s),
         clock=_Clock(), reservations=None, reservation_cancel=None,
+        product_images=SqlAlchemyProductImageRepository(s),
     )
 
 

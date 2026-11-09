@@ -1,21 +1,25 @@
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ColumnElement, and_, any_, cast, exists, func, literal, not_, or_, select
+from sqlalchemy import BigInteger, ColumnElement, and_, any_, cast, delete, exists, func, literal, not_, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from catalog.domain.discount_offer import OPEN_OFFER_STATUSES, DiscountOffer, OfferStatus
 from catalog.domain.exceptions import OfferNotFoundError, ProductNotFoundError
 from catalog.domain.product import Product
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
+from catalog.domain.product_image import ProductImage
+from catalog.domain.repository.product_image_repository import ProductImageRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
 from catalog.domain.search import OfferSort
 from catalog.domain.stock_log import StockLog
 from catalog.infrastructure.models import (
     DiscountOfferModel,
+    ProductImageModel,
     ProductModel,
     StockLogModel,
 )
@@ -450,3 +454,52 @@ class SqlAlchemyStockLogRepository(StockLogRepository):
         log.id = model.id
         log.created_at = model.created_at
         return log
+
+
+class SqlAlchemyProductImageRepository(ProductImageRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, image: ProductImage) -> ProductImage:
+        model = ProductImageModel(
+            product_id=image.product_id,
+            content_type=image.content_type,
+            size_bytes=image.size_bytes,
+            data=image.data,
+        )
+        self.session.add(model)
+        await self.session.flush()
+        image.id = model.id
+        return image
+
+    async def find_by_id(self, product_id: uuid.UUID, image_id: uuid.UUID) -> ProductImage | None:
+        stmt = (
+            select(ProductImageModel)
+            .options(undefer(ProductImageModel.data))
+            .where(ProductImageModel.id == image_id, ProductImageModel.product_id == product_id)
+        )
+        model = (await self.session.execute(stmt)).scalar_one_or_none()
+        return self._to_domain(model) if model else None
+
+    async def delete(self, product_id: uuid.UUID, image_id: uuid.UUID) -> bool:
+        return await self.delete_many(product_id, [image_id]) > 0
+
+    async def delete_many(self, product_id: uuid.UUID, image_ids: Collection[uuid.UUID]) -> int:
+        if not image_ids:
+            return 0
+        stmt = (
+            delete(ProductImageModel)
+            .where(ProductImageModel.product_id == product_id, ProductImageModel.id.in_(list(image_ids)))
+            .returning(ProductImageModel.id)
+        )
+        deleted = (await self.session.execute(stmt)).all()
+        return len(deleted)
+
+    @staticmethod
+    def _to_domain(model: ProductImageModel) -> ProductImage:
+        return ProductImage(
+            id=model.id,
+            product_id=model.product_id,
+            content_type=model.content_type,
+            data=model.data,
+        )

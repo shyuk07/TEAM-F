@@ -559,3 +559,183 @@ async def test_grant_points_to_withdrawn_user_rejected(client):
     await client.request("DELETE", f"/v1/admin/users/{cid}", json={"reason": "x"}, headers=h)
     r = await client.post(f"/v1/admin/users/{cid}/points", json={"amount": 5, "reason": "x"}, headers=h)
     assert_error(r, 400, "USER_WITHDRAWN", "탈퇴한 회원입니다.")
+
+
+# ── EP 10: 회원 목록 (admin.md 13절) ──
+LIST_URL = "/v1/admin/users"
+ITEM_KEYS = {"id", "email", "name", "role", "status", "created_at"}
+
+
+async def listing(c, h, query=""):
+    r = await c.get(f"{LIST_URL}{query}", headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_list_users_success_shape(client):
+    h = await admin_headers(client)
+    await customer(client)
+    body = await listing(client, h)
+    assert set(body) == {"items", "page", "size", "total"}
+    assert body["page"] == 1 and body["size"] == 20 and body["total"] == len(body["items"]) == 2
+    assert all(set(i) == ITEM_KEYS for i in body["items"])
+
+
+async def test_list_users_requires_login_before_query_validation(client):
+    r = await client.get(LIST_URL)
+    assert_error(r, 401, "UNAUTHORIZED")
+    assert r.headers["www-authenticate"] == "Bearer"
+    r = await client.get(f"{LIST_URL}?page=x")
+    assert_error(r, 401, "UNAUTHORIZED")
+
+
+@pytest.mark.parametrize("role", ["CUSTOMER", "OWNER"])
+async def test_list_users_non_admin_forbidden(client, role):
+    token = await token_for(client, "x@test.com", role)
+    r = await client.get(LIST_URL, headers=bearer(token))
+    assert_error(r, 403, "FORBIDDEN")
+
+
+async def test_list_users_pending_filter_returns_only_pending_owners(client):
+    h = await admin_headers(client)
+    await pending_owner(client, "pend1@test.com")
+    await pending_owner(client, "pend2@test.com")
+    approved = await pending_owner(client, "ok@test.com")
+    await client.patch(f"/v1/admin/owners/{approved}/approve", headers=h)
+    await customer(client, "c1@test.com")
+    body = await listing(client, h, "?status=PENDING")
+    assert body["total"] == 2
+    assert [i["email"] for i in body["items"]] == ["pend1@test.com", "pend2@test.com"]
+    assert all(i["role"] == "OWNER" and i["status"] == "PENDING" for i in body["items"])
+    both = await listing(client, h, "?status=PENDING&role=CUSTOMER")
+    assert both["total"] == 0 and both["items"] == []
+    # 승인 흐름: 목록에서 얻은 id로 승인하면 PENDING에서 빠진다
+    pid = body["items"][0]["id"]
+    assert (await client.patch(f"/v1/admin/owners/{pid}/approve", headers=h)).status_code == 200
+    assert (await listing(client, h, "?status=PENDING"))["total"] == 1
+    owners = await listing(client, h, "?status=APPROVED&role=OWNER")
+    assert pid in {i["id"] for i in owners["items"]}
+
+
+async def test_list_users_role_filter(client):
+    h = await admin_headers(client)
+    await pending_owner(client)
+    await customer(client)
+    for role in ("OWNER", "CUSTOMER", "ADMIN"):
+        body = await listing(client, h, f"?role={role}")
+        assert body["total"] == 1 and body["items"][0]["role"] == role
+
+
+async def test_list_users_email_search(client):
+    h = await admin_headers(client)
+    await pending_owner(client, "pend@test.com")  # 가입 시 소문자로 정규화되어 저장된다
+    await customer(client, "cust@test.com")
+    assert (await listing(client, h, "?email=pend"))["total"] == 1
+    assert (await listing(client, h, "?email=PEND"))["total"] == 1
+    assert (await listing(client, h, "?email=PeNd@TEST"))["total"] == 1
+    assert (await listing(client, h, "?email=%20pend%20"))["total"] == 1
+    assert (await listing(client, h, "?email=nomatch"))["total"] == 0
+    assert (await listing(client, h, "?email=%25"))["total"] == 0  # '%'는 와일드카드가 아님
+    assert (await listing(client, h, "?email=pend&role=CUSTOMER"))["total"] == 0
+
+
+async def test_list_users_pagination_bounds(client):
+    h = await admin_headers(client)
+    for n in range(4):
+        await customer(client, f"c{n}@test.com")  # 관리자 포함 5명
+    seen = []
+    for page, count in ((1, 2), (2, 2), (3, 1)):
+        body = await listing(client, h, f"?page={page}&size=2")
+        assert len(body["items"]) == count and body["total"] == 5 and body["page"] == page
+        seen += [i["id"] for i in body["items"]]
+    assert len(set(seen)) == 5
+    body = await listing(client, h, "?page=4&size=2")
+    assert body["items"] == [] and body["total"] == 5
+
+
+@pytest.mark.parametrize("query", ["?page=0", "?page=-1", "?size=0", "?size=101"])
+async def test_list_users_invalid_page(client, query):
+    h = await admin_headers(client)
+    r = await client.get(f"{LIST_URL}{query}", headers=h)
+    assert_error(r, 400, "INVALID_PAGE", "페이지 값이 올바르지 않습니다.")
+
+
+async def test_list_users_non_numeric_page_is_validation_error(client):
+    h = await admin_headers(client)
+    r = await client.get(f"{LIST_URL}?page=x", headers=h)
+    assert_error(r, 400, "VALIDATION_ERROR")
+
+
+@pytest.mark.parametrize("query", ["?role=BAD", "?status=BAD", "?role=owner", "?status=pending"])
+async def test_list_users_invalid_filter(client, query):
+    h = await admin_headers(client)
+    r = await client.get(f"{LIST_URL}{query}", headers=h)
+    assert_error(r, 400, "VALIDATION_ERROR")
+
+
+async def test_list_users_blank_filter_is_ignored_and_long_email_rejected(client):
+    h = await admin_headers(client)
+    assert (await listing(client, h, "?role=%20"))["total"] == 1
+    r = await client.get(f"{LIST_URL}?email={'a' * 256}", headers=h)
+    assert_error(r, 400, "VALIDATION_ERROR")
+
+
+async def test_list_users_has_no_sensitive_fields(client):
+    h = await admin_headers(client)
+    oid = await pending_owner(client)
+    await client.patch(f"/v1/admin/owners/{oid}/reject", json={"reason": "서류 미비"}, headers=h)
+    body = await listing(client, h)
+    assert all(set(i) == ITEM_KEYS for i in body["items"])
+    text_body = str(body).lower()
+    for word in ("password", "hash", "phone", "users_point", "business_number", "reason", "token"):
+        assert word not in text_body
+    assert "서류 미비" not in str(body)
+
+
+async def test_list_users_expired_suspension_shows_approved(client):
+    h = await admin_headers(client)
+    cid = await customer(client)
+    until = (datetime.now(timezone.utc) + 2 * H).isoformat()
+    r = await client.patch(
+        f"/v1/admin/users/{cid}/suspend", json={"reason": "x", "suspended_until": until}, headers=h
+    )
+    assert r.status_code == 200
+    body = await listing(client, h, "?role=CUSTOMER")
+    assert body["items"][0]["status"] == "SUSPENDED"
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    async with client.session_factory() as s:
+        await s.execute(
+            text("UPDATE users SET suspended_until = :u, suspended_at = :a WHERE id = :i"),
+            {"u": past, "a": past - H, "i": uuid.UUID(cid)},
+        )
+        await s.commit()
+    assert (await listing(client, h, "?status=SUSPENDED"))["total"] == 0
+    body = await listing(client, h, "?status=APPROVED&role=CUSTOMER")
+    assert [i["id"] for i in body["items"]] == [cid] and body["items"][0]["status"] == "APPROVED"
+
+
+async def test_list_users_includes_withdrawn(client):
+    h = await admin_headers(client)
+    cid = await customer(client)
+    await client.request("DELETE", f"/v1/admin/users/{cid}", json={"reason": "x"}, headers=h)
+    body = await listing(client, h, "?status=WITHDRAWN")
+    assert [i["id"] for i in body["items"]] == [cid]
+    assert (await listing(client, h))["total"] == 2
+
+
+async def test_list_users_coexists_with_single_user_route(client):
+    h = await admin_headers(client)
+    cid = await customer(client)
+    assert (await listing(client, h))["total"] == 2
+    r = await client.get(f"{LIST_URL}/{cid}", headers=h)
+    assert r.status_code == 200 and r.json()["id"] == cid
+    assert (await client.get(f"{LIST_URL}/{cid}/points", headers=h)).status_code == 200
+
+
+async def test_list_users_does_not_write(client):
+    h = await admin_headers(client)
+    cid = await customer(client)
+    before = await user_row(client, cid)
+    await listing(client, h, "?status=PENDING")
+    after = await user_row(client, cid)
+    assert (before.status, before.users_point) == (after.status, after.users_point)

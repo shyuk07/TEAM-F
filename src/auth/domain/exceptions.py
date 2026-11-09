@@ -125,6 +125,12 @@ class InvalidPageError(_CodedValueError):
     default_message = "페이지 값이 올바르지 않습니다."
 
 
+class InvalidUserFilterError(_CodedValueError):
+    """회원 목록의 role·status·email 조건 오류 (400 VALIDATION_ERROR)."""
+
+    default_message = "조회 조건이 올바르지 않습니다."
+
+
 class CurrentPasswordMismatchError(_CodedValueError):
     error_code = "CURRENT_PASSWORD_MISMATCH"
     default_message = "현재 비밀번호가 올바르지 않습니다."
