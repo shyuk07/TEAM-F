@@ -504,7 +504,7 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | S-2 | `status`, `unit_price`, `total_price`, `pickup_code`, `store_name`, `pickup_address`, `product_name`을 NOT NULL로, `CHECK (total_price = unit_price * quantity)` | 도메인은 모두 필수로 취급 | 기존 행이 없어 안전 |
 | S-3 | `price` 컬럼 삭제(db-schema 5절 1항) | `unit_price`/`total_price`와 중복. catalog `discount_offers.price`와 같은 처리 | 현재는 매핑하지 않음 |
 | S-4 | `store_id UUID REFERENCES stores(id)` 스냅샷 컬럼 + 인덱스 | 폐점 검사(C-8), 상점주용 예약 목록(Q-10), 픽업 시 상점주 확인을 catalog 조회 없이 가능 | 새 컬럼. 선택 |
-| S-5 | `cancel_reason VARCHAR(200)`, `cancelled_by`(`CUSTOMER`/`OWNER`/`SYSTEM`) | 일괄 취소 사유 저장(catalog Q28) | 선택 |
+| S-5 | `cancel_reason VARCHAR(200)`, `cancelled_by`(`CUSTOMER`/`STORE`/`SYSTEM`, §16 D-40 확정값) | 일괄 취소 사유 저장(catalog Q28) | 선택 |
 | S-6 | 인덱스 `(user_id, created_at DESC)` | 목록 정렬·페이지네이션 | 성능 |
 
 ---
