@@ -11,6 +11,7 @@ from catalog.domain.discount_offer import OfferStatus
 from catalog.domain.search import OfferSort
 from catalog.domain.exceptions import ReservationDataInconsistentError
 from catalog.presentation.dependencies import OptionalUser, provide_catalog_service
+from catalog.presentation.image_router import image_router
 from catalog.presentation.schemas import (
     OfferCreateRequest,
     OfferDeactivateRequest,
@@ -277,3 +278,6 @@ async def adjust_stock(
 ):
     result = await service.adjust_stock(owner.id, offer_id, body.amount, body.reason)
     return StockAdjustmentResponse.from_result(result)
+
+
+router.include_router(image_router)

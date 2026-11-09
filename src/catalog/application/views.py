@@ -5,6 +5,7 @@ from datetime import datetime
 from catalog.application.ports import StoreInfo
 from catalog.domain.discount_offer import CancelPolicy, DiscountOffer, OfferStatus
 from catalog.domain.product import Product
+from catalog.domain.product_image import ProductImage
 
 
 @dataclass(frozen=True)
@@ -86,3 +87,9 @@ class StoreSearchHit:
 class NearbyOfferView:
     view: OfferView
     distance_km: float | None
+
+
+@dataclass(frozen=True)
+class ProductImageUploadResult:
+    image: ProductImage
+    product: Product

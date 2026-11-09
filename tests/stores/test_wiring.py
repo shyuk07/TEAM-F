@@ -2,7 +2,12 @@ import inspect
 
 import pytest
 
-from container import create_store_repository, create_stores_service, wire_dependencies
+from container import (
+    create_store_query_service,
+    create_store_repository,
+    create_stores_service,
+    wire_dependencies,
+)
 from main import app
 from stores.presentation import dependencies as deps
 
@@ -18,6 +23,7 @@ def test_all_provides_are_wired():
         assert fn in app.dependency_overrides, fn.__name__
     assert app.dependency_overrides[deps.provide_store_repository] is create_store_repository
     assert app.dependency_overrides[deps.provide_stores_service] is create_stores_service
+    assert app.dependency_overrides[deps.provide_store_query_service] is create_store_query_service
 
 
 def test_wire_dependencies_idempotent():

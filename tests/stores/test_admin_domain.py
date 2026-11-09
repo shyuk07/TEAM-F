@@ -32,6 +32,14 @@ def test_status_derivation():
     assert s.status == StoreStatus.CLOSED
 
 
+def test_status_priority_closed_over_suspended_when_both_recorded():
+    s = Store(
+        owner_id=OWNER, name="상호", pickup_address="주소", approval_at=NOW, closed_at=NOW,
+        suspended_reason="사유", suspended_at=NOW,
+    )
+    assert s.status == StoreStatus.CLOSED
+
+
 def test_suspend_ok_trims():
     s = opened()
     s.suspend("  위반  ", NOW)
