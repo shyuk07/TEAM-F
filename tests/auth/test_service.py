@@ -80,6 +80,12 @@ class FakeUsers(UserRepository):
         self.items[user.id] = user
         return user
 
+    async def find_all(self, query, now):
+        return []
+
+    async def count_all(self, query, now):
+        return 0
+
 
 class FakeLogs(PointLogRepository):
     def __init__(self):

@@ -143,6 +143,14 @@ class FakeAccounts:
             user_id=user_id, balance=0, history=[], page=page, size=size, total=0
         )
 
+    async def list_users(self, *, role=None, status=None, email=None, page=1, size=20):
+        self.rec.record(
+            "list_users", role=role, status=status, email=email, page=page, size=size
+        )
+        self._maybe_fail("list_users")
+        self.last_user_page = SimpleNamespace(items=[], page=page, size=size, total=0)
+        return self.last_user_page
+
 
 class FakeStores:
     def __init__(self, rec, store=None):
@@ -537,6 +545,29 @@ async def test_get_user_points_is_read_only():
     assert ctx.rec.events == ["list_points"]
     assert ctx.session.commits == 0
     assert ctx.clock.reads == 0
+
+
+# ── EP 10 ──
+async def test_list_users_passes_args_through_and_is_read_only():
+    ctx = Ctx()
+    result = await ctx.service.list_users(
+        role="OWNER", status="PENDING", email="a@", page=3, size=50
+    )
+    assert result is ctx.accounts.last_user_page
+    assert ctx.rec.events == ["list_users"]
+    assert ctx.rec.kwargs_of("list_users") == [
+        dict(role="OWNER", status="PENDING", email="a@", page=3, size=50)
+    ]
+    assert ctx.session.commits == 0
+    assert ctx.clock.reads == 0
+
+
+async def test_list_users_failure_propagates_without_commit():
+    ctx = Ctx()
+    ctx.accounts.fail_on["list_users"] = ValueError("페이지 값이 올바르지 않습니다.")
+    with pytest.raises(ValueError):
+        await ctx.service.list_users(role=None, status=None, email=None, page=0, size=20)
+    assert ctx.session.commits == 0
 
 
 async def test_grant_points_passes_admin_id_and_commits_once():

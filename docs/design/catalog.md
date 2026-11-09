@@ -1105,3 +1105,363 @@ stores 쪽 구현(11절의 제안, 이 문서는 stores를 바꾸지 않는다, 
 - **infrastructure (DB)**: 상점 필터 `= ANY(array)`가 id 배열이 32767개를 넘어도 동작(바인드 파라미터 상한 회귀 방지), 키워드 이스케이프(`%`, `_`, `\` 포함 검색어가 리터럴로 매칭), 대소문자 무시, 상품 `is_active=false` 제외, `has_active_offer` — 할인 4종(SCHEDULED/ON_SALE/SOLD_OUT/CLOSED)·정지·마감 지남에서 `OPEN_OFFER_STATUSES` 기준 값(CI-13), `total`이 상점 수와 일치(상품이 많은 상점이 페이지를 차지하지 않음, 한 상점의 일치 상품 3개가 `total`을 1로 셈), 조건 일치 상품이 없는 상점은 제외, `array_position` 정렬이 입력 id 순서와 일치, `products[]` 정렬 `name, id`, #8 정렬 4종의 방향·동률 처리, SQL `rate` 정렬이 도메인 `discount_rate`와 같은 순서(원가 21억대 가격 포함, 오버플로 없음).
 - **presentation (DB, 실제 임시 포트·실제 stores 구현)**: 인증 헤더 없이 200; 폐점·정지 상점, 노출 중단 상품, 정지 할인이 검색·주변 목록에 안 나옴; 반경 안·밖 경계, 좌표 없는 상점(위치 지정 시 제외, 미지정 시 `distance: null`), 위치 미지정 시 전체; `lat`만/`lng`만 → 400 명세 문구; `sort=distance` 위치 없음 → 400 명세 문구; `radius_km=0.09/20.1`, `lat=91`, 허용 외 `status`·`sort` → 400 `VALIDATION_ERROR`; `GET /v1/products`와 `GET /v1/products/{product_id}` 공존(둘 다 200), `GET /v1/offers`와 `GET /v1/offers/{offer_id}` 공존; 응답 최상위·`items[]` 필드 집합이 확정 구조와 정확히 일치(#3 `items[]`는 `store`·`distance`·`unit`·`products`, `store`는 5개 필드, `products[]` 항목은 #4와 같은 `ProductResponse` 필드 + `has_active_offer`; #8 `offer`·`distance`·`unit`); 한 상점의 일치 상품이 `products[]`에 모두 들어가고 일치하지 않는 상품은 빠짐.
 - **조립**: `create_store_port()`가 돌려주는 객체가 `find_visible_stores`를 가졌는지(CI-12). `test_wiring.py`의 라우트 수 단언은 이 두 EP만큼(+2) 늘린다(현재 값은 구현 시 확인).
+
+---
+
+## 15. 상품 이미지 업로드 (2026-11-09 추가)
+
+상점주가 상품 이미지 파일을 업로드·삭제하고 누구나 받아 보는 API 3개(#15 업로드, #16 삭제, #17 조회)를 추가한다. 파일 바이트는 PostgreSQL 새 테이블 `product_images`(BYTEA)에 저장하고, 상품의 `products.product_image`(JSON URL 목록)에는 새 공개 조회 EP의 주소를 넣는다. 그래서 기존 상품·할인 응답 형식은 바뀌지 않는다. 새 D·CI·Q 번호는 이 절에서 이어 매긴다(D88~, CI-18~, Q48~). D88~D105와 Q48~Q57은 2026-11-09 사용자가 모두 확정했다(CI-18만 열림).
+
+### 15.0 차단 이슈와 실행 확인
+
+| # | 확인 | 명령 | 결과 |
+| --- | --- | --- | --- |
+| B-IMG1 | **`python-multipart` 미설치 (차단)** | `py.sh -c "import multipart / python_multipart"` | 둘 다 `ModuleNotFoundError`. `pyproject.toml`에도 없음 |
+| B-IMG1 | 설치 전에 `UploadFile`을 쓰면 | `@app.post('/x') async def x(file: UploadFile = File(...))` 선언만 실행 | **선언 시점에 `RuntimeError: Form data requires "python-multipart" to be installed`** (`fastapi/dependencies/utils.py:563` `ensure_multipart_is_installed`). 즉 라우터 코드를 넣고 의존성을 빼먹으면 `import main`이 실패한다 → **구현 첫 단계는 `uv add python-multipart`**(설치는 구현자가 한다. 이 설계자는 설치하지 않았다) |
+| B-IMG2 | 현재 코드 로딩 | `(cd src && py.sh -c "import main")` | `import main OK` |
+| B-IMG3 | 이미지 라이브러리 | `import PIL, magic, filetype` | 모두 없음 → 형식 판별은 domain 순수 파이썬(매직 바이트)으로 직접 구현하고, 디코드 검증은 하지 않는다(Q54). 새 의존성 불필요 |
+| B-IMG4 | **본문 파싱이 인증보다 먼저다** | 소스 `fastapi/routing.py:455`(폼·본문 읽기 → `:511`에서 그 뒤 `solve_dependencies`) + 실험: 깨진 JSON 본문 + 토큰 없음 | `400 VALIDATION_ERROR "1: JSON decode error"` (401 아님). 파일 업로드도 같아서 **인증 의존성(`OwnerUser`)이 돌기 전에 요청 본문 전체가 임시 파일로 받아진다**. 의존성으로는 크기 제한을 못 건다 → 15.6.2의 route class 사전 검사 |
+| B-IMG4 | Starlette에 파일 크기 상한 인자가 있는가 | `grep max_ starlette/requests.py formparsers.py` | `max_files`·`max_fields`·`max_part_size`(필드·헤더 파트용)뿐이고 파일 본문 크기를 제한하는 인자는 없다 |
+| B-IMG5 | **route class 사전 검사가 동작하는가** | 임시 앱(`register_exception_handlers` + `APIRoute` 하위 클래스가 `Content-Length` 초과 시 `ValueError` 하위 예외를 raise + 항상 401을 내는 의존성), `include_router` 두 단계 | 상한 초과 + 토큰 없음 → `400 {"success": false, "error_code": "IMAGE_TOO_LARGE", ...}`(401보다 먼저), 정상 크기 + 토큰 없음 → `401 UNAUTHORIZED`. `include_router`를 거쳐도 route class가 유지됨. 전역 `ValueError` 핸들러가 `error_code`를 그대로 씀 |
+| B-IMG6 | BYTEA 동작 | 일회용 DB `img_design`(만들고 **삭제함**, `lastcall`·`lastcall_test`는 건드리지 않음)에 15.2의 DDL 모양 테이블을 만들어 실행 | 5 MiB 랜덤 바이트 INSERT·왕복 일치. 5 MiB+1, `image/gif`, `size_bytes`≠실제 길이는 각각 `ck_product_images_size`, `ck_product_images_content_type`, `ck_product_images_size_matches`로 거부. `mapped_column(LargeBinary, deferred=True)`면 `select(Model)`의 SQL에 `data`가 없고 `undefer`를 주면 있다. **deferred 컬럼을 비동기 세션에서 그냥 읽으면 `MissingGreenlet`** → GET 레포는 반드시 `undefer`. 5 MiB 한 행은 힙 8 KiB + TOAST로 저장(`pg_table_size` 5368 kB). `DELETE ... WHERE id AND product_id`는 다른 상품 id로는 0행 |
+| B-IMG7 | **실행으로 확인하지 못한 것** | `python-multipart`가 없어 실제 multipart 요청을 보낼 수 없다 | ① `file` 필드 누락 시 400 `VALIDATION_ERROR`(`file: Field required`) ② 깨진 multipart 본문은 소스상 `HTTPException(400, "There was an error parsing the body")`(`routing.py:495-498`)라 **400 `HTTP_ERROR`**(`_HTTP_CODES`에 400이 없다)가 될 것이다 ③ 비-multipart `Content-Type`으로 보낸 경우. 구현자가 설치 직후 확인하고, 다르면 결정으로 올린다(CI-24). 통과로 쓰지 않는다 |
+| - | 환경변수·마이그레이션 | `.env.example`, `src`의 alembic 사용 | 새 키 없음. 새 **테이블**이라 `create_all`이 기존 개발 DB에도 만든다(컬럼 추가가 아니므로 DB 재생성 불필요). `schema.sql`·`db-schema` 문서는 이 문서가 고치지 않으므로 15.10에 제안 |
+| - | 다른 모듈 의존 | `Grep` | 새 의존 없음. stores·reservations·payments를 건드리지 않는다. `CatalogApplicationService(`를 직접 만드는 곳은 `src/container.py:250`, `tests/catalog/test_service.py:256`, `tests/catalog/test_admin_api_db.py:192` 세 곳(CI-22) |
+
+### 15.1 큰 그림
+
+```
+POST   /v1/products/{pid}/images        multipart file ──▶ 크기·매직 바이트 검증 ─▶ product_images INSERT
+                                                                              └▶ products.product_image 끝에 URL 추가 (한 트랜잭션, 상품 행 잠금)
+DELETE /v1/products/{pid}/images/{iid}  ──▶ product_images DELETE + products.product_image에서 URL 제거 (한 트랜잭션)
+GET    /v1/products/{pid}/images/{iid}  ──▶ product_images 한 행 SELECT(data 포함) ─▶ 원래 content-type으로 바이트 응답 (공개, 잠금 없음)
+```
+
+- 저장되는 URL은 **상대 경로** `/v1/products/{pid}/images/{iid}`다(D93). 외부 URL과 같은 목록에 섞여 있다.
+- 어떤 상품·할인 조회 쿼리도 `product_images`를 읽지 않는다. 목록·상세·검색은 `products.product_image`(JSON)만 읽으므로 BYTEA가 딸려 올 수 없다(D98). `product_images`는 #15~#17과 `update_product`의 업로드 이미지 삭제에서만 건드린다.
+- **일관성 규칙(불변식)**: 이 상품의 업로드 이미지 URL이 `products.product_image`에 있는 것과 `product_images`에 행이 있는 것은 같은 집합이다. 두 쓰기는 항상 한 트랜잭션이고 같은 **상품 행 `FOR UPDATE`** 아래에서 한다.
+- 애그리거트 메모(layer-architecture §3.3): 이미지 바이트는 `Product`에 속하지만 큰 바이너리를 상품 행과 같이 읽지 않으려고 저장소·레포지토리를 분리한다(`ProductImageRepository`). 한 트랜잭션이 `products`와 `product_images`를 함께 바꾸므로 잠금 순서를 적는다: 상품 행 → (이미지 행 INSERT/DELETE). 할인 행은 잡지 않는다(교착 없음, 15.4).
+
+### 15.2 스키마 변경 제안 (이 문서는 `schema.sql`·`db-schema/SKILL.md`를 고치지 않는다, R14)
+
+```sql
+CREATE TABLE product_images (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id    UUID         NOT NULL REFERENCES products (id),
+    content_type  VARCHAR(20)  NOT NULL,
+    size_bytes    INTEGER      NOT NULL,
+    data          BYTEA        NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_product_images_content_type
+        CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+    CONSTRAINT ck_product_images_size
+        CHECK (size_bytes BETWEEN 1 AND 5242880),
+    CONSTRAINT ck_product_images_size_matches
+        CHECK (octet_length(data) = size_bytes)
+);
+CREATE INDEX ix_product_images_product_id ON product_images (product_id);
+```
+
+| 항목 | 내용 |
+| --- | --- |
+| FK | `product_id → products.id`. 다른 FK와 같이 기본값(`NO ACTION`). 상품은 물리 삭제가 없다(요구 조건 "소멸: 물리 삭제 없음") |
+| 제약 이름 | `ck_product_images_*` (기존 `ck_offer_*` 관례). `size_bytes` 상한 5242880 = 5 MiB(Q52)는 앱 상수 `MAX_IMAGE_BYTES`와 같은 값이다. 한도를 바꾸면 상수와 DDL을 함께 고친다 |
+| 인덱스 | `ix_product_images_product_id`만. 조회는 PK(`id`)와 `product_id` 동시 조건이라 PK 조회로 충분하고, `product_id` 인덱스는 FK 검사·상품별 정리용 |
+| `created_at` | 도메인 엔티티는 읽지 않는다(감사용). ORM은 `server_default=now()` |
+| 건수 상한(10개) | DB 제약 없음. 상한은 외부 URL과 합산이라 `products.product_image` 길이로만 알 수 있다 → 상품 행 잠금 + 도메인(15.4) |
+| `products.product_image` | 변경 없음(JSON, URL 문자열 목록) |
+| 모듈 배치 | catalog 테이블에 `product_images` 추가, 도메인 파일 `product_image.py` |
+| ERD 한 줄 | `products ||--o{ product_images : "업로드 이미지"` |
+
+`ProductImageModel` (`infrastructure/models.py`, 기존 `TZ` 사용, 다른 모듈 모델 import 없음):
+
+```python
+class ProductImageModel(Base):
+    __tablename__ = "product_images"
+    __table_args__ = (
+        CheckConstraint("content_type IN ('image/jpeg', 'image/png', 'image/webp')", name="ck_product_images_content_type"),
+        CheckConstraint("size_bytes BETWEEN 1 AND 5242880", name="ck_product_images_size"),
+        CheckConstraint("octet_length(data) = size_bytes", name="ck_product_images_size_matches"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), index=True)
+    content_type: Mapped[str] = mapped_column(String(20))
+    size_bytes: Mapped[int]
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)   # 실수로 select(ProductImageModel)을 해도 바이트를 읽지 않는다
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=text("now()"))
+```
+`main.py`는 이미 `catalog.infrastructure.models`를 import하므로 같은 파일에 모델을 추가하면 `create_all`이 만든다(변경 없음).
+
+### 15.3 도메인 (domain/)
+
+fastapi·sqlalchemy·pydantic·`database`·다른 모듈을 import하지 않는다(R1). 표준 라이브러리(`re`, `uuid`)만 쓴다.
+
+#### 15.3.1 예외 (`exceptions.py`에 추가)
+
+| 클래스 | 상속 | 응답 | 쓰는 곳 |
+| --- | --- | --- | --- |
+| `ProductImageNotFoundError` | `LookupError` | 404 `NOT_FOUND` "이미지를 찾을 수 없습니다." | #16, #17 |
+| `UnsupportedImageTypeError` | `ValueError` | 400 `UNSUPPORTED_IMAGE_TYPE` "JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다." | #15 (형식 아님·빈 파일) |
+| `ImageTooLargeError` | `ValueError` | 400 `IMAGE_TOO_LARGE` "이미지 크기는 5MB 이하여야 합니다." | #15 (도메인 검사와 route class 사전 검사가 같은 예외를 쓴다) |
+
+- 10개 초과는 새 예외를 만들지 않는다. 기존 `Product._validate_images`와 같은 문구·같은 코드(400 `VALIDATION_ERROR` "이미지는 최대 10개까지 등록할 수 있습니다.")를 쓴다. 클라이언트가 PATCH와 업로드에서 같은 오류로 다룰 수 있다(D101).
+- 409가 없으므로 `error_handlers.py` 수정은 필요 없다. `HTTPException`을 만들지 않는다(R6).
+
+#### 15.3.2 `ProductImage` (`domain/product_image.py`, 신규)
+
+| 속성 | 타입 | 규칙 |
+| --- | --- | --- |
+| `id` | `UUID` 또는 None | 저장 전 None |
+| `product_id` | `UUID` | |
+| `content_type` | `str` | `ALLOWED_IMAGE_TYPES` 중 하나 |
+| `data` | `bytes` | 1바이트 이상(생성자는 DB 복원 호환을 위해 이 정도만 검사) |
+| `size_bytes` | 프로퍼티 | `len(data)` |
+| `url` | 프로퍼티 | `id`가 있어야 함. `image_path(product_id, id)` |
+
+모듈 상수·함수:
+
+| 이름 | 내용 |
+| --- | --- |
+| `MAX_IMAGE_BYTES = 5 * 1024 * 1024` | 한 파일 상한(Q52) |
+| `ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")` | 한곳에서 관리 |
+| `detect_image_content_type(data) -> str 또는 None` | **파일 이름·헤더를 보지 않고** 앞부분 바이트만 본다. JPEG: `FF D8 FF`. PNG: `89 50 4E 47 0D 0A 1A 0A`(8바이트). WebP: 0~3바이트 `RIFF`이고 8~12바이트 `WEBP`(WAV 등 다른 RIFF는 거부). 12바이트 미만·빈 값은 None |
+| `image_path(product_id, image_id) -> str` | `f"/v1/products/{product_id}/images/{image_id}"`. 저장 데이터의 형식이라 domain에 둔다. 라우트 경로와 같아야 하며 테스트가 `app.url_path_for`와 비교한다(15.8) |
+| `parse_image_path(url) -> tuple[UUID, UUID] 또는 None` | 정규식으로 UUID 두 개를 뽑고 `image_path(...)`로 다시 만든 문자열이 입력과 같을 때만 돌려준다(대문자·중괄호 변형 거부). 외부 URL·다른 형식은 None |
+
+| 메서드 | 동작 | 예외 |
+| --- | --- | --- |
+| `ProductImage.create(product_id, data)` | 새 업로드용 팩토리. ① `len(data) > MAX_IMAGE_BYTES` ② `detect_image_content_type(data)`가 None → ③ 통과하면 `content_type`을 **판별 결과로** 채워 생성(클라이언트가 보낸 content-type·파일명은 쓰지 않는다) | ① `ImageTooLargeError` ② `UnsupportedImageTypeError`(빈 파일 포함). 크기를 먼저 본다(싼 검사, 큰 비이미지도 같은 오류) |
+
+#### 15.3.3 `Product` 변경 (`domain/product.py`)
+
+| 메서드 | 동작 | ValueError 조건 |
+| --- | --- | --- |
+| `uploaded_image_ids() -> set[UUID]` (신규) | `product_image`에서 `parse_image_path`가 `(self.id, 이미지 id)`를 돌려주는 항목만 모은다. 외부 URL·다른 상품 경로는 무시 | - |
+| `ensure_can_attach_image()` (신규) | 업로드 전 건수 검사 | `len(product_image) >= MAX_IMAGES`이면 `ValueError("이미지는 최대 10개까지 등록할 수 있습니다.")` (외부 URL과 업로드 URL 합산) |
+| `attach_image(image)` (신규) | `image.id`가 있고 `image.product_id == self.id`인지 확인, `ensure_can_attach_image()` 호출, `product_image` 끝에 `image.url` 추가 | id 없음·다른 상품의 이미지는 `ValueError`(프로그래밍 오류 방어) + 위 건수 오류 |
+| `detach_image(image_id)` (신규) | 목록에서 `image_path(self.id, image_id)`와 같은 항목을 모두 제거. 없으면 아무것도 하지 않는다 | - |
+| `apply_changes(changes, open_offer_sale_price) -> set[UUID]` (변경) | **반환값 추가**: `product_image`를 바꾸면 "이전 업로드 이미지 id − 새 업로드 이미지 id"(목록에서 빠진 업로드 이미지), 아니면 빈 집합. 기존 호출처는 반환값을 쓰지 않으므로 호환된다 | 기존 조건 + 새 규칙: 새 목록의 업로드 URL(`parse_image_path`가 값을 주는 항목)이 **현재 이 상품의 업로드 이미지가 아니면** `ValueError("업로드한 이미지 주소는 직접 추가할 수 없습니다. 이미지 업로드를 이용하세요.")`. 즉 제거·순서 변경만 허용하고 새 업로드 URL 추가는 막는다. 전체 검증 후 한꺼번에 반영하는 기존 규칙(REQ-10)은 그대로 |
+| `register(...)` (변경) | 새 입력 경로. `product_image`에 업로드 URL 형식(`parse_image_path`가 값을 주는 항목)이 있으면 같은 `ValueError`(상품이 아직 없어 업로드 이미지가 있을 수 없다) | 위와 같음 |
+
+- 생성자(`__init__`)는 이 새 규칙을 검사하지 않는다. DB에 저장된 업로드 URL을 복원해야 하기 때문이다(D78의 "새 입력만 상한 검사"와 같은 방식).
+- 허용 전이: 업로드 이미지는 (없음) → 업로드됨(`attach_image`) → 삭제됨(`detach_image` 또는 PATCH 제거)뿐이다. 이미지 바이트는 수정하지 않는다(교체는 삭제 후 재업로드).
+
+#### 15.3.4 추상 레포지토리 (`domain/repository/product_image_repository.py`, 신규)
+
+`ProductRepository`에 메서드를 더하면 기존 fake들이 깨지므로(CI-12 유형) **별도 ABC**로 둔다.
+
+| 메서드 | 설명 |
+| --- | --- |
+| `add(image) -> ProductImage` | INSERT 후 `flush()`, `id` 채움 |
+| `find_by_id(product_id, image_id) -> ProductImage 또는 None` | `id`와 `product_id` **둘 다** 일치하는 행만. `data` 포함. #17 전용 |
+| `delete(product_id, image_id) -> bool` | `DELETE ... WHERE id AND product_id`. 지운 행이 있으면 True |
+| `delete_many(product_id, image_ids) -> int` | PATCH로 목록에서 빠진 업로드 이미지 정리. 빈 집합이면 쿼리 없이 0 |
+
+### 15.4 인프라 (infrastructure/)
+
+- `SqlAlchemyProductImageRepository(session)` (`repositories.py`): `find_by_id`만 `select(ProductImageModel).options(undefer(ProductImageModel.data))`. `add`는 모델 생성 → `session.add` → `flush()`. `delete`·`delete_many`는 `delete(ProductImageModel).where(...).returning(id)`(행을 읽지 않는다). `commit()` 금지(R5). `*Model`을 밖으로 내보내지 않고 `_to_domain`에서 변환(R4).
+- `SqlAlchemyProductRepository`는 바뀌지 않는다. `product_image`는 계속 JSON 컬럼이다.
+
+| 동시성 지점 | 위험 | 대응 |
+| --- | --- | --- |
+| 동시 업로드로 10개 초과 | 두 요청이 모두 "9개"를 보고 추가 → 11개 | `products.find_by_id(product_id, for_update=True)`(기존 #5·#7과 같은 상품 행 잠금)로 직렬화한 뒤 `ensure_can_attach_image()`. 잠금 뒤 `populate_existing`으로 최신 목록을 읽는다(기존 구현) |
+| 업로드/삭제 vs PATCH(#5)의 `product_image` 덮어쓰기 | JSON 목록 lost update | 셋 다 같은 상품 행 잠금 |
+| 업로드/삭제 vs 할인 등록(#7)·재개 등 | 없음 | 이미지는 상품 행만 잠그고 할인 행은 잠그지 않는다. 기존 잠금 순서(product → offer)를 깨지 않는다 |
+| 업로드 중 5 MiB INSERT | 상품 행 잠금 시간 | 본문은 잠금 전에 이미 메모리에 있고(15.6.2) 잠금 구간은 INSERT 한 번과 UPDATE 한 번이다 |
+| 읽기 #17 | 읽기 전용 | 잠금 없음, commit 없음 |
+| DB 안전망 | | `ck_product_images_*` 3개 |
+
+### 15.5 응용 (application/)
+
+`CatalogApplicationService`에 `product_images: ProductImageRepository`를 **필수 인자**로 추가한다(R8). `views.py`에 `ProductImageUploadResult(image: ProductImage, product: Product)`를 추가한다. 비즈니스 판단은 모두 도메인 메서드에 있고 서비스는 조회 → 도메인 → save → commit만 한다(R3).
+
+**#15 `upload_product_image(user_id, product_id, data: bytes) -> ProductImageUploadResult`**
+1. `product = _get_product(product_id, for_update=True)` (404)
+2. `store = _load_store(product.store_id)`; `store.ensure_owner(user_id, "본인 상점의 상품만 수정할 수 있습니다.")` (403, `update_product`와 같은 문구). `ensure_can_register`·`ensure_not_closed`는 부르지 않는다(D95)
+3. `image = ProductImage.create(product.id, data)` (400 크기 → 형식)
+4. `product.ensure_can_attach_image()` (400 개수)
+5. `images.add(image)` → `product.attach_image(image)` → `products.save(product)`
+6. `session.commit()` 한 번 → `ProductImageUploadResult`
+- 오류 우선순위: 404(상품·상점) → 403 → 400 크기 → 400 형식 → 400 개수. 단 요청 본문이 인증보다 먼저 읽히므로(B-IMG4) 아래 15.6.2의 사전 크기 검사는 이 순서보다 앞선다.
+- 4단계가 3단계 뒤인 이유: 형식·크기 오류가 개수 오류보다 먼저 나오게 해서 같은 입력에서 응답이 안정적이다.
+
+**#16 `delete_product_image(user_id, product_id, image_id) -> None`**
+1. 상품 `for_update` 조회 (404) → 상점 로드, `ensure_owner(..., "본인 상점의 상품만 수정할 수 있습니다.")` (403)
+2. `images.delete(product_id, image_id)`가 False면 `ProductImageNotFoundError` (404 "이미지를 찾을 수 없습니다.")
+3. `product.detach_image(image_id)` → `products.save(product)` → `commit()` 한 번
+- 목록에는 URL이 있는데 행이 없는 불일치 데이터면 2단계에서 404가 난다. 상점주는 PATCH로 그 URL을 목록에서 뺄 수 있다(빼기는 허용, `delete_many`는 0행). 행은 있는데 URL이 목록에 없으면 3단계 `detach_image`가 아무것도 하지 않고 행만 지워져 스스로 복구된다.
+- 소유자 확인 전에 이미지 존재를 알려 주지 않는다: 남의 상품은 이미지 존재와 무관하게 403이다.
+
+**#17 `get_product_image(product_id, image_id) -> ProductImage`** (공개, 잠금 없음, commit 없음)
+1. `images.find_by_id(product_id, image_id)`; None이면 `ProductImageNotFoundError` (404)
+- 상품·상점 상태를 보지 않는다(D96, Q48). 상점 포트·`OptionalUser`·인증이 없다. 쿼리 1개.
+
+**`update_product` 변경 (#5)**: `product.apply_changes(...)`가 돌려준 `removed`가 비어 있지 않으면 `await self.product_images.delete_many(product.id, removed)`를 `products.save` 앞뒤 어느 쪽이든 **같은 `commit()` 전에** 호출한다. 목록에서 빠진 업로드 이미지의 바이트를 같은 트랜잭션에서 지워 고아 데이터를 남기지 않는다(D97, Q49). `removed`가 비면 쿼리를 날리지 않는다.
+
+트랜잭션 경계: 모두 catalog 한 모듈, 요청 세션 하나, `commit()` 한 번. 다른 모듈 호출 없음(R13 해당 없음). 예외가 나면 커밋되지 않고 세션 종료 시 롤백된다(이미지 행만 남거나 URL만 남는 일이 없다).
+
+### 15.6 표현 (presentation/)
+
+#### 15.6.1 엔드포인트 (prefix `/v1`, tags `["카탈로그"]`)
+
+| # | Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 15 | POST | `/v1/products/{product_id}/images` | `multipart/form-data`, 필드 `file`(파일 1개) | `ProductImageResponse` | 201 | 400(`IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, 개수 `VALIDATION_ERROR`, `file` 누락·잘못된 UUID `VALIDATION_ERROR`), 401, 403(`OWNER` 아님 / 본인 상점 아님), 404(상품) |
+| 16 | DELETE | `/v1/products/{product_id}/images/{image_id}` | - | 본문 없음 | 204 | 400(잘못된 UUID), 401, 403, 404(상품, 이미지) |
+| 17 | GET | `/v1/products/{product_id}/images/{image_id}` | - | 이미지 바이트(`image/jpeg`, `image/png`, `image/webp`) | 200 | 400(잘못된 UUID), 404(이미지). 인증 없음(공개) |
+
+- 목록·쿼리 매개변수 없음(이미지 목록은 상품 응답의 `product_image`에 있다).
+- 경로 충돌 없음: `/v1/products/{product_id}`(#4, #5)와 세그먼트 수가 달라 순서와 무관하다. #15와 #17은 같은 경로가 아니다(`.../images` / `.../images/{image_id}`).
+- 에러 본문은 모두 `{"success": false, "error_code", "message"}`(R7). 401에는 `WWW-Authenticate: Bearer`(auth 의존성이 낸다).
+- 에러 문구: `UNSUPPORTED_IMAGE_TYPE` "JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다." / `IMAGE_TOO_LARGE` "이미지 크기는 5MB 이하여야 합니다." / 개수 "이미지는 최대 10개까지 등록할 수 있습니다." / 404 "이미지를 찾을 수 없습니다." / 상품 404 "상품을 찾을 수 없습니다." / 403 "본인 상점의 상품만 수정할 수 있습니다."(D101).
+
+스키마 (`schemas.py`):
+
+| 스키마 | 필드 |
+| --- | --- |
+| `ProductImageResponse` | `id: UUID`, `product_id: UUID`, `url: str`(상대 경로, D93), `content_type: str`, `size_bytes: int`, `product_image: list[str]`(업로드 후의 전체 목록, 상품 응답과 같은 값). `ProductImageResponse.from_result(result)` |
+
+#### 15.6.2 라우터 (`presentation/image_router.py`, 신규 파일)
+
+- `image_router = APIRouter(route_class=UploadSizeLimitRoute, tags=["카탈로그"])`(prefix 없음). `presentation/router.py` 맨 끝에서 `router.include_router(image_router)`로 붙인다 → `router`의 `/v1` prefix가 적용되고 **`main.py` 변경이 없다**. B-IMG5에서 `include_router` 두 단계를 거쳐도 route class가 유지됨을 확인했다. 파일 맨 위에 응답 헤더 상수를 모은다(D103).
+- `UploadSizeLimitRoute(APIRoute)`: `get_route_handler()`를 감싸 **본문을 읽기 전에** `Content-Length`가 숫자이고 `MAX_UPLOAD_REQUEST_BYTES`(= `MAX_IMAGE_BYTES` + 64 KiB, multipart 경계·헤더 여유)보다 크면 `ImageTooLargeError`를 raise한다. 전역 `ValueError` 핸들러가 400 `IMAGE_TOO_LARGE`로 바꾼다(B-IMG5). `HTTPException`·직접 응답을 만들지 않는다(R6, R7). `Content-Length`가 없는(chunked) 요청은 이 검사를 지나가고 아래 읽기 상한만 걸린다(Q50 잔여 위험).
+- 크기 제한은 3겹이다: ① route class 사전 검사(본문을 받기 전, 인증보다 먼저) ② 라우터가 `await file.read(MAX_IMAGE_BYTES + 1)`로 **최대 5 MiB+1바이트만 메모리에 올림** ③ 도메인 `ProductImage.create`가 `len(data) > MAX_IMAGE_BYTES`를 판정(통과·거부의 정본). ①은 방어이고 ③이 정본이다. 정확히 5 MiB는 통과, 5 MiB+1은 거부.
+
+```python
+@image_router.post("/products/{product_id}/images", response_model=ProductImageResponse,
+                   status_code=201, summary="상품 이미지 업로드")
+async def upload_product_image(product_id: uuid.UUID, owner: OwnerUser, service: Service, file: UploadFile):
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    result = await service.upload_product_image(owner.id, product_id, data)
+    return ProductImageResponse.from_result(result)
+
+@image_router.delete("/products/{product_id}/images/{image_id}", status_code=204,
+                     response_class=Response, summary="상품 이미지 삭제")
+async def delete_product_image(product_id: uuid.UUID, image_id: uuid.UUID, owner: OwnerUser, service: Service):
+    await service.delete_product_image(owner.id, product_id, image_id)
+    return Response(status_code=204)
+
+@image_router.get("/products/{product_id}/images/{image_id}", response_class=Response,
+                  responses={200: {"content": {"image/jpeg": {}, "image/png": {}, "image/webp": {}}}},
+                  summary="상품 이미지 조회")
+async def get_product_image(product_id: uuid.UUID, image_id: uuid.UUID, service: Service):
+    image = await service.get_product_image(product_id, image_id)
+    return Response(content=image.data, media_type=image.content_type, headers=IMAGE_RESPONSE_HEADERS)
+```
+- 라우트 함수 이름 `get_product_image`는 테스트가 `app.url_path_for("get_product_image", ...)`로 `image_path`와 대조하는 기준이다.
+- 업로드 파일의 이름·클라이언트 content-type은 읽지 않는다(D91). 여분의 폼 필드는 무시한다.
+- `IMAGE_RESPONSE_HEADERS = {"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"}`(D103, Q55). 이미지 id는 내용이 바뀌지 않는 불변 리소스지만 삭제 후에도 캐시가 남을 수 있어 1시간으로 짧게 둔다.
+
+### 15.7 container·main·의존성
+
+| 대상 | 변경 |
+| --- | --- |
+| `src/container.py` catalog 구역 | `create_product_image_repository(session=Depends(get_db)) -> ProductImageRepository`(`SqlAlchemyProductImageRepository(session)`) 추가. `create_catalog_service`가 `product_images=Depends(create_product_image_repository)`를 받아 서비스에 넘긴다. `wire_dependencies` 매핑 변경 없음(새 `provide_*` 없음, 기존 레포지토리 팩토리도 매핑하지 않는다) |
+| `src/main.py` | **변경 없음**. 모델은 `catalog.infrastructure.models`에, 라우트는 `catalog_router`(`include_router`로 흡수)에 들어간다 |
+| `pyproject.toml`, `uv.lock` | `uv add python-multipart` (B-IMG1). 수동 편집 금지(R16). 구현 순서 맨 처음 |
+| `src/error_handlers.py` | 변경 없음 |
+| `.env.example` | 변경 없음 |
+
+### 15.8 테스트 계획
+
+새 파일: `tests/catalog/test_product_image_domain.py`(DB 없음), `test_product_image_service.py`(fake), `test_product_image_api_db.py`(DB). 기존 `test_wiring.py`에는 케이스를 더한다. DB 테스트는 `@pytest.mark.db`이고 skip은 통과가 아니다(R16). 테스트용 이미지 바이트는 시그니처만 맞춘 가짜(`b"\x89PNG\r\n\x1a\n" + os.urandom(64)` 등)로 충분하다(디코드 검증을 하지 않는다, Q54).
+
+- **domain**: `detect_image_content_type` — JPEG·PNG·WebP 각 성공, GIF·BMP·텍스트·빈 값·12바이트 미만·`RIFF....WAVE`(WebP 아님) → None, **이름과 무관**(함수가 이름을 받지 않음). `ProductImage.create` — 정확히 5 MiB 성공, 5 MiB+1 `ImageTooLargeError`, 큰 텍스트도 `ImageTooLargeError`(크기 우선), 텍스트 `UnsupportedImageTypeError`, 빈 값 `UnsupportedImageTypeError`, `content_type`이 판별 결과(PNG 바이트면 `image/png`). `image_path`/`parse_image_path` 왕복, 외부 URL·대문자 UUID·끝에 `/`·다른 형식은 None. `Product` — `attach_image`(외부 URL 9개 + 업로드 1개 = 10 성공, 11번째 `ValueError` 문구), 다른 상품 이미지·id 없는 이미지 거부, `uploaded_image_ids`가 외부 URL·다른 상품 경로를 제외, `detach_image`(있음·없음), `apply_changes(product_image=...)`: 업로드 URL 제거 시 반환값에 id, 순서 변경만이면 빈 집합, **새 업로드 URL 추가 거부**(다른 상품 경로 포함), 거부 시 상태가 일부도 안 바뀜(REQ-10), `register`에 업로드 URL 형식 거부, 기존 검증(10개·공백) 유지, 생성자는 업로드 URL이 들어 있어도 복원 성공.
+- **application (fake 레포 4종·StorePort·고정 Clock)**: #15 성공 시 `commit` 1회, `images.add` 1회, 상품 목록 끝에 URL, 반환 `product.product_image` 갱신; 오류마다 `commit` 0회·`images.add` 0회: 상품 없음 `ProductNotFoundError`, 타인 상품 `NotStoreOwnerError`(403이 400 형식 오류보다 먼저), 형식 아님 `UnsupportedImageTypeError`, 5 MiB+1 `ImageTooLargeError`, 10개 찬 상품 `ValueError`; 오류 우선순위(404 → 403 → 크기 → 형식 → 개수); 폐점 상점·노출 중단 상품·정지 상점에서도 성공(D95); 상품 `for_update=True` 조회 기록. #16 성공(행 삭제 + URL 제거 + `commit` 1회), 없는 image_id `ProductImageNotFoundError`·`commit` 0회, 타인 상품은 이미지가 있어도 `NotStoreOwnerError`, 행만 있고 URL이 없는 불일치도 성공. #17 성공·`ProductImageNotFoundError`·`commit` 0회·상점 포트 호출 0회. `update_product`: 업로드 URL을 뺀 PATCH가 `delete_many`를 올바른 id 집합으로 1회 호출하고 `commit` 전에 실행, `product_image`를 안 건드린 PATCH는 `delete_many` 호출 0회, 새 업로드 URL 추가 PATCH는 400이고 `commit` 0회.
+- **infrastructure (DB)**: `add` → `find_by_id` 바이트 왕복 일치(5 MiB), 다른 `product_id`로는 None, `delete`·`delete_many` 행 수, CHECK 3종 직접 INSERT 거부(`IntegrityError`), 레포 `find_by_id` 외 경로에서 `ProductImageModel`을 select해도 `data`가 SQL에 없음(`str(select(...))`), **동시성**: 외부 URL 8개 상품에 세션 4개로 `asyncio.gather` 업로드 4건 → 정확히 2건 성공·2건 개수 오류, 최종 `product_image` 길이 10 = `product_images` 행 수 2 + 8(고아 없음). 업로드 vs PATCH(`product_image` 변경) 동시 실행에서 두 저장소가 일치(불변식).
+- **presentation (DB, 실제 임시 포트, httpx `files={"file": (이름, 바이트, content_type)}`)**:
+  - 업로드 성공: 201, 응답 `url == /v1/products/{pid}/images/{id}`, `content_type`·`size_bytes` 일치, `product_image`가 `[기존 외부 URL, 새 URL]`; 이어서 `GET /v1/products/{pid}`(#4)의 `product_image`에도 새 URL(기존 상품 응답 형식 불변); `GET {url}` → 200, **업로드한 바이트와 완전히 같음**, `Content-Type`·`Cache-Control`·`X-Content-Type-Options` 헤더; 인증 헤더 없이 200.
+  - 클라이언트가 보낸 content-type·파일명이 틀려도 내용으로 판정: PNG 바이트를 `("a.txt", ..., "text/plain")`으로 올리면 201·`image/png`.
+  - 401(토큰 없음, `WWW-Authenticate: Bearer`, 에러 본문 전체 비교), 고객 토큰 403 `FORBIDDEN`, 다른 상점주의 상품 403(문구 "본인 상점의 상품만 수정할 수 있습니다."), 없는 상품 404 `NOT_FOUND`, 잘못된 UUID 400 `VALIDATION_ERROR`.
+  - **이름만 .jpg인 텍스트 파일** → 400 `UNSUPPORTED_IMAGE_TYPE`(`product_image`·`product_images` 변화 없음), GIF 바이트 400, 빈 파일 400, `file` 필드 누락 400 `VALIDATION_ERROR`, JSON 본문으로 호출 400(B-IMG7 확인 사항).
+  - 5 MiB 정확히 201, **5 MiB+1 → 400 `IMAGE_TOO_LARGE`**(DB 변화 없음). 본문이 `MAX_UPLOAD_REQUEST_BYTES`보다 큰 요청 + **토큰 없음 → 401이 아니라 400 `IMAGE_TOO_LARGE`**(사전 검사 순서를 고정하는 테스트, B-IMG4·B-IMG5). 같은 크기라도 정상 범위(≤5 MiB) + 토큰 없음은 401.
+  - **11번째 거부**: 외부 URL 5개로 상품 등록 → 5개 업로드 성공 → 6번째 400 `VALIDATION_ERROR` "이미지는 최대 10개까지 등록할 수 있습니다."(DB 행 수 5 유지). 업로드 10개 후 PATCH로 1개 빼면 다시 업로드 1건 성공.
+  - **삭제**: 204, 목록에서 URL 제거(#4 응답 확인), `GET {url}` 404 `NOT_FOUND` "이미지를 찾을 수 없습니다.", 같은 DELETE 재호출 404, 없는 `image_id` 404, **다른 상품 id 경로로 같은 image_id** 조회·삭제 404, 타인 상점주 DELETE 403, 고객 403, 토큰 없음 401, 외부 URL은 삭제 요청 대상이 아님(외부 URL 항목은 유지).
+  - **PATCH와의 관계(D97)**: 업로드 URL을 뺀 PATCH → 200, `GET {url}` 404(바이트 삭제); 외부 URL만 바꾸는 PATCH는 업로드 URL·바이트 유지; 새 업로드 URL 형식을 직접 넣은 PATCH·POST 등록 → 400 `VALIDATION_ERROR`.
+  - **공개 범위 고정(D96, Q48)**: 노출 중단 상품·폐점 상점·정지 상점의 이미지도 `GET {url}` 200이고 #10 할인 상세의 `product_image` URL이 깨지지 않음. 정책이 바뀌면 이 테스트를 의도적으로 바꾼다.
+  - **성능(D98)**: 이미지 10개짜리 상품에 대해 #2·#3·#4·#8·#10·PATCH(`product_image` 미변경)를 호출하면서 `engine.sync_engine`의 `before_cursor_execute` 이벤트로 SQL을 모아 **`product_images`가 들어간 문장이 0개**임을 확인(`client.session_factory`의 bind로 이벤트 등록). #15 업로드 요청에서만 `INSERT INTO product_images`가 나온다.
+  - 폐점 상점·노출 중단 상품의 소유자 업로드·삭제 성공(D95).
+- **조립(`test_wiring.py`)**: `("POST", "/v1/products/{product_id}/images")`, `("DELETE", "/v1/products/{product_id}/images/{image_id}")`, `("GET", "/v1/products/{product_id}/images/{image_id}")` 라우트 등록; `app.url_path_for("get_product_image", product_id=..., image_id=...) == image_path(...)`; `CatalogApplicationService`가 `product_images` 인자를 필수로 받음; `create_product_image_repository`가 `ProductImageRepository`를 돌려줌; `(cd src && uv run python -c "import main")` 성공(R12). 기존 `test_service.py:256`·`test_admin_api_db.py:192`의 서비스 생성에 `product_images` fake/구현을 넘긴다(CI-22).
+
+완료 게이트(backend-invariants §7): `python3 .claude/skills/layer-check/check_layers.py` 위반 0, `(cd src && uv run python -c "import main")` 성공, `uv run pytest -rs` failed 0·db 마커 skip 0.
+
+### 15.9 구현 파일 목록
+
+신규:
+- `src/catalog/domain/product_image.py`, `src/catalog/domain/repository/product_image_repository.py`
+- `src/catalog/presentation/image_router.py` (`UploadSizeLimitRoute`, 응답 헤더 상수, 3개 EP)
+- `tests/catalog/test_product_image_domain.py`, `test_product_image_service.py`, `test_product_image_api_db.py`
+
+변경:
+- `src/catalog/domain/exceptions.py`(예외 3개), `src/catalog/domain/product.py`(15.3.3)
+- `src/catalog/infrastructure/models.py`(`ProductImageModel`), `src/catalog/infrastructure/repositories.py`(`SqlAlchemyProductImageRepository`)
+- `src/catalog/application/service.py`(생성자 인자, 메서드 3개, `update_product`), `src/catalog/application/views.py`(`ProductImageUploadResult`)
+- `src/catalog/presentation/schemas.py`(`ProductImageResponse`), `src/catalog/presentation/router.py`(끝에 `include_router(image_router)`)
+- `src/container.py`(catalog 구역), `pyproject.toml`·`uv.lock`(`uv add python-multipart`)
+- `tests/catalog/test_service.py`·`test_admin_api_db.py`·`test_wiring.py`(생성자 인자·라우트 단언)
+
+구현 순서: `uv add python-multipart` → domain(예외, `product_image.py`, `Product`) → infrastructure(model, 레포지토리) → application → presentation(schemas, `image_router.py`, `router.py`) → container → 테스트 → B-IMG7 항목 실제 확인.
+
+### 15.10 모듈 밖 변경 (이 문서는 쓰지 않는다, 승인 후 반영)
+
+| 대상 | 제안 |
+| --- | --- |
+| `.claude/skills/db-schema/schema.sql` | 15.2의 `CREATE TABLE product_images` + 인덱스를 `products` 정의 뒤에 추가 (R14) |
+| `.claude/skills/db-schema/SKILL.md` | ERD(`products ||--o{ product_images`, 테이블 블록), 2절 관계 목록 행(`product_images.product_id → products`, 1:N, NOT NULL), 3절 모듈 배치(catalog 테이블·도메인 파일), 4절 "원본 DDL에서 추가한 부분"에 새 테이블·CHECK 3개, 6절 매핑 표에 `BYTEA`/`LargeBinary`(`deferred=True`, 비동기에서는 `undefer` 필수) |
+| `docs/reference/catalog.md` | #15~#17 명세(요청·응답·에러 표), `product_image` 설명에 "업로드한 이미지는 `/v1/products/{product_id}/images/{image_id}` 상대 경로, 외부 URL과 섞일 수 있음"(22·72·281행 부근), 에러 코드 `UNSUPPORTED_IMAGE_TYPE`·`IMAGE_TOO_LARGE` |
+| `docs/reference/README.md` | 전체 목록에 3행, 공통 에러 코드 표에 위 두 코드 |
+| `docs/requirements/catalog.md` | 확정 문서라 고치지 않는다. CI-18의 제안 문구를 사용자가 승인하면 반영 |
+| `src/main.py`·`src/error_handlers.py`·`.env.example` | 변경 없음 |
+
+### 15.11 결정 표 (D88~)
+
+| # | 결정 | 근거 | 선택 | 코드 위치 | 상태 |
+| --- | --- | --- | --- | --- | --- |
+| D88 | 이미지 저장소 | 사용자 결정 1 | PostgreSQL 새 테이블 `product_images`(BYTEA) | `models.py`, 15.2 | 확정 (사용자, 2026-11-09) |
+| D89 | `products.product_image` | 사용자 결정 2 | URL 목록 유지. 업로드한 이미지의 공개 조회 URL을 이 목록에 넣는다. 상품 응답 형식 불변 | `Product.attach_image` | 확정 (사용자, 2026-11-09) |
+| D90 | API 형태 | 사용자 결정 3 | 상품에 붙인 3개 EP. 경로 식별자는 `image_id`. 이미지 목록 EP는 없다(상품 응답의 목록 사용) | `image_router.py` | 확정 (사용자, 2026-11-09) |
+| D91 | 허용 형식·크기·판별 | 사용자 결정 4 | JPEG·PNG·WebP, 최대 5 MB. 파일명·헤더를 보지 않고 내용(매직 바이트)으로 판별하고 `content_type`은 판별 결과를 저장 | `product_image.py` | 확정 (사용자, 2026-11-09) |
+| D92 | 개수 상한 | 사용자 결정 5, REQ-6 | 상품당 10개, 업로드와 외부 URL 합산(`len(product_image)`) | `Product.ensure_can_attach_image` | 확정 (사용자, 2026-11-09) |
+| D93 | 저장하는 URL 형식 | 호스트 설정이 프로젝트에 없음(`.env.example`에 base URL 없음) | 상대 경로 `/v1/products/{pid}/images/{iid}`. 클라이언트가 API 호스트를 붙인다. 파싱은 정규식 + 재조립 비교 | `image_path`, `parse_image_path` | 확정 (사용자, 2026-11-09) |
+| D94 | 테이블 컬럼·제약 | 사용자 결정 1의 위임, db-schema 6절 | 15.2 DDL: UUID PK, `product_id` FK+인덱스, `content_type` CHECK, `size_bytes` CHECK 1~5 MiB, `octet_length(data)=size_bytes` CHECK, `created_at` | `schema.sql` 제안 | 확정 (사용자, 2026-11-09) |
+| D95 | 업로드·삭제 권한·상태 조건 | 요구 조건 "상품 수정" 정책 표("본인 상점. 노출 중단 상품과 폐점 상점의 상품도 수정할 수 있다") | `OwnerUser` + `ensure_owner`만. 폐점 상점·노출 중단 상품·정지·미승인 상점도 허용(`update_product`와 같은 의존성·검사). 이미지는 상품 "수정"에 속한다고 본다 | `upload_product_image`, `delete_product_image` | 확정 (사용자, 2026-11-09) |
+| D96 | #17 공개 범위 | `get_offer_detail`이 노출 중단 상품·폐점 상점 할인에도 `product_image`를 공개(D56, D82) | 상품·상점 상태와 무관하게 `id`+`product_id`가 맞으면 누구나 200. 상점 포트·인증 없음 | `get_product_image` | 확정 (사용자, 2026-11-09) |
+| D97 | PATCH로 업로드 URL이 목록에서 빠질 때 | 고아 데이터 방지 | 같은 트랜잭션에서 그 이미지 행을 삭제(`apply_changes`가 빠진 id를 반환 → `delete_many`). 반대로 PATCH·등록으로 **새 업로드 URL을 직접 넣는 것은 거부**(제거·순서 변경만 허용). 외부 URL은 영향 없음 | `Product.apply_changes`, `update_product` | 확정 (사용자, 2026-11-09) |
+| D98 | 조회 쿼리가 BYTEA를 읽지 않게 | 성능, B-IMG6 | ① URL이 `products.product_image`(JSON)에 있어 어떤 상품·할인 쿼리도 `product_images`를 조인하지 않는다 ② `data`는 `deferred=True` ③ 바이트는 #17의 `undefer` 쿼리와 INSERT에서만 오간다 ④ 전용 `ProductImageRepository`(`ProductRepository`에 메서드를 더하지 않아 기존 fake 영향 없음) | `models.py`, 레포지토리, 15.8 성능 테스트 | 확정 (사용자, 2026-11-09) |
+| D99 | 업로드 크기 제한 지점 | B-IMG4·B-IMG5 | 3겹(15.6.2): route class `Content-Length` 사전 검사(`MAX_IMAGE_BYTES`+64 KiB, 인증보다 앞) → `file.read(MAX+1)` → 도메인 판정(정본). 초과는 400 `IMAGE_TOO_LARGE`(프로젝트에 413 핸들러가 없고 모든 에러가 400/401/403/404 관례) | `image_router.py`, `ProductImage.create` | 확정 (사용자, 2026-11-09) |
+| D100 | 동시 업로드 10개 상한 | 기존 #5·#7 패턴 | 상품 행 `FOR UPDATE` 잠금 뒤 도메인 검사. 잠금 순서는 product 하나뿐(offer와 교착 없음) | `upload_product_image`, 15.4 | 확정 (사용자, 2026-11-09) |
+| D101 | 에러 코드·문구 | 에러 형식·문구 관례(`ValueError` 하위 `error_code`, 상품 수정 EP 문구) | 형식 `UNSUPPORTED_IMAGE_TYPE`, 크기 `IMAGE_TOO_LARGE`(둘 다 400, 새 코드), 개수는 기존 `VALIDATION_ERROR`·기존 문구, 이미지 없음 404 `NOT_FOUND`, 403은 `update_product`와 같은 문구 | `exceptions.py` | 확정 (사용자, 2026-11-09) |
+| D102 | 응답 형식 | 명세 없음 | #15 201 `ProductImageResponse`(id, product_id, url, content_type, size_bytes, 갱신된 `product_image` 전체), #16 204 본문 없음, #17 200 바이트 | `schemas.py`, `image_router.py` | 확정 (사용자, 2026-11-09) |
+| D103 | 이미지 응답 헤더 | 사용자 위임 | `Content-Type`은 저장된 값, `Cache-Control: public, max-age=3600`, `X-Content-Type-Options: nosniff`. 한 상수 `IMAGE_RESPONSE_HEADERS`에 모음 | `image_router.py` | 확정 (사용자, 2026-11-09) |
+| D104 | 새 의존성 | B-IMG1 | `python-multipart`(`uv add`). 이미지 라이브러리는 추가하지 않는다 | `pyproject.toml` | 확정 (사용자, 2026-11-09) |
+| D105 | 요청 형식 오류 코드 | 실행 확인(B-IMG7, 전역 `RequestValidationError` 핸들러) | `file` 누락·잘못된 UUID는 400 `VALIDATION_ERROR`가 된다. 깨진 multipart는 소스상 400 `HTTP_ERROR`일 가능성이 있어 설치 후 확인(CI-24) | 전역 핸들러(변경 없음) | 확정 (사용자, 2026-11-09) |
+
+### 15.12 정합 이슈 (CI-18~)
+
+| # | 위치 | 이슈 | 영향·제안 |
+| --- | --- | --- | --- |
+| CI-18 | 요구 조건 `docs/requirements/catalog.md` REQ-6, 정책 표 "상품 수정" ↔ 15절 | REQ-6은 "이미지 주소는 공백일 수 없다"만 말한다. 업로드의 **형식(JPEG·PNG·WebP)·크기(5 MB)·업로드 권한·삭제 시 목록 제거·공개 조회 범위**는 요구 조건에 없는 새 규칙이다. 문서가 확정 상태라 이 설계가 고치지 않는다 | 승인 시 새 REQ(예: "업로드 이미지는 JPEG·PNG·WebP이고 파일당 5 MB 이하이며 내용으로 판별한다", "업로드 이미지 삭제는 상품 이미지 목록에서도 제거한다", "업로드 이미지 개수는 REQ-6의 10개에 포함한다")와 정책 표 행(이미지 업로드·삭제, 이미지 조회)을 추가하도록 `domain-requirements` 절차로 반영. REQ-6 문구 자체는 바꾸지 않아도 된다 |
+| CI-19 | 정책 표 "노출 중단 상품 조회", "폐점 상점의 상품 조회"(비소유자 불가, 존재하지 않는 것처럼) ↔ D96 | 상품 상세(#4)는 노출 중단·폐점·정지 상점의 상품을 비소유자에게 404로 숨기는데, 이미지 바이트(#17)는 URL을 알면 받을 수 있다. 반대로 #17도 숨기면 #10 할인 상세(`product_image`를 공개, D56·D82)가 보여 주는 URL이 깨진다 | 임시 기본값은 "공개(상태 무관)"다. URL이 추측 불가능한 UUID이고 노출 경로가 #10·소유자 응답뿐이어서 노출 위험이 낮다고 본다. 요구 조건과 맞추려면 #17에 `OptionalUser`+상점 조회를 더하고 `StoreRef.are_products_visible_to`를 써야 하며, 그러면 #10의 이미지가 깨지는 문제를 같이 정해야 한다(Q48) |
+| CI-20 | 명세 `docs/reference/catalog.md` 22·72·281행, README 목록 ↔ 15절 | 명세에 업로드 EP·에러 코드가 없고 `product_image` 설명이 "이미지 URL 목록"뿐이다 | 15.10의 명세 변경 제안. 명세가 정본(R15)이므로 승인 전 구현은 이 설계안의 이름을 임시로 따르고, 다르게 구현하면 이유를 보고한다 |
+| CI-21 | `Product.apply_changes` 반환형 변경, `register`·`apply_changes`의 새 거부 규칙 ↔ 기존 테스트·호출처 | 반환값이 `None` → `set[UUID]`이고 업로드 URL 형식 문자열이 새로 거부된다. 기존 테스트가 `apply_changes`의 반환이 `None`임을 단언하거나 `/v1/products/<uuid>/images/<uuid>` 형식 URL을 쓰면 깨진다 | 구현자가 `Grep "apply_changes" tests`·`product_image` 값을 확인하고 필요하면 갱신. 호출처는 `update_product` 하나(`service.py:231`) |
+| CI-22 | `CatalogApplicationService` 생성자 인자 추가 ↔ 생성 지점 3곳 | `src/container.py:250`, `tests/catalog/test_service.py:256`, `tests/catalog/test_admin_api_db.py:192`가 `product_images`를 넘기지 않으면 `TypeError`. `test_wiring.py:131`(인자 없이 생성 → `TypeError`)은 그대로 통과 | 구현 PR이 세 곳을 함께 갱신(CI-12·CI-16과 같은 유형). `tests/catalog/test_service.py`에는 `FakeProductImages`를 추가 |
+| CI-23 | `tests/catalog/test_wiring.py:107` 라우트 단언 | 라우트 3개 추가 | 15.8 조립 항목대로 단언 추가 |
+| CI-24 | B-IMG7 ↔ 전역 에러 핸들러 | 깨진 multipart는 FastAPI가 `HTTPException(400, "There was an error parsing the body")`로 바꿔 `_HTTP_CODES`에 400이 없어 `error_code`가 `HTTP_ERROR`가 된다(소스 기준, 실행 미확인). 다른 에러는 `VALIDATION_ERROR` | 설치 후 실제 코드를 확인한다. `HTTP_ERROR`면 사용자에게 `error_handlers.py`의 400 매핑 추가 여부를 묻는다(모듈 밖). 이 설계는 `error_handlers.py`를 바꾸지 않는다 |
+| CI-25 | layer-architecture §3.3 | 한 트랜잭션이 `products`(`Product`)와 `product_images`를 함께 바꾼다 | 15.1에 잠금 순서(상품 행 하나)와 트랜잭션 경계를 적었다. `ProductImage`는 `Product`의 부분(대용량 바이너리)이고 레포지토리만 분리했다 |
+
+### 15.13 질문 목록과 임시 기본값 (우선순위 순)
+
+**2026-11-09 사용자 결정: Q48~Q57 전부 아래 임시 기본값대로 확정**(Q48 상태 무관 공개 GET, Q49 PATCH로 빠지면 같은 트랜잭션에서 즉시 삭제, Q56 상품 수정과 같은 권한, Q50~Q55·Q57 기본값). 바뀔 때 고칠 곳을 같이 적었다. CI-18(요구 조건 REQ 추가 제안)은 열려 있다.
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 | 바뀔 때 고칠 곳 |
+| --- | --- | --- | --- | --- | --- |
+| Q48 | **공개 GET이 노출 중단 상품·폐점 상점·정지 상점의 이미지를 줄 것인가** (요구 조건 노출 정책과 충돌 가능, CI-19) | 정책 표, D56·D82 | 준다(상태 무관, 상품 소속만 확인) | #10이 이런 상품의 `product_image`를 공개하고, URL이 UUID라 추측 불가 | `get_product_image`(`OptionalUser`+`are_products_visible_to` 추가), 테스트 "공개 범위 고정" |
+| Q49 | PATCH로 업로드 URL을 목록에서 뺄 때 바이트를 **즉시 삭제**할지(되돌릴 수 없음) 보관할지 | 고아 데이터 | 같은 트랜잭션에서 즉시 삭제(D97). 새 업로드 URL 직접 추가는 거부 | 고아 없음·두 저장소 일치 불변식이 단순 | `update_product`의 `delete_many`, `Product.apply_changes` |
+| Q50 | 크기 초과 응답 코드(400 vs 413)와 `Content-Length` 없는(chunked) 요청 처리 | 에러 관례, B-IMG4 | 400 `IMAGE_TOO_LARGE`. chunked는 사전 검사를 통과하고 `read(MAX+1)`·도메인 판정만 적용(본문이 임시 파일로 받아지는 것은 막지 못함) | 프로젝트는 400/401/403/404만 쓰고 413 핸들러가 없다. 실제 본문 상한은 리버스 프록시(`client_max_body_size` 등) 몫 | `UploadSizeLimitRoute`(없을 때 거부하도록), `error_handlers.py`(413 추가 시) |
+| Q51 | 저장 URL을 상대 경로로 둘지 절대 URL(새 설정 `PUBLIC_BASE_URL`)로 둘지 | 설정에 호스트 없음 | 상대 경로 | 호스트가 바뀌어도 DB를 고칠 필요 없음, 새 환경변수 불필요 | `image_path`, `.env.example`, 기존 데이터 이전 |
+| Q52 | "5 MB"가 5 MiB인지 5,000,000바이트인지, 상품·상점당 총량 상한(상품당 최대 10개 × 5 MiB = 50 MiB) | 결정 4 | 5 MiB(5,242,880). 총량 상한 없음 | 업로드 도구가 흔히 MiB로 표시. 총량은 요구 조건에 없음 | `MAX_IMAGE_BYTES`, DDL `ck_product_images_size` |
+| Q53 | 응답 형식: DELETE를 204로 할지 갱신된 상품을 돌려줄지, POST 응답에 `product_image` 전체를 넣을지 | 명세 없음 | DELETE 204, POST는 `ProductImageResponse` + 전체 목록 | 클라이언트가 목록을 다시 조회하지 않아도 됨 | `schemas.py`, `image_router.py`, 명세 |
+| Q54 | 매직 바이트만 검사하고 실제 디코드(손상·악성 이미지)는 확인하지 않는 것 | 결정 4 | 시그니처만 검사. `X-Content-Type-Options: nosniff`로 브라우저 추측 차단 | 이미지 라이브러리가 없다(B-IMG3), 요구는 "내용으로 판별" | `detect_image_content_type`(Pillow 추가 시 `uv add`) |
+| Q55 | 캐시 정책 | 사용자 위임 | `public, max-age=3600` | 내용 불변이지만 삭제·비공개 전환 반영 지연을 1시간으로 제한 | `IMAGE_RESPONSE_HEADERS` 한 곳(ETag·304는 후속) |
+| Q56 | 정지·미승인 상점의 상점주가 이미지를 올리거나 지울 수 있는지 | 정책 표 "상품 수정"은 폐점·노출 중단만 명시 | 허용(`update_product`와 같은 검사) | 같은 EP들과 규칙을 맞춤 | `upload_product_image`·`delete_product_image`에 `StoreRef` 검사 추가 |
+| Q57 | 같은 파일의 중복 업로드(해시 중복 제거)·업로드 이미지 순서 바꾸기 전용 EP | 결정 3 범위 밖 | 하지 않는다. 순서는 PATCH(`product_image` 순서 변경, 허용됨)로 | 요구에 없음 | 후속 설계 |

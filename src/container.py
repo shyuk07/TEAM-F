@@ -47,6 +47,7 @@ from catalog.application.ports import (
 )
 from catalog.application.service import CatalogApplicationService
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
+from catalog.domain.repository.product_image_repository import ProductImageRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
 from catalog.domain.service import Clock as CatalogClock
@@ -54,6 +55,7 @@ from catalog.infrastructure.clock import SystemClock as CatalogSystemClock
 from catalog.infrastructure.repositories import (
     SqlAlchemyDiscountOfferRepository,
     SqlAlchemyProductRepository,
+    SqlAlchemyProductImageRepository,
     SqlAlchemyStockLogRepository,
 )
 from catalog.presentation.dependencies import (
@@ -107,7 +109,11 @@ from stores.infrastructure.clock import SystemClock
 from stores.infrastructure.geocoder import KakaoGeocoder
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
 from stores.infrastructure.settings import get_kakao_geocoding_settings
-from stores.presentation.dependencies import provide_store_repository, provide_stores_service
+from stores.presentation.dependencies import (
+    provide_store_query_service,
+    provide_store_repository,
+    provide_stores_service,
+)
 
 # 상태 없는 유틸은 싱글턴 (세션을 가진 객체는 요청마다 만든다)
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
@@ -217,6 +223,12 @@ def create_stock_log_repository(session: AsyncSession = Depends(get_db)) -> Stoc
     return SqlAlchemyStockLogRepository(session)
 
 
+def create_product_image_repository(
+    session: AsyncSession = Depends(get_db),
+) -> ProductImageRepository:
+    return SqlAlchemyProductImageRepository(session)
+
+
 def create_store_port(
     query: StoreQueryService = Depends(create_store_query_service),
 ) -> StorePort:
@@ -242,6 +254,7 @@ def create_catalog_service(
     stock_logs: StockLogRepository = Depends(create_stock_log_repository),
     reservations: ReservationLookupPort = Depends(create_reservation_lookup),
     reservation_cancel: ReservationCancelPort = Depends(create_reservation_cancel),
+    product_images: ProductImageRepository = Depends(create_product_image_repository),
 ) -> CatalogApplicationService:
     return CatalogApplicationService(
         session=session,
@@ -252,6 +265,7 @@ def create_catalog_service(
         clock=_catalog_clock,
         reservations=reservations,
         reservation_cancel=reservation_cancel,
+        product_images=product_images,
     )
 
 
@@ -469,6 +483,7 @@ def wire_dependencies(app: FastAPI) -> None:
             provide_withdrawal_service: create_account_withdrawal_service,
             provide_store_repository: create_store_repository,
             provide_stores_service: create_stores_service,
+            provide_store_query_service: create_store_query_service,
             provide_store_port: create_store_port,
             provide_catalog_service: create_catalog_service,
             provide_reservation_lookup: create_catalog_reservation_lookup,

@@ -1374,3 +1374,239 @@ KAKAO_REST_API_KEY=
 
 ### 16.9 사용자 확인 필요
 없음. D48 기본값(네이버 완전 대체)만 오케스트레이터 제안이라 되돌리고 싶으면 알려 달라고 보고서에 한 줄 남긴다. D42의 카카오 응답 값은 사용자 제공 정보이며, 실제 키로 수동 1회 호출 확인은 구현자 몫이다.
+
+---
+
+## 17. 내 상점 조회 `GET /v1/stores/me` (2026-11-09 추가)
+
+범위: 이 EP 하나(B1). 로그인한 상점주가 자기 상점(ID 포함)을 다시 조회한다. 상점 ID는 `POST /v1/stores` 응답에서만 나오고 stores에 GET이 없어, 로그아웃·다른 기기에서는 `/v1/stores/{store_id}/...` 화면(예약·할인·상품·폐점)을 열 수 없다. 상점주 1인 1상점(requirements/stores.md REQ-2, 폐점·정지 포함)이라 새로 개설해서 복구할 수도 없다. 이 절은 기존 0~16절을 바꾸지 않고 더한다(문서 머리의 갱신 이력은 고치지 않음). 기준: `docs/reference/stores.md`, `docs/reference/README.md` "상태 값", `backend-invariants` R1~R16, `docs/design/admin.md` D8.
+
+사용자 확정(2026-11-09)은 D54~D59("확정")이다. 설계자가 정한 것은 D60~D66("임시")이며 사용자 확인 대상이다.
+
+### 17.0 차단 이슈 확인 (실행 결과)
+
+| 확인 | 명령 | 결과 |
+| --- | --- | --- |
+| **파이썬 실행** | `(cd src && uv run python -c "import main ...")`, `uv run python .claude/skills/layer-check/check_layers.py` | **실행 실패**: `error: Failed to spawn: python / Caused by: An Application Control policy has blocked this file. (os error 4551)`. `.venv/Scripts/python.exe`를 직접 실행해도 `Permission denied`. 이 설계 세션에서는 `import main`, `check_layers.py`, 라우트 매칭 실행을 하지 못했다. 시스템 Python(3.11)은 프로젝트 의존성·3.13이 아니라 쓰지 않았고 정책을 우회하지 않았다 |
+| 라우트 충돌(실행 불가 → 코드 읽기 근거) | `Grep` 라우터 데코레이터(`src/**/router.py`) | `/v1/stores` 하위 경로는 `POST /stores`, `POST /stores/{store_id}/close`(stores), `GET·POST /stores/{store_id}/products`, `GET·POST /stores/{store_id}/offers`(catalog), `GET /stores/{store_id}/reservations`(reservations)뿐이다. **`GET /v1/stores/{store_id}`(한 세그먼트 GET)는 없다.** Starlette의 `{store_id}`는 `/`를 포함하지 않는 한 세그먼트만 받으므로 `GET /v1/stores/me`는 위 경로 어느 것과도 겹치지 않는다. 이 판단은 코드 읽기이며 실행 확인이 아니다 → 17.6 테스트 T11이 실행으로 고정한다 |
+| 라우트 접두(admin) | `admin/presentation/router.py:28` `APIRouter(prefix=ADMIN_PREFIX)` | 관리자 경로는 별도 접두(`/stores/{store_id}/suspend`·`/close`가 admin 접두 아래). `/v1/stores/me`와 무관 |
+| 인증 의존성 | `Read src/auth/presentation/dependencies.py:60-115`, `auth/domain/user.py:428-441`, `auth/application/service.py:144-155` | `SuspendedAllowedOwnerUser`가 이미 있다(`:113`). 순서: 토큰 없음·무효 401 → 탈퇴(WITHDRAWN) 401 → 역할 OWNER 아님 403 → 통과. **정지 계정·PENDING·REJECTED 상점주는 통과**한다(`require_roles_allow_suspended`는 역할만 본다. 승인 여부는 `ensure_approved_owner`가 따로 보며 이 의존성은 부르지 않는다) |
+| 기존 404 문구·코드 | `Read src/stores/domain/exceptions.py:1-5` | `StoreNotFoundError(LookupError)`, 기본 문구 "상점을 찾을 수 없습니다." → 전역 핸들러가 404 `NOT_FOUND` |
+| 상태 파생 | `Read src/stores/domain/store.py:26-29, 152-158` | `StoreStatus`(ACTIVE/SUSPENDED/CLOSED)와 `Store.status` 프로퍼티가 이미 있다. 우선순위 `closed_at` → CLOSED, 그다음 `suspended_at` → SUSPENDED, 그 외 ACTIVE. 도메인 변경 불필요 |
+| 레포지토리 | `Read src/stores/domain/repository.py:15-18`, `infrastructure/repositories.py:46-53` | `find_by_owner_id(owner_id, for_update=False)`가 이미 있고 `uq_stores_owner_id` 덕분에 결과는 0 또는 1건. 추가 메서드 불필요 |
+| 읽기 서비스·조립 | `Read src/stores/application/query_service.py`, `src/container.py:194-202, 470-472` | `StoreQueryService`(의존: `StoreRepository`뿐)와 `create_store_query_service`가 이미 있다. 그러나 **`provide_store_query_service` 플레이스홀더는 없다**(`presentation/dependencies.py`에는 `provide_store_repository`, `provide_stores_service`뿐). router가 R9에 따라 `Depends(provide_*)`로 받으려면 추가가 필요하다 |
+| 기존 테스트가 거는 제약 | `Read tests/stores/test_wiring.py:10-20`, `tests/stores/test_api_db.py:32-35` | `test_all_provides_are_wired`가 모든 `provide_*`의 매핑을 요구한다(새 `provide_*`는 container에 매핑해야 통과). `test_open_store_ok`는 `POST /v1/stores` 응답 키 집합을 정확히 비교하므로 `StoreResponse`에 `status`를 넣으면 깨진다(D60 근거) |
+| 응답 모델 함정 | `Read src/stores/presentation/schemas.py:19-30` | `StoreResponse.latitude`·`longitude`가 `float`(null 불가)다. 좌표 지오코딩 도입 전에 개설된 상점은 좌표가 `null`이다(reference stores.md:70, C20). 그 상점을 이 모델로 직렬화하면 응답 검증 오류(500)가 난다(D61) |
+| 추가 의존성·환경변수 | 요청 본문·`Form`·`File` 없음. `Read .env.example`: `DATABASE_URL`(1행), `JWT_SECRET_KEY`(2행), `KAKAO_REST_API_KEY`(15행) | 없음. `pyproject.toml`·`.env.example` 변경 없음 |
+| 작업 트리 | `git status --short` | ` M .env.example`(작업 시작 전부터 있던 변경, 이 설계와 무관). 이 설계는 `docs/design/stores.md`만 고쳤다 |
+
+**차단 판정:** 설계 자체를 막는 이슈는 없다. 다만 위 첫 행처럼 이 환경은 파이썬을 실행할 수 없어 설계 단계의 실행 확인(`import main`, 계층 검사, 라우트 매칭)을 못 했다. 구현자 환경에서 `backend-invariants` §7 게이트 3개(`check_layers.py`, `import main`, `uv run pytest -rs`)를 실행할 수 있어야 하고, 실행되지 않으면 완료로 보고하지 않는다(사용자 확인 필요, Q-3).
+
+### 17.1 도메인 (domain/) — 변경 없음
+
+- `Store.status`(`StoreStatus`)와 `Store.owner_id`가 이미 있어 새 엔티티·메서드·예외가 필요 없다. 상태 우선순위(CLOSED > SUSPENDED > ACTIVE)는 `Store.status`가 정본이며 이 EP는 그 값을 그대로 노출한다(서비스·스키마에서 다시 계산하지 않는다, R3).
+- 소유 판단은 `find_by_owner_id(owner.id)`라는 조회 조건 자체가 하므로 `ensure_owned_by` 호출이 필요 없다(남의 상점이 조회될 수 없다).
+- 예외: 새 예외 없음. 상점이 없으면 기존 `StoreNotFoundError`(404 `NOT_FOUND`, "상점을 찾을 수 없습니다.")를 쓴다(D56).
+- 상태 전이 없음(읽기 전용).
+
+### 17.2 인프라 (infrastructure/) — 변경 없음
+
+- `models.py`·`schema.sql`·`repositories.py` 변경 없음(스키마 변경 제안 없음, R14). 사용하는 추상 메서드는 `StoreRepository.find_by_owner_id(owner_id)`(`for_update=False`, 기본값)뿐이다(R10).
+- 동시성: 읽기 전용이라 `with_for_update()`를 쓰지 않는다(D65). 조회 직후 상태가 바뀌어도(정지·폐점) 응답은 그 시점 스냅샷이며 허용한다. 정지 상점주는 `ApprovedOwnerUser`가 아니므로 폐점 EP는 막히지만 이 EP는 읽을 수 있다(D55).
+
+### 17.3 응용 (application/) — `StoreQueryService`에 메서드 1개 추가 (D62·D63)
+
+위치 선택 근거:
+
+| 안 | 내용 | 판단 |
+| --- | --- | --- |
+| **A. `StoreQueryService` (기본값)** | 의존이 `StoreRepository` 하나뿐인 읽기 전용 서비스. `create_store_query_service`가 이미 container에 있고 catalog·reservations도 이 객체를 쓴다 | 새 팩토리·새 의존 없음. R12 생성 순환 불가(레포지토리만 받음). 커밋하지 않음(R5 위반 여지 없음) |
+| B. `StoresApplicationService` | 쓰기 서비스. 생성자가 `open_offers`(catalog 서비스), `pickup_pending`(reservations 질의), `geocoder`를 요구한다 | 단순 조회에 catalog → reservations까지 팩토리 그래프를 끌어온다. 13.7에서 읽기/쓰기를 나눈 취지(D15)에 어긋난다. 서비스 테스트의 생성자 인자도 6개 |
+
+```python
+# stores/application/query_service.py (추가)
+async def get_store_of_owner(self, owner_id: uuid.UUID) -> Store:
+    store = await self.stores.find_by_owner_id(owner_id)
+    if store is None:
+        raise StoreNotFoundError()
+    return store
+```
+
+시나리오: `stores.find_by_owner_id(owner_id)` → 없으면 `StoreNotFoundError` → 있으면 도메인 `Store`를 그대로 반환. `save()`·`commit()` 없음. 서비스에 비즈니스 if-else는 없고 "없음 → 예외" 변환 한 줄뿐이다(기존 `_locked_store`와 같은 형태, R3).
+
+- 이름 규칙: 기존 `find_store_by_id`·`find_stores_by_ids`·`find_visible_stores`는 "없으면 None/빈 목록"이라 catalog·reservations의 포트 계약(`StorePort`)이다. 새 메서드는 예외를 내므로 `find_*`가 아니라 `get_*`로 구분한다(D63). 기존 포트 메서드는 건드리지 않아 catalog·reservations의 구조적 만족이 유지된다.
+- 모듈 간 트랜잭션: 없음. 다른 모듈을 부르지 않는다(auth는 인증 의존성에서 사용자만 해석하고 stores를 import하지 않는다. `users/me`에 `store_id`를 넣지 않는 확정 결정과 같은 방향).
+
+### 17.4 표현 (presentation/)
+
+**엔드포인트** (prefix `/v1`, tags `["상점"]`)
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/v1/stores/me` | 없음(경로·쿼리·본문 없음) | `MyStoreResponse` | 200 | 401(토큰 없음·무효·탈퇴), 403(`OWNER` 아님), 404(상점 없음) |
+
+- 400은 없다(입력이 없다). 쿼리 매개변수·페이지네이션 없음(최대 1건).
+- 인증: `SuspendedAllowedOwnerUser`(D55). 정지된 상점주도 통과한다. PENDING·REJECTED 상점주도 통과하며 상점이 없으니 404가 된다. 순서는 401 → 403(역할) → 404이다.
+- 에러 본문은 전역 핸들러 형식(R7)이다. 401은 `WWW-Authenticate: Bearer`.
+
+| HTTP | error_code | 메시지 |
+| --- | --- | --- |
+| 401 | `UNAUTHORIZED` | 로그인이 필요합니다. (공용 auth 문구) |
+| 403 | `FORBIDDEN` | 접근 권한이 없습니다. (상점주가 아님, 공용 auth 문구) |
+| 404 | `NOT_FOUND` | 상점을 찾을 수 없습니다. |
+
+**스키마 `MyStoreResponse`** (`from_attributes=True`, `presentation/schemas.py`에 새로 둔다. `StoreResponse`는 바꾸지 않는다, D60)
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `id` | UUID | 상점 ID |
+| `owner_id` | UUID | 상점주 ID |
+| `name` | string | 상점명 |
+| `pickup_address` | string | 픽업 주소 |
+| `latitude` | double \| null | 위도. 좌표 변환 도입 전 개설 상점은 `null`(D61) |
+| `longitude` | double \| null | 경도. 같은 이유 |
+| `created_at` | datetime | 생성 시각 |
+| `approval_at` | datetime \| null | 개설 시각 |
+| `closed_at` | datetime \| null | 폐점 시각 |
+| `status` | `ACTIVE` \| `SUSPENDED` \| `CLOSED` | 계산된 상점 상태. `Store.status`(도메인 `StoreStatus`)를 그대로 직렬화(D57) |
+
+- **포함하지 않는 필드(확정, D58):** `suspended_reason`, `suspended_at`, `closed_reason`. 모델에 선언하지 않으므로 `from_attributes`가 읽지 않는다. 테스트가 키 집합 정확 일치로 고정한다(T7). 상점주는 `status`로 정지·폐점 여부만 보고, 사유는 이 EP로 노출하지 않는다(admin.md D8의 "사유·기간 비노출" 방침을 상점에도 적용).
+- `status`의 타입은 도메인 `StoreStatus`(StrEnum)를 presentation이 import해 OpenAPI 열거로 노출한다(presentation → domain, R2 허용 방향).
+
+응답 예시(정지된 상점):
+```json
+{
+  "id": "1a2b3c4d-...",
+  "owner_id": "9f8e7d6c-...",
+  "name": "마감베이커리",
+  "pickup_address": "서울특별시 강남구 테헤란로 123",
+  "latitude": 37.4979,
+  "longitude": 127.0276,
+  "created_at": "2026-11-05T01:00:00Z",
+  "approval_at": "2026-11-05T01:00:00Z",
+  "closed_at": null,
+  "status": "SUSPENDED"
+}
+```
+
+**router** (`presentation/router.py` 추가, 예외를 잡지 않는다, R6·R7)
+
+```python
+QueryService = Annotated[StoreQueryService, Depends(provide_store_query_service)]
+
+
+@router.get(
+    "/stores/me",
+    response_model=MyStoreResponse,
+    tags=["상점"],
+    summary="내 상점 조회",
+)
+async def get_my_store(owner: SuspendedAllowedOwnerUser, query: QueryService):
+    return await query.get_store_of_owner(owner.id)
+```
+
+- 라우트 순서(D66): 현재 충돌은 없지만(17.0), 나중에 `GET /v1/stores/{store_id}`가 생기면 `me`가 UUID 검증에 먼저 걸려 400이 난다. 그래서 `/stores/me`는 `/stores/{store_id}` 형태 경로보다 **위(앞)에** 선언하고 그 이유를 주석으로 남긴다.
+- `presentation/dependencies.py`에 플레이스홀더 추가(R9):
+```python
+def provide_store_query_service() -> StoreQueryService:
+    """FastAPI Depends 플레이스홀더 (src/container.py에서 바인딩)"""
+    raise NotImplementedError("StoreQueryService 의존성이 주입되지 않았습니다.")
+```
+
+### 17.5 조립 — `src/container.py` 변경 있음 (stores 구역, 2줄, D64)
+
+새 팩토리는 필요 없다(`create_store_query_service`가 이미 있음). 바꾸는 곳:
+
+| 위치 | 변경 |
+| --- | --- |
+| `container.py:110` import | `from stores.presentation.dependencies import provide_store_query_service, provide_store_repository, provide_stores_service` |
+| `wire_dependencies`의 `dependency_overrides.update({...})`(`:470-472` 근처, stores 매핑) | `provide_store_query_service: create_store_query_service,` 한 줄 추가 |
+
+- 의존 그래프 변화 없음: `get_db → create_store_repository → create_store_query_service`(기존). 새 순환·새 간선 없음(R12). `main.py` 변경 없음(기존 `stores_router`에 EP만 추가).
+- `container.py`는 모듈 밖 파일이고 구역 소유권(orchestration §4)이 있으므로, 오케스트레이터가 stores implementer에게 stores 구역의 이 두 줄만 허용한다(13.9·C15 선례).
+
+### 17.6 테스트 계획
+
+DB 테스트는 `[pytest.mark.db, pytest.mark.anyio]`, 에러 응답은 본문 전체를 비교한다(`testing.md`). 검사를 약하게 만들지 않는다(R16): DB skip은 통과가 아니다.
+
+| # | 종류 | 케이스 | 기대 |
+| --- | --- | --- | --- |
+| T1 | API+DB | 상점주 가입 → 승인 → 개설(`POST /v1/stores`) → `GET /v1/stores/me` | 200. 키 집합이 정확히 `{id, owner_id, name, pickup_address, latitude, longitude, created_at, approval_at, closed_at, status}`, `status == "ACTIVE"`, `id`가 개설 응답의 `id`와 같음, `closed_at is None`, `created_at`·`approval_at`은 tz 포함 |
+| T2 | API+DB | `Authorization` 헤더 없음 | 401, `{"success": false, ...}`, `WWW-Authenticate: Bearer` |
+| T3 | API+DB | CUSTOMER 토큰 | 403 `FORBIDDEN`, `success: false`(ADMIN 토큰도 403 한 건) |
+| T4 | API+DB | 정지된 상점주 계정(`UPDATE users SET status='SUSPENDED', suspended_reason=..., suspended_at=now()`, `test_api_db.py:227-233` 방식)이 자기 상점 조회 | **200**(같은 계정의 `POST .../close`는 403 "정지된 계정입니다."로 대비해 확인) |
+| T5 | API+DB | 상점이 없는 상점주(승인된 OWNER, 미개설) / 승인 대기(PENDING) 상점주 | 둘 다 404, 본문 `{"success": false, "error_code": "NOT_FOUND", "message": "상점을 찾을 수 없습니다."}` |
+| T6 | API+DB | 폐점한 상점(`POST /v1/stores/{id}/close` 후) | 200, `status == "CLOSED"`, `closed_at`이 null이 아님 |
+| T7 | API+DB | 관리자 정지 상점(`suspend_store_row` 헬퍼, `tests/catalog/test_admin_api_db.py`) | 200, `status == "SUSPENDED"`, 응답 키에 `suspended_reason`·`suspended_at`·`closed_reason`이 **없음**(키 집합 정확 일치, T1과 같은 집합), 정지 사유 문자열이 응답 본문 어디에도 없음 |
+| T8 | API+DB | 폐점과 정지 기록이 모두 있는 상점(SQL로 `closed_at`·`suspended_*` 둘 다 설정) | `status == "CLOSED"`(우선순위) |
+| T9 | API+DB | 상점주 A·B가 각각 상점 보유 | 각자 자기 상점 `id`만 받음(서로 바뀌지 않음) |
+| T10 | API+DB | 좌표가 `NULL`인 기존 상점(SQL로 `latitude`·`longitude` NULL) | 200(500 아님), `latitude`·`longitude`가 `null`(D61) |
+| T11 | API+DB | **라우트 충돌 고정**: `GET /v1/stores/me`가 UUID 경로 매개변수로 해석되지 않음 | T1 응답이 200이며 `error_code`가 `VALIDATION_ERROR`가 아님. 같은 테스트에서 `GET /v1/stores/{store_id}/products` 등 기존 EP가 그대로 동작하는지 한 건 확인(17.0의 코드 읽기 판단을 실행으로 대체) |
+| T12 | service(DB 불필요) | fake `StoreRepository`(추상 상속)로 `StoreQueryService.get_store_of_owner` | 있으면 같은 `Store` 객체 반환·레포 호출 인자가 `owner_id`. 없으면 `StoreNotFoundError`(`pytest.raises(StoreNotFoundError)`, `LookupError`가 아니라 전용 클래스). 서비스에 `commit` 속성이 없으므로 커밋 0회가 구조적으로 보장됨 |
+| T13 | 조립 | `tests/stores/test_wiring.py`에 `deps.provide_store_query_service` 매핑 단언 추가 | `app.dependency_overrides[deps.provide_store_query_service] is create_store_query_service`. 기존 `test_all_provides_are_wired`도 새 `provide_*`를 자동으로 검사 |
+| T14 | 도메인 | `Store.status` 3상태·동시 기록 우선순위 테스트가 이미 있는지 확인(`tests/stores/test_domain.py`, `test_admin_domain.py`). 없으면 CLOSED > SUSPENDED > ACTIVE 3조합과 폐점+정지 동시를 추가 | 이 EP가 의존하는 정본이므로 도메인 쪽에서도 고정 |
+
+실행 게이트(`backend-invariants` §7, 구현자가 실행): `python3 .claude/skills/layer-check/check_layers.py`(위반 0, 기준선에 있던 기존 위반은 구분해서 보고), `(cd src && uv run python -c "import main")`, `uv run pytest -rs`(failed 0, db 마커 skip 0). `POST /v1/stores` 응답 키 집합 테스트(`test_open_store_ok`)는 그대로 통과해야 한다(D60).
+
+### 17.7 구현 파일 목록 (layer-implementer, 모듈별)
+
+| 모듈 | 파일 | 변경 |
+| --- | --- | --- |
+| stores | `src/stores/application/query_service.py` | `get_store_of_owner` 추가, `StoreNotFoundError` import(17.3) |
+| stores | `src/stores/presentation/dependencies.py` | `provide_store_query_service` 추가(17.4) |
+| stores | `src/stores/presentation/schemas.py` | `MyStoreResponse` 추가(`StoreStatus` import)(17.4) |
+| stores | `src/stores/presentation/router.py` | `GET /stores/me`, `SuspendedAllowedOwnerUser`·`StoreQueryService`·`provide_store_query_service`·`MyStoreResponse` import. `/stores/{store_id}` 형태 경로보다 앞에 선언(D66) |
+| container | `src/container.py` | import 한 줄, `wire_dependencies` 매핑 한 줄(17.5). 오케스트레이터 허용 필요 |
+| tests | `tests/stores/test_my_store_api_db.py`(신규, T1~T11), `tests/stores/test_my_store_service.py`(신규, T12), `tests/stores/test_wiring.py`(T13 추가), `tests/stores/test_domain.py`(T14, 필요 시) | |
+
+변경 없음: `domain/**`, `infrastructure/**`, `models.py`, `schema.sql`, `main.py`, `error_handlers.py`, `pyproject.toml`, `.env.example`. 새 폴더 없음(새 `__init__.py` 불필요).
+
+### 17.8 모듈 밖 변경 제안 (이 문서는 쓰지 않는다, 적용은 오케스트레이터·사용자 판단)
+
+| # | 파일 | 변경 |
+| --- | --- | --- |
+| 1 | `docs/reference/stores.md` | 새 절 "상점 조회(내 상점)" 추가(R15 정본). `GET /v1/stores/me`, 권한 "상점주(정지된 계정 포함)", 성공 200, 응답 표(17.4, `status` 포함·사유 필드 없음), 에러 401·403·404(문구는 17.4 표). 머리말 "상점 개설과 폐점" → "상점 개설·조회·폐점" |
+| 2 | `docs/reference/README.md` | 전체 EP 목록에 `GET /v1/stores/me` 한 행. "상태 값" 표(109행) 상점 `ACTIVE`/`SUSPENDED`/`CLOSED` 행의 사용처를 "관리자 API"에서 "관리자 API, 상점 API(`GET /v1/stores/me`)"로. 정지 계정 허용 EP 설명이 README에 있다면 이 EP 추가 |
+| 3 | `src/auth/presentation/dependencies.py:112` | `SuspendedAllowedOwnerUser` 주석 "픽업 EP 전용 ..."이 이미 낡았다(상점 예약 목록 EP도 쓴다, `reservations/presentation/router.py:84`). 이 EP까지 포함해 "정지된 상점주도 읽거나 처리해야 하는 EP 공용"으로 고치는 것을 제안(auth 소유, 동작 변경 없음) |
+| 4 | `docs/design/admin.md` D8(580행) | "모든 정지 회원의 보호 API(픽업 EP 제외, D35)는 403"에 정지된 OWNER의 읽기 EP 예외가 늘어난다(`GET /v1/stores/me`). 문구 갱신 제안(C27) |
+
+### 17.9 결정 표 (D54~D66)
+
+임시 값은 확정이 아니라 제안이다. 코드에서는 표의 위치에 모아 바꾸기 쉽게 한다.
+
+| # | 항목 | 출처 | 값 | 근거 | 코드 위치 | 상태 |
+| --- | --- | --- | --- | --- | --- | --- |
+| D54 | URI | 사용자 2026-11-09 | `GET /v1/stores/me`. auth `/v1/users/me`에 `store_id`를 넣지 않는다(auth는 stores에 의존하지 않는다) | R11·R12, 상점 조회는 stores 책임 | `presentation/router.py` | 확정 |
+| D55 | 호출 권한 | 사용자 2026-11-09 | 역할 OWNER면 모두. **정지된 상점주 포함**(`SuspendedAllowedOwnerUser`, 픽업·상점 예약 목록 EP와 같은 규칙). PENDING·REJECTED 상점주도 호출 가능(상점이 없으니 404). 비로그인 401, OWNER 아님 403, 탈퇴 계정 401 | 상점주가 정지·폐점 상태를 봐야 상점 화면에 접근할 수 있다. 17.0의 의존성 코드 확인 | `presentation/router.py` | 확정 |
+| D56 | 상점 없음 | 사용자 2026-11-09 | 404 `NOT_FOUND` "상점을 찾을 수 없습니다."(`StoreNotFoundError` 기본 문구와 동일, `exceptions.py:4`) | 기존 문구·코드 일치 | `StoreQueryService.get_store_of_owner` | 확정 |
+| D57 | 응답의 `status` | 사용자 2026-11-09 | `ACTIVE`/`SUSPENDED`/`CLOSED`, 우선순위 CLOSED > SUSPENDED > ACTIVE, `Store.status` 파생값을 그대로 노출(저장 안 함) | reference/README "상태 값", `store.py:152-158`, REQ-27 | `MyStoreResponse.status` | 확정 |
+| D58 | 사유 비노출 | 사용자 2026-11-09 | `suspended_reason`·`suspended_at`·`closed_reason`을 응답에 넣지 않는다 | admin.md D8(사유 비노출) | `MyStoreResponse`(필드 미선언), T7 | 확정 |
+| D59 | 폐점·정지 상점 반환 | 사용자 2026-11-09 | 폐점·정지된 상점도 본인에게는 돌려준다 | 상점주가 상태를 봐야 한다. 상점은 지우지 않는다(REQ-31) | `get_store_of_owner`는 상태로 거르지 않음 | 확정 |
+| D60 | 응답 모델 | 설계 | **새 `MyStoreResponse`**를 만들고 `StoreResponse`는 바꾸지 않는다 | `StoreResponse`에 `status`를 넣으면 `POST /v1/stores` 응답(reference §1 응답 표)과 `test_open_store_ok`의 키 집합이 바뀐다. 개설 응답의 `status`는 항상 ACTIVE라 정보가 없다. 대안(필드 추가)은 C26 | `presentation/schemas.py` | 확정 (사용자, 2026-11-09) |
+| D61 | 좌표 타입 | 설계, reference stores.md:70 | `MyStoreResponse.latitude`·`longitude`는 `float \| None` | 좌표 도입 전 개설 상점은 `null`(C20). `float`로 두면 응답 검증 오류로 500. 개설 응답 `StoreResponse`는 항상 값이 있어 `float` 유지 | `presentation/schemas.py` | 확정 (사용자, 2026-11-09) |
+| D62 | 서비스 위치 | 설계, R12·layer-architecture §4 | 읽기 전용 `StoreQueryService`에 둔다(17.3 A안) | 의존이 레포지토리 하나, 이미 container에 있음, 생성 순환 불가, 커밋 없음. `StoresApplicationService`는 catalog·reservations·geocoder까지 끌어온다 | `application/query_service.py` | 확정 (사용자, 2026-11-09) |
+| D63 | 메서드 이름·반환 | 설계 | `get_store_of_owner(owner_id) -> Store`, 없으면 `StoreNotFoundError`. 기존 `find_*`(None 반환, 외부 포트 계약)는 유지 | `find_*`와 `get_*`로 "없으면 None / 없으면 예외"를 이름에서 구분. catalog·reservations의 구조적 포트 만족을 깨지 않음 | `application/query_service.py` | 확정 (사용자, 2026-11-09) |
+| D64 | 조립 | 설계, R9 | `provide_store_query_service` 플레이스홀더 추가 + `wire_dependencies`에 `create_store_query_service` 매핑(container 2줄). 새 팩토리 없음 | R9, `test_all_provides_are_wired` | `presentation/dependencies.py`, `src/container.py` | 확정 (사용자, 2026-11-09) |
+| D65 | 읽기 전용 | 설계 | 잠금·`flush`·`commit` 없음 | 조회만 한다. 스냅샷 응답 허용 | `get_store_of_owner` | 확정 (사용자, 2026-11-09) |
+| D66 | 라우트 순서와 충돌 검증 | 설계 | `/stores/me`를 `/stores/{store_id}` 형태 경로보다 앞에 선언하고 주석. 현재 충돌 없음은 코드 읽기, 실행 확인은 T11 | 17.0(실행 불가 → 코드 읽기 근거) | `presentation/router.py`, T11 | 확정 (사용자, 2026-11-09) |
+
+### 17.10 정합 이슈 (C26~C29)
+
+| # | 위치 | 이슈 | 영향 | 제안 |
+| --- | --- | --- | --- | --- |
+| C26 | D60, reference stores.md §1 응답 | `GET /me`는 `status`가 있고 `POST /v1/stores`(`StoreResponse`)는 없어 두 응답의 필드가 다르다 | 프론트가 같은 상점 모델에 두 응답을 합칠 때 `status` 유무가 달라짐 | 기본값은 분리 유지(개설 응답은 항상 ACTIVE, 기존 클라이언트·테스트 보존). 합치고 싶으면 사용자 결정 후 `StoreResponse`에 `status` 추가 + reference §1 응답 표 + `test_open_store_ok` 키 집합 갱신을 한 PR에서 처리. 이때 `latitude`·`longitude`는 `float \| None`으로 완화 |
+| C27 | admin.md D8(580행), auth 설계 D35 | "정지 회원의 보호 API(픽업 EP 제외)는 403"이라고 적혀 있으나, 코드는 이미 상점 예약 목록 EP도 정지 상점주를 허용하고(`reservations/presentation/router.py:84`) 이 EP가 하나 더 늘어난다 | 문서가 코드 동작보다 좁음 | 17.8 #3·#4. 허용 EP 목록의 정본을 한 곳(auth 설계 D35)에 두고 admin.md는 가리키게 정리할 것을 제안 |
+| C28 | reference stores.md·README | `GET /v1/stores/me`가 명세에 없다(R15) | 구현이 명세보다 앞섬 | 17.8 #1·#2를 구현 PR과 같은 PR에서 적용 |
+| C29 | 15.1·15.2 vs 현재 코드 | 15절은 `StoreWithDistance`를 domain에, `find_visible_near` 반환을 `list[StoreWithDistance]`로 설계했으나 현재 코드는 `StoreWithDistance`가 `application/query_service.py`에 있고 레포지토리 반환이 `list[tuple[Store, float \| None]]`이다(`repository.py:28-35`) | 이 EP와 무관. 문서·코드 불일치(15절 설계가 이력이 됨) | 이 절에서 고치지 않는다. 15절 갱신 여부는 별도로 판단 |
+
+### 17.11 질문 목록과 임시 기본값
+
+확정된 항목(D54~D59)은 질문이 아니다. 아래는 사용자 확인 대상이다.
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
+| --- | --- | --- | --- | --- |
+| Q-1 | `POST /v1/stores` 응답에도 `status`를 넣을지(C26) | D60 | 넣지 않는다. `GET /me`만 `MyStoreResponse`로 `status` 포함 | 기존 응답·reference §1·테스트 불변. **확정 (사용자, 2026-11-09)** |
+| Q-2 | 서비스 위치를 읽기 전용 `StoreQueryService`로 둘지(D62) | 설계 | `StoreQueryService.get_store_of_owner` | R12 순환 없음, 새 의존 없음. **확정 (사용자, 2026-11-09)** |
+| Q-3 | 파이썬 실행 정책(`os error 4551`)이 구현 환경에도 있는지. 있으면 §7 게이트 3개를 실행할 수 없다 | 17.0 | 구현자 환경에서는 실행 가능하다고 가정. 실행 불가면 완료로 보고하지 않고 사용자에게 알린다 | 작업 원칙 "실행하지 않은 것을 통과로 말하지 않는다". **해결: 래퍼 사용** (사용자 승인, 2026-11-09, 오케스트레이터 전달). `.venv\Scripts\python.exe`가 Windows Application Control에 막혀 있어, `uv run python` 대신 uv 기본 Python 3.13에 venv site-packages를 PYTHONPATH로 붙인 래퍼 `bash "C:/Users/kantf/AppData/Local/Temp/claude/b078265c25c9dcad/58d5214f-5ea0-4d8c-ba25-713fabd13041/scratchpad/py.sh"`를 쓴다. 오케스트레이터가 이 방식으로 `import main` 성공, check_layers 위반 없음, pytest 1448개 수집을 확인했다 (설계자는 재실행하지 않음) |
+| Q-4 | 좌표 `null` 상점의 `latitude`·`longitude`를 `null`로 돌려줄지(D61) | reference stores.md:70 | `null`로 200 응답 | 500보다 낫고 명세가 이미 `null`을 인정. **확정 (사용자, 2026-11-09)** |
+| Q-5 | reference·README 갱신(17.8 #1·#2)을 구현과 같은 PR에서 할지 | R15 | 같은 PR | 명세가 코드보다 늦으면 R15 위반. **확정 (사용자, 2026-11-09)**: reference·README는 같은 변경에서 갱신 |

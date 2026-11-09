@@ -105,7 +105,10 @@ def test_admin_routes_registered_without_colliding_with_auth_admin_routes():
         ("PATCH", "/v1/admin/offers/{offer_id}/suspend"),
         ("GET", "/v1/admin/users/{user_id}/points"),
         ("POST", "/v1/admin/users/{user_id}/points"),
-        # auth 관리자 EP(GET /v1/admin/users/{user_id}, POST /v1/admin/token-blacklist/purge)는
-        # main 7594d43에서 auth에서 제거됨. admin 모듈로 옮기는 작업은 후속 PR.
+        ("GET", "/v1/admin/users"),  # EP 10 (admin)
+        # auth 소유 관리자 EP(단건 조회, 토큰 블랙리스트 정리)는 현재 auth 라우터에 있고
+        # (7594d43이 제거했으나 a343f05가 복원), 목록 EP와 경로가 공존해야 한다.
+        ("GET", "/v1/admin/users/{user_id}"),
+        ("POST", "/v1/admin/token-blacklist/purge"),
     ]:
         assert (m, p) in paths, (m, p)

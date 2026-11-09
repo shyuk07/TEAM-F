@@ -19,6 +19,7 @@ from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import Clock, PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User
+from auth.domain.user_list_query import DEFAULT_PAGE, DEFAULT_SIZE, UserListQuery
 
 MAX_PAGE_SIZE = 100
 
@@ -54,6 +55,37 @@ class PointLogPage:
     page: int
     size: int
     total_elements: int
+
+
+@dataclass(frozen=True)
+class UserSummary:
+    """관리자 회원 목록 항목. 민감 정보(해시·전화번호·사유)를 담지 않는다. status는 실효 상태."""
+
+    id: uuid.UUID
+    email: str
+    name: str | None
+    role: str
+    status: str
+    created_at: datetime
+
+    @classmethod
+    def from_user(cls, user: User, now: datetime) -> "UserSummary":
+        return cls(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            role=user.role.value,
+            status=user.effective_status(now).value,
+            created_at=user.created_at,
+        )
+
+
+@dataclass(frozen=True)
+class UserPage:
+    items: list[UserSummary]
+    page: int
+    size: int
+    total: int
 
 
 class AuthApplicationService:
@@ -347,6 +379,27 @@ class AuthApplicationService:
             history=history,
             page=page,
             size=size,
+            total=total,
+        )
+
+    async def list_users(
+        self,
+        *,
+        role: str | None = None,
+        status: str | None = None,
+        email: str | None = None,
+        page: int = DEFAULT_PAGE,
+        size: int = DEFAULT_SIZE,
+    ) -> UserPage:
+        """관리자 회원 목록(읽기 전용, commit 없음). status 필터·응답은 실효 상태."""
+        query = UserListQuery.create(role=role, status=status, email=email, page=page, size=size)
+        now = self.clock.now()
+        users = await self.users.find_all(query, now)
+        total = await self.users.count_all(query, now)
+        return UserPage(
+            items=[UserSummary.from_user(u, now) for u in users],
+            page=query.page,
+            size=query.size,
             total=total,
         )
 

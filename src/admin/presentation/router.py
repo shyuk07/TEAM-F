@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from admin.application.service import AdminApplicationService
 from admin.presentation.dependencies import provide_admin_service
@@ -15,6 +15,7 @@ from admin.presentation.schemas import (
     ReasonRequest,
     StoreClosureResponse,
     StoreSuspensionResponse,
+    UserPageResponse,
     UserSuspendRequest,
     UserSuspensionResponse,
     UserWithdrawalResponse,
@@ -102,7 +103,31 @@ async def suspend_offer(offer_id: uuid.UUID, body: ReasonRequest, admin: AdminUs
     return await service.suspend_offer(offer_id, body.reason)
 
 
-# page/size 범위는 Query 제약이 아니라 서비스(auth)가 명세 문구(INVALID_PAGE)로 검증한다 (6.3절)
+# page/size 범위는 Query 제약이 아니라 도메인(auth VO)이 명세 문구(INVALID_PAGE)로 검증한다 (6.3절)
+# 쿼리 이름 'status'가 위의 `from fastapi import status`를 가리지 않도록 status_filter + alias로 받는다 (B-19)
+@router.get(
+    "/users",
+    response_model=UserPageResponse,
+    tags=TAGS,
+    summary="회원 목록 조회",
+)
+async def list_users(
+    admin: AdminUser,
+    service: Service,
+    role: Annotated[str | None, Query(description="CUSTOMER / OWNER / ADMIN")] = None,
+    status_filter: Annotated[
+        str | None,
+        Query(alias="status", description="PENDING / APPROVED / REJECTED / SUSPENDED / WITHDRAWN"),
+    ] = None,
+    email: Annotated[str | None, Query(description="이메일 부분 일치(대소문자 무시)")] = None,
+    page: int = 1,
+    size: int = 20,
+):
+    return await service.list_users(
+        role=role, status=status_filter, email=email, page=page, size=size
+    )
+
+
 @router.get(
     "/users/{user_id}/points",
     response_model=PointHistoryPageResponse,

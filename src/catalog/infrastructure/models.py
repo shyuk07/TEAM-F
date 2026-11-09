@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, String, Text, text
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, LargeBinary, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,4 +76,29 @@ class StockLogModel(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     amount: Mapped[int]
     reason: Mapped[str | None] = mapped_column(String(200))  # S2
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=text("now()"))
+
+
+class ProductImageModel(Base):
+    __tablename__ = "product_images"
+    __table_args__ = (
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png', 'image/webp')",
+            name="ck_product_images_content_type",
+        ),
+        CheckConstraint("size_bytes BETWEEN 1 AND 5242880", name="ck_product_images_size"),
+        CheckConstraint("octet_length(data) = size_bytes", name="ck_product_images_size_matches"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id"), index=True
+    )
+    content_type: Mapped[str] = mapped_column(String(20))
+    size_bytes: Mapped[int]
+    # 실수로 select(ProductImageModel)을 해도 바이트를 읽지 않는다. 비동기에서는 undefer 필수.
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=text("now()"))

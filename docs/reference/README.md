@@ -10,11 +10,11 @@
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
 | [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 12 |
-| [stores.md](stores.md) | `src/stores` 상점 | 2 |
-| [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
+| [stores.md](stores.md) | `src/stores` 상점 | 3 |
+| [catalog.md](catalog.md) | `src/catalog` 상품·이미지·할인·재고 | 17 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 5 |
 | [payments.md](payments.md) | `src/payments` 결제·환불 | 4 |
-| [admin.md](admin.md) | `src/admin` 관리자 기능 | 9 |
+| [admin.md](admin.md) | `src/admin` 관리자 기능 | 10 |
 
 DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
@@ -70,6 +70,11 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
 | 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
 | 46 | reservations | [상점주용 매장 예약 목록 조회](reservations.md#5-상점주용-매장-예약-목록-조회) | GET | `/v1/stores/{store_id}/reservations` | 상점주(본인 상점) | 200 |
+| 47 | stores | [내 상점 조회](stores.md#3-내-상점-조회) | GET | `/v1/stores/me` | 상점주(정지 포함) | 200 |
+| 48 | admin | [회원 목록 조회](admin.md#10-회원-목록-조회) | GET | `/v1/admin/users` | 관리자 | 200 |
+| 49 | catalog | [상품 이미지 업로드](catalog.md#15-상품-이미지-업로드) | POST | `/v1/products/{product_id}/images` | 상점주(본인) | 201 |
+| 50 | catalog | [상품 이미지 삭제](catalog.md#16-상품-이미지-삭제) | DELETE | `/v1/products/{product_id}/images/{image_id}` | 상점주(본인) | 204 |
+| 51 | catalog | [상품 이미지 조회](catalog.md#17-상품-이미지-조회) | GET | `/v1/products/{product_id}/images/{image_id}` | 공개 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.

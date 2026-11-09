@@ -14,6 +14,7 @@ from admin.application.ports import (
     StoreAdminInfo,
     StoreAdminPort,
     UserAdminInfo,
+    UserPageInfo,
 )
 from admin.domain.service import Clock
 
@@ -138,6 +139,20 @@ class AdminApplicationService:
     # EP 8 (읽기 전용, commit 없음)
     async def get_user_points(self, user_id: uuid.UUID, page: int, size: int) -> PointHistoryInfo:
         return await self.accounts.list_points(user_id, page, size)
+
+    # EP 10 (읽기 전용, commit 없음)
+    async def list_users(
+        self,
+        *,
+        role: str | None,
+        status: str | None,
+        email: str | None,
+        page: int,
+        size: int,
+    ) -> UserPageInfo:
+        return await self.accounts.list_users(
+            role=role, status=status, email=email, page=page, size=size
+        )
 
     # EP 9
     async def grant_points(
