@@ -1,6 +1,6 @@
 # auth API
 
-회원가입, 로그인, 로그아웃, 내 정보, 프로필·비밀번호 변경, 비밀번호 재설정, 자진 탈퇴, 포인트 내역, 관리자 회원 조회, 블랙리스트 정리. 모듈: `src/auth`
+회원가입, 로그인, 로그아웃, 내 정보, 프로필·비밀번호 변경, 비밀번호 재설정, 자진 탈퇴, 포인트 내역, 관리자 회원 조회·목록, 블랙리스트 정리. 모듈: `src/auth`
 테이블: `users`, `token_blacklist`, `point_log`, `password_reset_codes`
 
 포인트 소멸(`EXPIRE`)은 회원 탈퇴 처리(자진·관리자 강제)에서만 발생한다. 별도 API는 없다.
@@ -420,6 +420,62 @@
 | 401 | `UNAUTHORIZED` / `TOKEN_REVOKED` | 토큰 없음·만료·무효 |
 | 403 | `FORBIDDEN` | 정지된 계정 |
 | 500 | `DATA_INCONSISTENT` | 예약·결제 데이터 불일치(전체 롤백) |
+
+---
+
+## 13. 관리자 회원 목록 조회
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| GET | `/v1/admin/users` | 관리자(`ADMIN`) | 200 OK |
+
+관리자가 회원 목록을 역할·상태·이메일로 걸러 가입 시각 최신순(같으면 `id` 내림차순)으로 본다. 항목 형식은 [내 정보 조회](#4-내-정보-조회)와 같고, 비밀번호 해시와 사업자번호는 포함하지 않는다. 결과가 없으면 404가 아니라 200과 빈 `users`다.
+
+> 노션 명세에 없는 API로, 와이어프레임 요구에서 나왔다(auth 설계안 `docs/design/auth.md` D-목록위치, 2026-11-09 확정).
+
+**헤더**
+- `Authorization: Bearer {access_token}` (관리자 토큰)
+
+**쿼리 매개변수**
+| 이름 | 타입 | 기본 | 설명 |
+| --- | --- | --- | --- |
+| `role` | string | 전체 | `CUSTOMER` / `OWNER` / `ADMIN` |
+| `status` | string | 전체(탈퇴 회원 포함) | `PENDING` / `APPROVED` / `REJECTED` / `SUSPENDED` / `WITHDRAWN`. 기간이 지난 정지는 `APPROVED`로 필터·표시한다 |
+| `email` | string (최대 255자) | 없음 | 이메일 부분 검색. 대소문자 무시, 앞뒤 공백 제거, 빈 값은 필터 없음. `%`·`_`는 일반 문자. 제어문자 불가 |
+| `page` | int (0 이상) | 0 | 0부터 시작. 범위를 넘으면 200과 빈 `users` |
+| `size` | int (1~100) | 20 | 페이지 크기 |
+
+**요청 본문:** 없음
+
+**응답**
+```json
+{
+  "users": [
+    {
+      "id": "7f1c2a9e-1b2c-4d3e-8f90-123456789abc",
+      "email": "user@example.com",
+      "name": "홍길동",
+      "phone": "010-1234-5678",
+      "role": "CUSTOMER",
+      "users_point": 1200,
+      "created_at": "2026-11-05T10:00:00Z",
+      "status": "APPROVED"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "total_elements": 137
+}
+```
+
+항목의 `status`는 정지 기간이 지났으면 `APPROVED`로 표시한다(단건 조회 [6절](#6-관리자-회원-조회)은 저장된 값을 그대로 돌려주므로 달라 보일 수 있다).
+
+**에러**
+| HTTP | error_code | 상황 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | 잘못된 `role`·`status`, `page`<0, `size`가 1~100 밖, 검색어 255자 초과·제어문자 |
+| 401 | `UNAUTHORIZED` | 토큰 없음 또는 만료 (쿼리 오류보다 먼저 판정) |
+| 401 | `TOKEN_REVOKED` | 로그아웃된 토큰 |
+| 403 | `FORBIDDEN` | 관리자가 아님 |
 
 ---
 

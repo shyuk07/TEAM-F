@@ -70,6 +70,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
 | 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
 | 46 | reservations | [상점주용 매장 예약 목록 조회](reservations.md#5-상점주용-매장-예약-목록-조회) | GET | `/v1/stores/{store_id}/reservations` | 상점주(본인 상점) | 200 |
+| 47 | auth | [관리자 회원 목록 조회](auth.md#13-관리자-회원-목록-조회) | GET | `/v1/admin/users` | 관리자 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.

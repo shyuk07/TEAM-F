@@ -18,7 +18,8 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import Clock, PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
-from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User
+from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User, UserStatus
+from auth.domain.user_search import UserSearchCriteria
 
 MAX_PAGE_SIZE = 100
 
@@ -51,6 +52,28 @@ class PointHistoryPage:
 class PointLogPage:
     users_point: int
     logs: list[PointLog]
+    page: int
+    size: int
+    total_elements: int
+
+
+@dataclass(frozen=True)
+class UserListItem:
+    """관리자 목록 항목. status는 effective_status(now)로 채운 값이다."""
+
+    id: uuid.UUID
+    email: str
+    name: str | None
+    phone: str | None
+    role: str
+    users_point: int
+    created_at: datetime
+    status: str
+
+
+@dataclass(frozen=True)
+class UserPage:
+    items: list[UserListItem]
     page: int
     size: int
     total_elements: int
@@ -207,6 +230,32 @@ class AuthApplicationService:
         return PointLogPage(
             users_point=user.users_point, logs=logs, page=page, size=size, total_elements=total
         )
+
+    async def list_users(
+        self,
+        role: Role | None,
+        status: UserStatus | None,
+        email: str | None,
+        page: int,
+        size: int,
+    ) -> UserPage:
+        if page < 0:
+            raise ValueError("page는 0 이상이어야 합니다.")
+        if size < 1 or size > MAX_PAGE_SIZE:
+            raise ValueError(f"size는 1 이상 {MAX_PAGE_SIZE} 이하여야 합니다.")
+        criteria = UserSearchCriteria.of(role, status, email)
+        now = self.clock.now()
+        users = await self.users.find_page(criteria, now=now, offset=page * size, limit=size)
+        total = await self.users.count_matching(criteria, now=now)
+        items = [
+            UserListItem(
+                id=u.id, email=u.email, name=u.name, phone=u.phone, role=str(u.role),
+                users_point=u.users_point, created_at=u.created_at,
+                status=u.effective_status(now).value,
+            )
+            for u in users
+        ]
+        return UserPage(items=items, page=page, size=size, total_elements=total)
 
     async def _locked_user(self, user_id: uuid.UUID) -> User:
         user = await self.users.find_by_id(user_id, for_update=True)

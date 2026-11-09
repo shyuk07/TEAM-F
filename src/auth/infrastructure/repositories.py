@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role, User, UserStatus
+from auth.domain.user_search import UserSearchCriteria
 from auth.infrastructure.models import (
     PasswordResetCodeModel,
     PointLogModel,
@@ -80,6 +81,48 @@ class SqlAlchemyUserRepository(UserRepository):
             self._write_status(model, user)
             await self.session.flush()
         return user
+
+    async def find_page(
+        self, criteria: UserSearchCriteria, *, now: datetime, offset: int, limit: int
+    ) -> list[User]:
+        stmt = (
+            select(UserModel)
+            .where(*self._where(criteria, now))
+            .order_by(UserModel.created_at.desc(), UserModel.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        models = (await self.session.execute(stmt)).scalars().all()
+        return [self._to_domain(m) for m in models]
+
+    async def count_matching(self, criteria: UserSearchCriteria, *, now: datetime) -> int:
+        stmt = select(func.count()).select_from(UserModel).where(*self._where(criteria, now))
+        return (await self.session.execute(stmt)).scalar_one()
+
+    @classmethod
+    def _where(cls, criteria: UserSearchCriteria, now: datetime) -> list:
+        conditions = []
+        if criteria.role is not None:
+            conditions.append(UserModel.role == str(criteria.role))
+        if criteria.status is not None:
+            conditions.append(cls._status_condition(criteria.status, now))
+        if criteria.email_keyword is not None:
+            conditions.append(UserModel.email.icontains(criteria.email_keyword, autoescape=True))
+        return conditions
+
+    @staticmethod
+    def _status_condition(status: UserStatus, now: datetime):
+        """User.effective_status(now)와 한 쌍이다. 한쪽을 바꾸면 다른 쪽도 바꾼다."""
+        s, until = UserModel.status, UserModel.suspended_until
+        suspended = str(UserStatus.SUSPENDED)
+        if status is UserStatus.APPROVED:
+            return or_(
+                s == str(UserStatus.APPROVED),
+                and_(s == suspended, until.is_not(None), until <= now),
+            )
+        if status is UserStatus.SUSPENDED:
+            return and_(s == suspended, or_(until.is_(None), until > now))
+        return s == str(status)
 
     @staticmethod
     def _write_status(model: UserModel, user: User) -> None:

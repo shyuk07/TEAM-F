@@ -7,6 +7,7 @@ from auth.application.password_reset_service import PasswordResetService
 from auth.application.service import AuthApplicationService
 from auth.application.withdrawal_service import AccountWithdrawalService
 from auth.domain.point_log import PointType
+from auth.domain.user import Role, UserStatus
 from auth.presentation.dependencies import (
     AdminUser,
     CurrentPrincipal,
@@ -17,6 +18,7 @@ from auth.presentation.dependencies import (
     provide_withdrawal_service,
 )
 from auth.presentation.schemas import (
+    AdminUserListResponse,
     LoginRequest,
     PasswordChangeRequest,
     PasswordResetConfirmRequest,
@@ -146,6 +148,36 @@ async def read_my_points(
     size: Annotated[int, Query(ge=1, le=100, description="페이지 크기 (최대 100)")] = 20,
 ):
     return await service.list_point_logs(user, type, page, size)
+
+
+@router.get(
+    "/admin/users",
+    response_model=AdminUserListResponse,
+    tags=["관리자"],
+    summary="회원 목록 조회(관리자)",
+)
+async def admin_list_users(
+    admin: AdminUser,
+    service: Service,
+    role: Annotated[Role | None, Query(description="CUSTOMER / OWNER / ADMIN")] = None,
+    status_filter: Annotated[
+        UserStatus | None,
+        Query(
+            alias="status",
+            description="PENDING / APPROVED / REJECTED / SUSPENDED / WITHDRAWN (기간이 지난 정지는 APPROVED)",
+        ),
+    ] = None,
+    email: Annotated[str | None, Query(max_length=255, description="이메일 부분 검색")] = None,
+    page: Annotated[int, Query(ge=0, description="페이지 (0부터)")] = 0,
+    size: Annotated[int, Query(ge=1, le=100, description="페이지 크기 (최대 100)")] = 20,
+):
+    page_result = await service.list_users(role, status_filter, email, page, size)
+    return AdminUserListResponse(
+        users=page_result.items,
+        page=page_result.page,
+        size=page_result.size,
+        total_elements=page_result.total_elements,
+    )
 
 
 @router.get(

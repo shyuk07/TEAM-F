@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -79,6 +80,13 @@ class FakeUsers(UserRepository):
             user.id = uuid.uuid4()
         self.items[user.id] = user
         return user
+    async def find_page(self, criteria, *, now, offset, limit):
+        rows = [u for u in self.items.values() if criteria.matches(u, now)]
+        rows.sort(key=lambda u: (u.created_at or datetime.min.replace(tzinfo=timezone.utc), str(u.id)), reverse=True)
+        return rows[offset:offset + limit]
+
+    async def count_matching(self, criteria, *, now):
+        return len([u for u in self.items.values() if criteria.matches(u, now)])
 
 
 class FakeLogs(PointLogRepository):
