@@ -1793,3 +1793,180 @@ MAIL_FROM=
 | 41 | 타임아웃 | 사용자 위임 | **확정(위임, 2026-11-09)**: 10초(소켓 단위) | 일반 SMTP 서버 응답 여유, 너무 길면 응답 지연 한계 악화 | `MailSettings.timeout_seconds` |
 | 42 | 만료 시각 표기 | 문구 | **확정(위임, 2026-11-09)**: KST `YYYY-MM-DD HH:MM (한국 시간)` | 한국 서비스, tzdata 불필요 | `reset_notifier.py` 상수 |
 | 43 | 메일 제목·본문 문구 | 문구 | **확정(위임, 2026-11-09)**: §17.3 | 코드·만료 시각·무시 안내만 포함 | `reset_notifier.py` 상수 |
+
+## 18. 2026-11-09 관리자 회원 목록 `GET /v1/admin/users`
+
+- 상태: **설계(코드 변경 없음).** 기준: 브랜치 `claude/admin-user-list`, `origin/main` `c954de2`. 기존 마지막 절은 §17, 마지막 ID는 D-메일테스트·B-42·C-38·질문 43이라 이어서 쓴다.
+- 이번에 추가하는 ID: 결정 `D-목록위치`~`D-목록테스트`(§18.2), 차단 확인 `B-43`~`B-46`(§18.0), 정합 이슈 `C-39`~`C-44`(§18.9), 질문 `44`~`48`(§18.10).
+- **확정(사용자, 2026-11-09):** 이 API는 auth에 만든다. 근거: 회원 1명 조회 `GET /v1/admin/users/{user_id}`가 admin.md D42·§7.5.2 `D-관리자조회`로 이미 auth 라우터에 있다. `src/admin`은 다른 팀원 담당이라 건드리지 않는다. 아래 세부는 위임에 따라 추천안이며 **"확정(위임, 2026-11-09)"**으로 표시한다.
+- 와이어프레임 요구: 역할 필터, 상태 필터(기간 지난 정지는 "정상"), 이메일 부분 검색, 페이지 번호. 응답 항목은 `UserResponse`와 같은 필드 + `page`/`size`/`total_elements`.
+
+### 18.0 차단 이슈 (실행 결과)
+
+| # | 확인 명령 | 결과 | 판정 |
+| --- | --- | --- | --- |
+| B-43 | `(cd src && uv run python -c "import main; print('ok')")` | `ok` | 차단 아님 |
+| B-44 | `Grep "admin/users" src` + `src/admin` 라우터 확인 | `GET /v1/admin/users`(목록) 경로는 어디에도 없다. 겹치는 것은 `src/auth/presentation/router.py`의 `GET /admin/users/{user_id}`뿐이고 경로 모양이 달라(`/admin/users` 대 `/admin/users/{id}`) 충돌 없음. admin 설계(`admin.md` 9개 EP)에도 목록은 없다 | 차단 아님. 순서와 무관하지만 라우터에서 `/admin/users`를 `{user_id}` 앞에 둔다(관례) |
+| B-45 | `uv run python -c`로 `select(U.id).where(U.email.icontains('a%_\\b', autoescape=True))`를 PostgreSQL 방언으로 컴파일 | `users.email ILIKE '%' \|\| 'a/%/_\b' \|\| '%' ESCAPE '/'` (`%`·`_`가 `/`로 이스케이프되고 ESCAPE 절이 붙음) | LIKE 특수문자 이스케이프는 `icontains(autoescape=True)`로 충분. 직접 문자열 치환을 만들지 않는다 |
+| B-46 | `Grep "(UserRepository)" src tests` | 구현체 `src/auth/infrastructure/repositories.py`, fake `tests/auth/test_service.py`, `tests/auth/test_optional_user.py`의 `FakeUsers` | `UserRepository`에 추상 메서드를 더하면 두 fake가 `TypeError`(추상 미구현)로 깨진다. 구현자는 두 fake에 메서드를 더해야 한다(§18.6 쓰기 범위). 새 패키지·환경변수 필요 없음(`pyproject.toml`·`.env.example` 변경 없음) |
+
+차단 이슈 없음. (DB 쿼리 동작은 실행해 보지 않았다. §18.8 DB 테스트로 확인한다.)
+
+### 18.1 결정 표 (모두 "확정(위임, 2026-11-09)", 위치만 사용자 확정)
+
+| ID | 결정 | 근거 |
+| --- | --- | --- |
+| D-목록위치 | **auth 라우터에 `GET /v1/admin/users`** 를 추가한다(사용자 확정). `src/admin`·`error_handlers.py`·`container.py` 변경 없음(서비스·레포지토리 주입은 기존 `provide_auth_service`가 이미 있다) | admin.md D42, §7.5.2 |
+| D-목록권한 | `AdminUser`(401 비로그인·`TOKEN_REVOKED`, 403 관리자 아님). 인증 의존성이 쿼리 검증보다 먼저 실행되므로 토큰 없이 `size=0`이어도 **401**(B-23과 같은 이유) | 기존 관리자 EP와 같음 |
+| D-목록정렬 | 가입 시각 **최신순**: `ORDER BY created_at DESC, id DESC`(`id`는 동률 때 페이지가 겹치거나 빠지지 않게 하는 보조 키). 정렬 매개변수는 만들지 않는다(요구 없음, 필요하면 후속) | 포인트 내역(`find_by_user`)과 같은 관례 |
+| D-목록페이지 | `page`는 **0부터**(`ge=0`, 기본 0), `size`는 **1~100, 기본 20**(`MAX_PAGE_SIZE = 100` 재사용). 범위 밖은 400 `VALIDATION_ERROR`(라우터 `Query`가 1차, 서비스 `ValueError`가 2차: `list_point_logs`와 같은 이중 방어). 범위를 넘은 페이지는 400이 아니라 **200 + 빈 `users`**(`total_elements`는 그대로). 와이어프레임의 "페이지 번호"를 0 기반으로 해석(질문 44) | `PointLogListResponse` 관례 |
+| D-목록역할 | `role`: `CUSTOMER`/`OWNER`/`ADMIN`(`Role` enum을 `Query` 타입으로 사용, 다른 값은 400). 생략하면 전체 | `Role` |
+| D-목록상태 | `status`: `PENDING`/`APPROVED`/`REJECTED`/`SUSPENDED`/`WITHDRAWN`(`UserStatus` enum). 생략하면 **탈퇴 회원 포함 전체**(관리자가 탈퇴 회원도 볼 수 있어야 하고, 숨기려면 상태 필터로 고른다). **필터는 `effective_status(now)` 기준**이다(D-목록유효상태). 기본 목록에서 탈퇴를 빼는 쪽은 질문 45 | 요구, 질문 45 |
+| D-목록유효상태 | 상태 필터와 응답 `status`는 모두 `User.effective_status(now)`와 같은 뜻이다. 즉 `status='SUSPENDED'`이고 `suspended_until`이 있고 `suspended_until <= now`이면 `APPROVED`로 본다(경계 `==`는 만료, 기존 규칙). 필터는 DB 쿼리로 표현해야 페이지·총계가 맞으므로 **`now`를 서비스가 `Clock`에서 한 번 읽어 레포지토리에 인자로 넘긴다**(SQL의 `now()`를 쓰지 않음: 테스트에서 고정 가능, 목록 응답의 계산과 같은 시각). 조건식은 아래 §18.3 표 | `User.effective_status`, catalog 레포지토리의 `now`-인자 SQL 조건 선례(`effective_status`와 같은 우선순위) |
+| D-목록상태응답 | 목록 항목의 `status`는 DB의 원값이 아니라 **`effective_status(now)`** 로 채운다. 그래야 필터를 "정상"으로 건 목록에 "정지"가 보이는 모순이 없다. 단건 `GET /admin/users/{user_id}`는 현재 원값(`user.status`)을 돌려주므로 목록과 어긋날 수 있다(C-41, 질문 46) | 요구(기간 지난 정지는 정상으로 보임) |
+| D-목록검색 | `email` 쿼리: 부분 일치 검색. 규칙(도메인 `UserSearchCriteria`가 가진다, R3): ① `strip()` 후 `lower()`(`User.normalize_email`과 같은 정규화) ② 빈 문자열이면 필터 없음 ③ 255자 초과는 400(`ValueError`, 이메일 컬럼 길이) ④ 제어문자(`ord < 32` 또는 `== 127`, NUL 포함)가 있으면 400(NUL은 PostgreSQL 문자열에 넣을 수 없어 DB 오류 500이 되므로 미리 막는다) ⑤ 내부 공백·`@`·`.`은 그대로 허용(`@gmail.com` 같은 도메인 검색 가능). 이메일은 가입 때 소문자로 저장되지만 대소문자를 구분하지 않도록 레포지토리는 `UserModel.email.icontains(keyword, autoescape=True)`(ILIKE `'%'\|\|kw\|\|'%' ESCAPE '/'`, B-45)를 쓴다. `%`·`_`·`/`는 일반 문자로 검색된다(모든 행을 돌려주는 `%` 검색 없음) | B-45, `User.normalize_email` |
+| D-목록응답 | 응답 `AdminUserListResponse`: `users: list[UserResponse]`, `page`, `size`, `total_elements`(포인트 내역의 `logs`/`page`/`size`/`total_elements`와 같은 관례). 항목은 **기존 `UserResponse` 재사용**: `id, email, name, phone, role, users_point, created_at, status`. `password_hash`·`business_number`·정지 사유 등은 없다(R15) | 요구, `schemas.py` |
+| D-목록성능 | 스키마 변경 없음. `users.email`의 UNIQUE 인덱스는 접두가 아닌 **부분 일치(`%kw%`)에는 쓰이지 않아** 이메일 검색은 순차 스캔이다. 회원 수가 수만 건 이하이면 문제없다. 수십만 건 이상으로 느려지면 후속으로 `pg_trgm` GIN 인덱스(확장 필요, 스키마·`schema.sql` 변경, R14)를 검토한다. `role`·`status`는 값 종류가 적어 인덱스 이득이 작고 정렬 키(`created_at`)에도 인덱스가 없다. 총계는 `count(*)` 쿼리 1개를 추가로 쓴다(포인트 내역과 같음) | 질문 47 |
+| D-목록트랜잭션 | 읽기 전용이라 `commit()` 없음, `for_update` 없음(동시성 위험 없음: 읽는 도중 상태가 바뀌어도 한 시점의 목록과 총계가 엄밀히 일치할 필요는 없다) | R5 |
+| D-목록테스트 | §18.8 | `testing.md` |
+
+### 18.2 도메인 (`src/auth/domain/`)
+
+- 새 파일 `user_search.py`(순수 파이썬, R1): `@dataclass(frozen=True) class UserSearchCriteria`: `role: Role | None`, `status: UserStatus | None`, `email_keyword: str | None`.
+  - `UserSearchCriteria.of(role, status, email_keyword) -> UserSearchCriteria`: D-목록검색 ①~④를 적용하고 위반이면 `ValueError`(`VALIDATION_ERROR`, 메시지 예: "검색어는 255자 이하여야 합니다.", "검색어에 사용할 수 없는 문자가 있습니다.").
+  - `matches(user, now) -> bool`(선택): 같은 조건을 메모리에서 평가한다. fake 레포지토리가 쓰고 DB 쿼리와의 일치를 테스트로 확인한다. 판정은 `user.effective_status(now)`를 그대로 쓴다.
+- `User`는 변경 없음(`effective_status`는 이미 있다). 새 예외 없음.
+
+### 18.3 인프라 (`src/auth/infrastructure/`)와 추상 레포지토리
+
+`auth/domain/repository/user_repository.py`의 `UserRepository`에 **추상 메서드 2개** 추가(R4·R10, 시그니처 고정):
+
+```python
+@abstractmethod
+async def find_page(
+    self, criteria: UserSearchCriteria, *, now: datetime, offset: int, limit: int
+) -> list[User]:
+    """가입 시각 최신순(created_at DESC, id DESC). 상태 조건은 effective_status(now) 기준. 읽기 전용."""
+
+@abstractmethod
+async def count_matching(self, criteria: UserSearchCriteria, *, now: datetime) -> int: ...
+```
+
+- 구현 `SqlAlchemyUserRepository`: 공통 `_where(criteria, now)`가 조건 목록을 만든다. 반환은 `self._to_domain(m)`로 바꾼 `User`(R4, `*Model`을 밖으로 내보내지 않음). `flush`·`commit` 없음.
+- 상태 조건(`now`는 인자, SQL `now()` 사용 금지). `S = UserModel.status`, `U = UserModel.suspended_until`:
+
+| 필터 `status` | 조건 |
+| --- | --- |
+| `PENDING` / `REJECTED` / `WITHDRAWN` | `S == 값` |
+| `APPROVED` | `S == 'APPROVED'` **또는** (`S == 'SUSPENDED'` 그리고 `U IS NOT NULL` 그리고 `U <= now`) |
+| `SUSPENDED` | `S == 'SUSPENDED'` 그리고 (`U IS NULL` **또는** `U > now`) |
+| 없음 | 조건 없음 |
+
+  이 표는 `User.effective_status`와 한 쌍이다. 한쪽이 바뀌면 다른 쪽도 바꾼다(주석으로 서로 가리키고, §18.8 T-D3가 모든 경우를 대조해 어긋나면 실패하게 한다).
+- 역할: `UserModel.role == str(role)`. 이메일: `UserModel.email.icontains(keyword, autoescape=True)`.
+- 테이블·컬럼·제약 변경 없음(R14, `schema.sql`·`db-schema` 변경 없음). 인덱스 필요 여부는 D-목록성능.
+- 동시성: 읽기뿐이라 `with_for_update()` 불필요.
+
+### 18.4 응용 (`src/auth/application/service.py`)
+
+`AuthApplicationService`에 메서드 1개. 서비스에 `select()`·비즈니스 if-else 없음(R3), 생성자·`container.py` 변경 없음(`users`·`clock`은 이미 주입됨).
+
+```python
+async def list_users(
+    self, role: Role | None, status: UserStatus | None, email: str | None, page: int, size: int
+) -> UserPage: ...
+```
+
+시나리오: ① `page < 0` 또는 `size`가 1~`MAX_PAGE_SIZE` 밖이면 `ValueError`(`list_point_logs`와 같은 문구 형식) ② `criteria = UserSearchCriteria.of(role, status, email)`(정규화·검증은 도메인) ③ `now = self.clock.now()` 한 번 ④ `users = await self.users.find_page(criteria, now=now, offset=page*size, limit=size)` ⑤ `total = await self.users.count_matching(criteria, now=now)` ⑥ 각 `User`를 `UserListItem`(frozen dataclass: `id, email, name, phone, role, users_point, created_at`, `status = user.effective_status(now).value`)으로 바꿔 `UserPage(items, page, size, total_elements)`(`PointLogPage`와 같은 모양의 dataclass)를 돌려준다. `commit()` 없음. 다른 모듈 호출 없음(R11·R13 해당 없음).
+
+### 18.5 표현 (`src/auth/presentation/`)
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/v1/admin/users` | 쿼리: `role`, `status`, `email`, `page`, `size` (관리자 Bearer) | `AdminUserListResponse` | 200 | 400 `VALIDATION_ERROR`(잘못된 `role`·`status`, `page<0`, `size`가 1~100 밖, 검색어 255자 초과·제어문자), 401 `UNAUTHORIZED`/`TOKEN_REVOKED`, 403 `FORBIDDEN` |
+
+(404 없음: 결과가 없으면 200 + 빈 목록.)
+
+쿼리 매개변수:
+
+| 이름 | 타입 | 기본 | 설명 |
+| --- | --- | --- | --- |
+| `role` | `Role \| None` | 전체 | `CUSTOMER` / `OWNER` / `ADMIN` |
+| `status` | `UserStatus \| None` | 전체(탈퇴 포함) | `PENDING` / `APPROVED` / `REJECTED` / `SUSPENDED` / `WITHDRAWN`. 기간이 지난 정지는 `APPROVED`로 취급 |
+| `email` | `str \| None` (`max_length=255`) | 없음 | 이메일 부분 검색, 대소문자 무시, `%`·`_`는 일반 문자 |
+| `page` | `int` (`ge=0`) | 0 | 0부터 |
+| `size` | `int` (`ge=1, le=100`) | 20 | 최대 100 |
+
+응답 스키마(`schemas.py`에 `AdminUserListResponse`만 추가, 항목은 기존 `UserResponse`):
+
+```
+{ "users": [ {id, email, name, phone, role, users_point, created_at, status}, ... ],
+  "page": 0, "size": 20, "total_elements": 137 }
+```
+
+라우터: `admin_list_users(admin: AdminUser, service: Service, role=Query(None), status=Query(None), email=Query(None, max_length=255), page=Query(0, ge=0), size=Query(20, ge=1, le=100))` → `await service.list_users(...)`. `tags=["관리자"]`, `summary="회원 목록 조회(관리자)"`, `response_model=AdminUserListResponse`. 예외는 잡지 않는다(R6·R7).
+
+### 18.6 R1~R16 영향과 쓰기 범위
+
+| 규칙 | 영향 |
+| --- | --- |
+| R1 | `user_search.py`는 표준 라이브러리(`dataclasses`)와 `auth.domain.user`만 import |
+| R2·R8·R10 | 서비스는 추상 `UserRepository`의 새 메서드 2개만 호출, 구현체 import 없음 |
+| R3 | 검색어 정규화·검증·상태 일치 판정은 도메인(`UserSearchCriteria`, `User.effective_status`). 서비스는 조율만 |
+| R4 | 레포지토리는 `list[User]`·`int`만 반환, `UserModel` 비노출 |
+| R5 | 읽기 전용, `commit()` 없음 |
+| R6·R7 | 도메인 검증은 `ValueError`(400 `VALIDATION_ERROR`), 새 예외·핸들러 없음. 에러 3키 형식 유지 |
+| R9·R12 | `container.py`·`provide_*` 변경 없음, 새 모듈 간 의존 없음 |
+| R11·R13 | 다른 모듈 사용 없음, 트랜잭션 조합 없음 |
+| R14 | 스키마 변경 없음(인덱스 제안은 후속, D-목록성능) |
+| R15 | 응답에 비밀번호 해시·사업자번호 없음. **명세에 없는 새 EP라 명세 변경(§18.7)이 필요하다. 확정 전 구현은 §18을 따르고 R15 차이로 보고** |
+| R16 | 새 패키지·환경변수 없음. DB 테스트 skip은 통과가 아님 |
+
+**쓰기 범위(구현자 발주서용):**
+- 수정: `src/auth/domain/repository/user_repository.py`(추상 2개), `src/auth/infrastructure/repositories.py`(구현), `src/auth/application/service.py`(`list_users`, `UserListItem`, `UserPage`), `src/auth/presentation/schemas.py`(`AdminUserListResponse`), `src/auth/presentation/router.py`(EP 1개)
+- 신규: `src/auth/domain/user_search.py`
+- 테스트: `tests/auth/` 안(신규 `test_admin_user_list.py`, DB 테스트는 `test_api_db.py` 또는 신규 파일, 기존 `FakeUsers` 2곳(`tests/auth/test_service.py`, `tests/auth/test_optional_user.py`)과 공용 fake가 있으면 그것에 메서드 추가)
+- **건드리지 않음:** `src/admin/**`, `src/container.py`, `src/main.py`, `src/error_handlers.py`, `src/auth/infrastructure/models.py`, `schema.sql`, `pyproject.toml`, `.env.example`, `docs/reference/**`, `docs/requirements/**`
+
+### 18.7 명세 변경 목록 (오케스트레이터 소유, 설계자는 수정하지 않음)
+
+1. `docs/reference/auth.md`: 새 절 **"## 13. 관리자 회원 목록 조회"**를 §12 뒤, "관리자 계정 생성" 앞에 추가(기존 절 번호·링크가 바뀌지 않게 끝 번호로). 내용: 위 §18.5 표(Method/URI/권한/성공 200), 쿼리 매개변수 표, 응답 JSON 예시(`users`/`page`/`size`/`total_elements`, 항목은 [내 정보 조회](#4-내-정보-조회)와 같음), 에러 표(400 `VALIDATION_ERROR`, 401 `UNAUTHORIZED`/`TOKEN_REVOKED`, 403 `FORBIDDEN`), 설명 "정렬은 가입 시각 최신순", "기간이 지난 정지는 `APPROVED`로 필터·표시", "이메일 검색은 부분 일치·대소문자 무시".
+2. `docs/reference/README.md`: 전체 목록 표의 auth 구역(현재 39번 관리자 회원 조회 근처)에 행 추가: `auth | [관리자 회원 목록 조회](auth.md#13-관리자-회원-목록-조회) | GET | /v1/admin/users | 관리자 | 200`. 번호는 표의 마지막 번호 다음으로 붙이거나 끼워 넣고 뒤를 밀어 정한다(표 정책은 오케스트레이터).
+3. 같은 날 노션 명세에 없는 API로 와이어프레임 요구에서 나왔음을 기존 §6 주석 방식으로 적는다("노션 명세에 없는 API, auth 설계안 D-목록위치 2026-11-09 확정").
+
+### 18.8 테스트 계획
+
+| ID | 파일 | 종류 | 내용 | 기대 |
+| --- | --- | --- | --- | --- |
+| T-D1 | `test_admin_user_list.py` | 도메인 | `UserSearchCriteria.of`: 앞뒤 공백 제거·소문자화, 공백뿐이면 `None`, 255자 통과·256자 `ValueError`, NUL·개행·탭 `ValueError`, `%`·`_`·`/`는 그대로 보존. `matches`가 role·status·effective_status(만료 정지는 APPROVED, `==now`는 만료)를 판정 | 규칙대로 |
+| T-S1 | 같은 파일 | 서비스(fake) | `list_users`: `offset = page*size`로 레포지토리에 전달, `now`는 `Clock` 한 번(고정 시계), `total_elements` 반영, `page<0`·`size=0`·`size=101` `ValueError`, 항목 `status`가 effective(만료 정지 → `APPROVED`), `commit` 호출 없음 | 통과 |
+| T-A1 | 같은 파일 | API(DB 없음) | `tests/auth/test_admin_api.py`와 같은 구성. 관리자 토큰으로 `GET /v1/admin/users` | 200, 최상위 키 `users,page,size,total_elements`, 항목 키가 `id,email,name,phone,role,users_point,created_at,status`뿐(`password_hash`·`business_number` 없음) |
+| T-A2 | 같은 파일 | API | 토큰 없음 401(+`WWW-Authenticate: Bearer`), 토큰 없음 + `size=0`도 **401**, 고객 토큰 403, 잘못된 `role=BOSS`·`status=X`·`page=-1`·`size=0`·`size=101` 400 `VALIDATION_ERROR`, `email` 256자 400, `email`에 NUL(`%00`) 400, 에러 본문 3키 | 명세대로 |
+| T-A3 | 같은 파일 | API | 기본값(`page=0,size=20`)과 쿼리 값이 서비스로 전달됨, `size=100` 통과, 결과 없음이면 200 + `users: []` | 통과 |
+| T-D2 | `test_api_db.py` 또는 신규 DB 파일 | DB | 회원 여러 명을 넣고 역할·상태 필터, 총계, 정렬(같은 `created_at`이어도 `id`로 안정), 페이지 2개가 겹치지 않고 합치면 전체, 범위 밖 페이지는 빈 목록 + 총계 유지, 탈퇴 회원이 기본 목록에 포함되고 `status=WITHDRAWN`으로 걸러짐 | 통과 |
+| T-D3 | 같은 파일 | DB | **SQL 대 도메인 일치:** 상태 5종 × 정지 상태(`suspended_until`이 없음/과거/`==now`/미래)의 모든 조합을 넣고 `status` 필터마다 `find_page` 결과가 `[u for u in users if u.effective_status(now) == 필터]`와 같고 `count_matching`과도 같다 | 어긋나면 실패(이 표와 `effective_status`의 짝 보장) |
+| T-D4 | 같은 파일 | DB | 이메일 검색: 대소문자 무시(`ABC` ↔ `abc@x.com`), 부분 일치(도메인·로컬 일부), `%`·`_`가 일반 문자(`a_b`가 `axb@..`와 매칭되지 않음, `%`만으로 전체가 나오지 않음), 다른 필터와 AND | 통과 |
+| T-R1 | 기존 `test_admin_api.py` | 회귀 | `GET /v1/admin/users/{id}` 단건 조회가 그대로 200/404/400 | 기존 통과 |
+
+완료 게이트(backend-invariants §7 정본): `python3 .claude/skills/layer-check/check_layers.py`, `(cd src && uv run python -c "import main")`, `uv run pytest -rs`(failed 0, DB 마커 skip 0).
+
+### 18.9 정합 이슈 (C-39~C-44)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-39 | `docs/requirements/auth.md`(확정본, 설계자 수정 금지) | 요구조건에 "관리자의 회원 목록 조회" 규칙이 없다. "범위"는 관리자 모듈 상세 규칙을 제외하고 auth가 지켜야 할 것만 "경계"에 적는다고 하므로 **목록 자체는 auth 요구가 아니라 읽기 API 추가**이지만, 반영이 필요한 규칙이 있다 | 제안(사용자 승인 후 오케스트레이터가 재확정): ① 새 REQ(번호는 마지막 REQ-57 다음): "관리자는 회원 목록을 역할·상태·이메일 부분 검색으로 걸러, 가입 시각 최신순 페이지(크기 1~100, 기본 20)로 볼 수 있다. 응답에 비밀번호·사업자번호는 없다." ② "다른 모듈과의 경계" 절에 "회원 목록·단건 조회 API는 auth가 제공한다(admin.md D42)" 한 줄 |
+| C-40 | `docs/requirements/auth.md` 상태 절 | 기간이 지난 정지는 "정상"으로 본다는 규칙(`effective_status`, admin.md D10)이 상태 전이 표에 있는지 확인이 필요하다. 목록 필터가 이 규칙에 기대므로 요구조건에도 있어야 한다 | 없으면 C-39의 REQ에 "정지 기간이 지난 회원은 상태 필터·표시에서 정상(APPROVED)으로 본다"를 포함 |
+| C-41 | `src/auth/presentation/router.py` `admin_read_user`, `docs/reference/auth.md` §6 | 단건 조회 응답 `status`는 원값(`user.status`)이라 기간 지난 정지가 `SUSPENDED`로 나오지만, 새 목록은 effective(`APPROVED`)로 나온다. 같은 회원이 두 화면에서 다르게 보인다 | 이 PR에서는 단건을 **바꾸지 않는다**(기존 동작·테스트 유지). 맞추려면 단건에서도 `effective_status(clock.now())`로 채우는 후속(질문 46) |
+| C-42 | `docs/reference/README.md` 상태 값 표 | `status` 값의 뜻 설명에 "응답의 `status`는 정지 기간이 지나면 `APPROVED`" 문구가 있는지 확인 필요 | 없으면 §18.7-1과 함께 추가 |
+| C-43 | `tests/auth/test_service.py`, `tests/auth/test_optional_user.py`, 공용 fake | 추상 메서드 추가로 `FakeUsers`가 깨진다(B-46) | 구현자가 두 fake에 `find_page`·`count_matching`(`UserSearchCriteria.matches` 사용)을 추가. 빠뜨리면 기존 테스트가 `TypeError`로 실패 |
+| C-44 | `src/admin` (타 팀원 담당) | 이 EP가 admin의 향후 "회원 목록"과 겹칠 수 있다(admin.md 9개 EP에는 없음) | 담당자에게 "목록 EP는 auth에 있다"를 전달(C-20과 같은 방식). admin은 변경하지 않음 |
+
+### 18.10 질문 목록과 확정값
+
+| # | 항목 | 출처 | 확정값 | 근거 | 바꾸기 쉬운 곳 |
+| --- | --- | --- | --- | --- | --- |
+| 44 | 와이어프레임 "페이지 번호"가 0 기반인가 1 기반인가 | 와이어프레임 | **확정(위임, 2026-11-09)**: 0부터(`page=0`이 첫 페이지, 포인트 내역과 같음). 프런트가 1 기반이면 화면에서 `-1` | `PointLogListResponse` 관례 | 라우터 `Query(ge=0)`, 서비스 offset 한 줄 |
+| 45 | 상태 필터가 없을 때 탈퇴 회원을 포함할지 | 요구 | **확정(위임, 2026-11-09)**: 포함(전체). 숨기고 싶으면 프런트가 상태를 지정 | 관리자는 탈퇴 회원도 볼 수 있어야 함, 필터 생략 = 무조건 없음이 단순 | `UserSearchCriteria`/레포지토리 `_where` 한 곳 |
+| 46 | 단건 조회 `status`를 effective로 맞출지 | C-41 | **확정(위임, 2026-11-09)**: 이 PR에서는 맞추지 않음(미결정으로 사용자 확인 권장) | 기존 응답·테스트 변경을 피함 | `admin_read_user` + `get_user` 호출부 |
+| 47 | 회원 수가 커졌을 때 이메일 검색 인덱스 | 성능 | **확정(위임, 2026-11-09)**: 지금은 인덱스 없음(순차 스캔). 느려지면 `pg_trgm` GIN을 별도 스키마 변경으로 | 스키마 변경 없이 시작, 데이터량 작음 | `schema.sql`·`models.py` (R14) |
+| 48 | 정렬 선택(`sort`) 지원 | 요구 없음 | **확정(위임, 2026-11-09)**: 지원하지 않음(가입 최신순 고정) | 와이어프레임에 정렬 없음 | `find_page`의 `order_by` 한 곳 |
