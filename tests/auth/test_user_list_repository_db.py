@@ -1,4 +1,4 @@
-"""회원 목록 레포지토리 DB 테스트 (auth 설계 §17.6)."""
+"""회원 목록 레포지토리 DB 테스트 (auth 설계 §18.6)."""
 
 from datetime import datetime, timedelta, timezone
 

@@ -638,11 +638,11 @@ R번호와 충돌하는 요구는 없다. 재고 포트(`ReadOnlyOfferStockPort.
 
 ## 13. 회원 목록 `GET /v1/admin/users` (2026-11-09 추가)
 
-- 상태: **설계(코드 변경 없음).** 새 EP 하나(10번)를 추가할 뿐 기존 EP 1~9의 설계는 바꾸지 않는다. 이 EP에 한해 §1~§12와 다른 내용이 있으면 이 절이 우선한다. 선행 설계: **`docs/design/auth.md` §17**(회원 조회 레포지토리·응용 메서드·입력 검증 VO·SQL). 이 절은 admin 쪽(포트·서비스·스키마·라우터·EP 수준 테스트)과 사용자 대면 결정·질문의 정본이다.
+- 상태: **설계(코드 변경 없음).** 새 EP 하나(10번)를 추가할 뿐 기존 EP 1~9의 설계는 바꾸지 않는다. 이 EP에 한해 §1~§12와 다른 내용이 있으면 이 절이 우선한다. 선행 설계: **`docs/design/auth.md` §18**(회원 조회 레포지토리·응용 메서드·입력 검증 VO·SQL). 이 절은 admin 쪽(포트·서비스·스키마·라우터·EP 수준 테스트)과 사용자 대면 결정·질문의 정본이다.
 - 배경: 관리자 EP는 모두 이미 아는 ID가 필요하다. `PATCH /v1/admin/owners/{owner_id}/approve`는 `owner_id`가 필요한데 회원 목록·검색 EP가 없어, 새 상점주는 DB를 직접 보지 않으면 영원히 `PENDING`이다(2026-11-09 확인). 이 EP는 역할·상태로 거르고 페이지로 나눈 목록으로 승인 대기 상점주를 찾게 한다.
 - 번호: 이 문서의 마지막 결정은 **D44**, 마지막 정합 이슈는 **C20**이다(`grep`으로 확인. 본문 안의 "D56"·"D58" 등은 catalog.md 인용). 이 절은 **D45~D58, C21~C25**를 쓴다. 다른 문서 인용은 항상 문서 이름을 붙인다.
 - 기준: R1~R16, `layer-architecture` §3.4, 실제 코드 `src/admin/**`(특히 `application/{ports,service}.py`, `presentation/{router,schemas}.py`), `src/auth/**`, `src/container.py`, `docs/reference/{README,admin,auth}.md`, `tests/admin/**`.
-- 쓰기 범위: 이 절과 `docs/design/auth.md` §17만 썼다. 코드·테스트·reference는 바꾸지 않았다. 바꿀 점은 §13.11(모듈 밖 변경 제안)·§13.13(정합 이슈)에만 있다.
+- 쓰기 범위: 이 절과 `docs/design/auth.md` §18만 썼다. 코드·테스트·reference는 바꾸지 않았다. 바꿀 점은 §13.11(모듈 밖 변경 제안)·§13.13(정합 이슈)에만 있다.
 
 | EP | Method | URI | 한 줄 |
 | --- | --- | --- | --- |
@@ -658,9 +658,9 @@ R번호와 충돌하는 요구는 없다. 재고 포트(`ReadOnlyOfferStockPort.
 | B-15 | 패키지: `.venv/Lib/site-packages` 목록(`fastapi-0.162.0`, `sqlalchemy-2.1.6`, `asyncpg-0.32.0`, `passlib-1.7.4`, `jwt`, `starlette` 설치 확인) | 새 패키지 필요 없음. 이 설계는 `Form`·`File`을 쓰지 않아 `python-multipart` 불필요 | `pyproject.toml` 변경 없음. (`uv run python -c "import ..."`는 B-12 때문에 못 돌렸고 설치 디렉터리로 대신 확인했다) |
 | B-16 | `.env.example` 키 확인(`git status`: `M .env.example`는 이 작업 전부터 있던 변경) | `DATABASE_URL`, `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, 선택 `ADMIN_*`, `KAKAO_*` | 설계가 요구하는 새 키 없음 |
 | B-17 | 다른 모듈 의존: `Grep`·`Read` `src/container.py:420-461`, `src/admin/application/ports.py` | admin은 이미 `AccountAdminPort`로 `AuthApplicationService`를 받는다(`create_admin_service`의 `accounts: AuthApplicationService = Depends(create_auth_service)`). 새 모듈·테이블·`provide_*` 필요 없음 | 먼저 만들 모듈 없음. **순서 의존만 있다**: auth `list_users`가 먼저 있어야 `tests/admin/test_wiring.py::test_real_services_satisfy_port_signatures`(포트의 모든 메서드를 `inspect`로 서비스와 비교)가 통과한다(§13.7) |
-| B-18 | EP 8의 실제 페이지 처리: `src/admin/presentation/router.py:105-115`, `src/auth/application/service.py:336-338`, `tests/admin/test_api_db.py:529-531` | router는 `page: int = 1, size: int = 20`(Query 제약 없음). 서비스가 `page < 1 or size < 1 or size > 100`이면 `InvalidPageError`(400 `INVALID_PAGE` "페이지 값이 올바르지 않습니다."). 숫자가 아니면 전역 핸들러 400 `VALIDATION_ERROR` | 이 EP는 **같은 방식**을 쓴다(D47·D48). 위치만 서비스 `if`가 아니라 도메인 VO(auth.md §17.3) |
+| B-18 | EP 8의 실제 페이지 처리: `src/admin/presentation/router.py:105-115`, `src/auth/application/service.py:336-338`, `tests/admin/test_api_db.py:529-531` | router는 `page: int = 1, size: int = 20`(Query 제약 없음). 서비스가 `page < 1 or size < 1 or size > 100`이면 `InvalidPageError`(400 `INVALID_PAGE` "페이지 값이 올바르지 않습니다."). 숫자가 아니면 전역 핸들러 400 `VALIDATION_ERROR` | 이 EP는 **같은 방식**을 쓴다(D47·D48). 위치만 서비스 `if`가 아니라 도메인 VO(auth.md §18.3) |
 | B-19 | `src/admin/presentation/router.py:4` | `from fastapi import APIRouter, Depends, status`(HTTP 상태 상수) | 쿼리 매개변수 이름 `status`를 함수 인자로 쓰면 이 import를 가려 `status.HTTP_201_CREATED` 등이 깨진다. **인자 이름은 `status_filter`, 쿼리 이름은 `Query(alias="status")`**(§13.5) |
-| B-20 | `grep -rn "def find_by_email" src tests` | 테스트 가짜 `UserRepository` 2개가 추상 메서드 추가로 깨진다(auth.md B-39). admin 쪽은 `tests/admin/test_service.py`의 `FakeAccounts`(덕 타이핑 클래스, ABC 아님)라 `list_users`를 추가해야 새 테스트가 돈다 | 구현 범위에 포함(§13.9) |
+| B-20 | `grep -rn "def find_by_email" src tests` | 테스트 가짜 `UserRepository` 2개가 추상 메서드 추가로 깨진다(auth.md B-43). admin 쪽은 `tests/admin/test_service.py`의 `FakeAccounts`(덕 타이핑 클래스, ABC 아님)라 `list_users`를 추가해야 새 테스트가 돈다 | 구현 범위에 포함(§13.9) |
 
 **B-12 해결 (2026-11-09, 사용자 승인): 래퍼 사용.** `uv run python` 대신 `bash "C:/Users/kantf/AppData/Local/Temp/claude/b078265c25c9dcad/58d5214f-5ea0-4d8c-ba25-713fabd13041/scratchpad/py.sh"`(uv가 설치한 기본 Python 3.13 + venv site-packages를 PYTHONPATH로 연결)를 쓴다. 오케스트레이터가 `import main`·`check_layers`·pytest 수집을 확인했다.
 
@@ -674,11 +674,11 @@ R번호와 충돌하는 요구는 없다. 재고 포트(`ReadOnlyOfferStockPort.
 
 ### 13.2 도메인 (domain/)
 
-admin에는 엔티티·규칙을 **새로 두지 않는다**(R3, D31). 입력 검증(page·size·role·status·email)은 소유 컨텍스트(auth)의 도메인 VO가 한다 → `docs/design/auth.md` §17.3. admin의 `Clock`은 이 EP에서 쓰지 않는다(`now`는 auth가 자기 `Clock`으로 얻는다).
+admin에는 엔티티·규칙을 **새로 두지 않는다**(R3, D31). 입력 검증(page·size·role·status·email)은 소유 컨텍스트(auth)의 도메인 VO가 한다 → `docs/design/auth.md` §18.3. admin의 `Clock`은 이 EP에서 쓰지 않는다(`now`는 auth가 자기 `Clock`으로 얻는다).
 
 ### 13.3 인프라 (infrastructure/)
 
-admin 인프라 변경 **없음**(레포지토리·모델 없음, D28). 테이블 변경 **없음**(`users`를 읽기만 함). 쿼리·정렬·페이지·잠금은 `docs/design/auth.md` §17.4가 정본이다. 동시성: 읽기 전용이라 `with_for_update()` 불필요.
+admin 인프라 변경 **없음**(레포지토리·모델 없음, D28). 테이블 변경 **없음**(`users`를 읽기만 함). 쿼리·정렬·페이지·잠금은 `docs/design/auth.md` §18.4가 정본이다. 동시성: 읽기 전용이라 `with_for_update()` 불필요.
 
 ### 13.4 응용 (application/)
 
@@ -714,7 +714,7 @@ class AccountAdminPort(Protocol):
     ) -> UserPageInfo: ...
 ```
 
-- 기본값(`1`, `20`)은 auth `list_users`와 **같아야** 한다. `test_real_services_satisfy_port_signatures`가 이름·종류·기본값을 비교한다(auth.md §17.5).
+- 기본값(`1`, `20`)은 auth `list_users`와 **같아야** 한다. `test_real_services_satisfy_port_signatures`가 이름·종류·기본값을 비교한다(auth.md §18.5).
 - 포트 이름을 새로 만들지 않고 `AccountAdminPort`를 확장한 이유: ① 같은 서비스(`AuthApplicationService`)가 만족하고 `list_points`(읽기)가 이미 같은 포트에 있다 ② 새 포트는 `container`·`AdminApplicationService` 생성자에 인자를 늘린다(`tests/admin/test_service.py`의 `Ctx`·생성자 인자 단언이 모두 바뀜). 대안 비교는 D46.
 
 **서비스 (`AdminApplicationService`)**
@@ -818,7 +818,7 @@ async def list_users(
 
 ### 13.7 구현 순서
 
-1. **auth 먼저**(`docs/design/auth.md` §17.7): 예외 → VO → 레포 추상 → 레포 구현 → 응용 → 테스트(가짜 2개 갱신 포함). auth 테스트가 통과한 뒤 다음으로 간다.
+1. **auth 먼저**(`docs/design/auth.md` §18.7): 예외 → VO → 레포 추상 → 레포 구현 → 응용 → 테스트(가짜 2개 갱신 포함). auth 테스트가 통과한 뒤 다음으로 간다.
 2. admin: ① `ports.py`(Protocol·포트 메서드) ② `service.py`(`list_users`) ③ `schemas.py` ④ `router.py` ⑤ 테스트(`test_service.py` 가짜·서비스 테스트 → `test_wiring.py` → `test_api_db.py`).
 3. 게이트: `backend-invariants` §7 세 명령(위반 0, `import main`, `pytest -rs` failed 0·db skip 0).
 4. 모듈 밖: §13.11(reference·요구 조건 문서)은 오케스트레이터가 별도로.
@@ -827,7 +827,7 @@ async def list_users(
 
 ### 13.8 테스트 계획 (admin / EP 수준)
 
-DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). auth 쪽 도메인·서비스·레포지토리 테스트는 auth.md §17.6. ADMIN 계정은 기존 `admin_headers`(fixture 직접 insert)를 쓴다(D29).
+DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). auth 쪽 도메인·서비스·레포지토리 테스트는 auth.md §18.6. ADMIN 계정은 기존 `admin_headers`(fixture 직접 insert)를 쓴다(D29).
 
 **서비스 (`tests/admin/test_service.py`, fake 포트)** — `FakeAccounts`에 `list_users`를 추가(`rec.record("list_users", ...)`, 고정 결과 반환):
 - 인자(`role`·`status`·`email`·`page`·`size`)를 **그대로** 포트에 전달, 결과 객체를 **그대로** 반환
@@ -862,7 +862,7 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). auth 쪽 �
 
 | 소유 | 파일 | 내용 |
 | --- | --- | --- |
-| **auth** (먼저) | `src/auth/domain/{user_list_query,exceptions}.py`, `src/auth/domain/repository/user_repository.py`, `src/auth/infrastructure/repositories.py`, `src/auth/application/service.py`, `tests/auth/{test_user_list_query,test_user_list_service,test_user_list_repository_db}.py`(신규), `tests/auth/{test_service,test_optional_user}.py`(가짜 갱신) | auth.md §17.7 |
+| **auth** (먼저) | `src/auth/domain/{user_list_query,exceptions}.py`, `src/auth/domain/repository/user_repository.py`, `src/auth/infrastructure/repositories.py`, `src/auth/application/service.py`, `tests/auth/{test_user_list_query,test_user_list_service,test_user_list_repository_db}.py`(신규), `tests/auth/{test_service,test_optional_user}.py`(가짜 갱신) | auth.md §18.7 |
 | **admin** | `src/admin/application/ports.py`(`UserListItemInfo`, `UserPageInfo`, `AccountAdminPort.list_users`), `src/admin/application/service.py`(`list_users`), `src/admin/presentation/schemas.py`(`UserListItemResponse`, `UserPageResponse`), `src/admin/presentation/router.py`(EP 10, `Query` import), `tests/admin/test_service.py`(`FakeAccounts.list_users`, 서비스 테스트), `tests/admin/test_wiring.py`(경로 1줄), `tests/admin/test_api_db.py`(EP 10 테스트) | §13.4~§13.8 |
 | 변경 없음 | `src/admin/{domain,infrastructure}/**`, `src/admin/presentation/dependencies.py`, `src/container.py`, `src/main.py`, `src/error_handlers.py`, `pyproject.toml`, `.env.example`, `schema.sql`, `models.py` | |
 | 오케스트레이터(`docs/reference/**`, `docs/requirements/**`) | §13.11 | 이 문서는 쓰지 않음 |
@@ -902,7 +902,7 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). auth 쪽 �
 - **관리자 상점 목록** `GET /v1/admin/stores?status=...`(D49): 정지·폐점 상점을 찾으려면 필요하다. stores 컨텍스트가 소유하고 admin이 포트로 부르는 같은 구조를 쓴다.
 - 이름 검색, 가입일 범위 필터, 정렬 매개변수(`sort=created_at,-created_at`): 필요가 확인되면.
 - 인덱스: 회원이 수만 명이 되면 `(status, created_at, id)` 복합 인덱스를 제안한다(스키마 변경이므로 R14에 따라 `schema.sql`·`db-schema`와 함께, 이번엔 하지 않음).
-- 목록 한 행이 `User` 불변식을 어기면 그 페이지 전체가 500(auth.md §17.4). 문제가 생기면 `_to_domain` 예외 처리 방안을 별도 결정.
+- 목록 한 행이 `User` 불변식을 어기면 그 페이지 전체가 500(auth.md §18.4). 문제가 생기면 `_to_domain` 예외 처리 방안을 별도 결정.
 - 기존 `GET /v1/admin/users/{user_id}`의 `status`를 실효 상태로 맞출지(C22).
 
 ### 13.12 질문 목록과 임시 기본값
@@ -927,7 +927,7 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16). auth 쪽 �
 | ID | 위치 | 내용 | 제안 / 상태 |
 | --- | --- | --- | --- |
 | C21 | `docs/reference/admin.md`(EP 9개), `docs/reference/README.md:17,56-66,154-155` | 명세에 이 EP가 없다(R15). 또 "관리자 기능 9개"가 코드·reference 전체에 박혀 있다 | §13.11의 reference 변경을 오케스트레이터가 반영. 구현이 reference보다 먼저 나가면 완료 보고에 "reference 미반영"을 적는다 |
-| C22 | `GET /v1/admin/users/{user_id}`의 `UserResponse.status`(`src/auth/presentation/schemas.py:30`, 저장값), EP 1·2·3·4의 `status`(저장값), `docs/design/auth.md` §17(C-36) | D55(실효 상태)를 택하면 **목록에서 `APPROVED`인 회원이 단건 조회에서는 `SUSPENDED`로 나올 수 있다**(기간이 끝난 정지, 저장값이 아직 갱신되지 않음). 로그인 응답은 이미 실효 상태다(D40) | 임시: 이번엔 단건을 바꾸지 않고 둘의 차이를 reference에 한 줄 적는다. 일관되게 하려면 (a) 단건·EP 응답도 실효 상태로(auth 변경) 또는 (b) D55를 저장값(A안)으로. Q1에서 사용자가 정하면 함께 정리 |
+| C22 | `GET /v1/admin/users/{user_id}`의 `UserResponse.status`(`src/auth/presentation/schemas.py:30`, 저장값), EP 1·2·3·4의 `status`(저장값), `docs/design/auth.md` §18(C-41) | D55(실효 상태)를 택하면 **목록에서 `APPROVED`인 회원이 단건 조회에서는 `SUSPENDED`로 나올 수 있다**(기간이 끝난 정지, 저장값이 아직 갱신되지 않음). 로그인 응답은 이미 실효 상태다(D40) | 임시: 이번엔 단건을 바꾸지 않고 둘의 차이를 reference에 한 줄 적는다. 일관되게 하려면 (a) 단건·EP 응답도 실효 상태로(auth 변경) 또는 (b) D55를 저장값(A안)으로. Q1에서 사용자가 정하면 함께 정리 |
 | C23 | `tests/admin/test_wiring.py:101-109`의 주석("auth 관리자 EP … main 7594d43에서 auth에서 제거됨"), `src/auth/presentation/router.py:151-168` | 주석이 현재 사실과 다르다. `7594d43`이 제거했지만 `a343f05`가 복원했고(`git log`로 확인) 현재 auth 라우터에 두 EP가 있다. D42 기본값과 일치한다 | 테스트 주석만 어긋남. 구현자가 `test_wiring.py`를 고칠 때 주석도 바로잡는다(범위: admin 테스트) |
 | C24 | 이 문서 §5.2·§5.4·B-6·B-7·§6.1(EP 4 예약 포트 `cancel_reserved_for_user`·`NoReservationAdmin`, "9개"), 실제 코드 `src/admin/application/{ports,service}.py` | 본문 일부가 코드와 다르다: 코드는 `cancel_active_for_user`·`has_reserved_for_store(excluding_user_id=)`·`ReservationAdminAdapter`(reservations 구현됨), `AccountWithdrawalService`(auth.md C-25) 등으로 바뀌었다 | 이 절은 이 부분을 건드리지 않았다. admin.md 본문 갱신은 별도 작업으로 제안 |
 | C25 | `docs/reference/README.md:154-155,169`(이슈 5) | 목록 API의 페이지 시작(0/1)·총건수 이름이 프로젝트 전체로 통일돼 있지 않다. 이 EP는 1부터·`total`을 쓰므로 **1부터 쪽이 하나 늘어난다** | 이슈 5는 열린 채 둔다(사용자 결정). 통일되면 이 EP는 변경 없이 맞을 가능성이 높다(1부터·`total`이 다수) |

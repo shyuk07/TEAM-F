@@ -10,6 +10,7 @@ from auth.presentation import dependencies as auth_dependencies
 from auth.presentation.dependencies import provide_auth_service
 from container import (
     build_auth_service,
+    build_reset_notifier,
     create_account_withdrawal_service,
     create_auth_service,
     create_password_reset_service,
@@ -115,3 +116,15 @@ def test_auth_package_does_not_import_other_business_modules():
                 modules = [node.module]
             offenders += [f"{path.name}: {m}" for m in modules if m.split(".")[0] in forbidden]
     assert offenders == []
+
+
+def test_build_reset_notifier_selects_by_settings():
+    from auth.infrastructure.reset_notifier import (
+        LoggingPasswordResetNotifier,
+        SmtpPasswordResetNotifier,
+    )
+    from auth.infrastructure.settings import MailSettings
+
+    assert isinstance(build_reset_notifier(None), LoggingPasswordResetNotifier)
+    settings = MailSettings(host="h", port=587, user="u", password="p", mail_from="a@b.com")
+    assert isinstance(build_reset_notifier(settings), SmtpPasswordResetNotifier)  # 생성만, 발송 없음

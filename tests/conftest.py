@@ -13,10 +13,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from auth.infrastructure import models as _auth_models  # noqa: E402,F401
+import container  # noqa: E402
+from auth.infrastructure.reset_notifier import LoggingPasswordResetNotifier  # noqa: E402
 from container import create_geocoder  # noqa: E402
 from database import Base, get_db  # noqa: E402
 from main import app  # noqa: E402
 from tests.fakes import FakeGeocoder  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_real_mail(monkeypatch):
+    """개발자 .env에 SMTP 설정이 있어도 테스트가 실제 메일을 보내지 않게 로그 전달로 되돌린다."""
+    monkeypatch.setattr(container, "_reset_notifier", LoggingPasswordResetNotifier())
 
 
 @pytest.fixture

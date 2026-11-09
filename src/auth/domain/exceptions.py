@@ -141,3 +141,10 @@ class InvalidResetCodeError(_CodedValueError):
 
     error_code = "INVALID_RESET_CODE"
     default_message = "재설정 코드가 올바르지 않거나 만료되었습니다."
+
+
+class PasswordResetDeliveryError(Exception):
+    """재설정 코드 전달 실패. 서비스가 삼키므로 HTTP로 변환하지 않는다(ValueError 등을 상속하지 않음)."""
+
+    def __init__(self, message: str = "재설정 코드를 전달하지 못했습니다."):
+        super().__init__(message)

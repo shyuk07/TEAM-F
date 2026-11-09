@@ -59,3 +59,52 @@ def get_admin_seed_settings(env: Mapping[str, str] | None = None) -> AdminSeedSe
     if password.startswith(PLACEHOLDER_PREFIX):
         raise RuntimeError("ADMIN_PASSWORD가 .env.example의 예시값입니다. 임의의 값으로 바꾸세요.")
     return AdminSeedSettings(email=email, password=password)
+
+
+DEFAULT_SMTP_PORT = 587
+_MAIL_REQUIRED_KEYS = ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM")
+
+
+@dataclass(frozen=True)
+class MailSettings:
+    host: str
+    port: int
+    user: str
+    password: str
+    mail_from: str
+    timeout_seconds: float = 10.0
+
+
+def get_mail_settings(env: Mapping[str, str] | None = None) -> MailSettings | None:
+    """SMTP_*·MAIL_FROM을 읽는다. 전부 비면 None(로그 전달). 일부만 있으면 RuntimeError(키 이름만, 값 없음)."""
+    if env is None:
+        load_dotenv()
+        env = os.environ
+    values = {
+        key: (env.get(key) or "").strip()
+        for key in ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM")
+    }
+    if not any(values.values()):
+        return None
+    missing = [key for key in _MAIL_REQUIRED_KEYS if not values[key]]
+    if missing:
+        raise RuntimeError(f"SMTP 설정이 불완전합니다. 누락: {', '.join(missing)}")
+    raw_port = values["SMTP_PORT"] or str(DEFAULT_SMTP_PORT)
+    try:
+        port = int(raw_port)
+    except ValueError as err:
+        raise RuntimeError("SMTP_PORT는 정수여야 합니다.") from err
+    if not 1 <= port <= 65535:
+        raise RuntimeError("SMTP_PORT는 1~65535 사이여야 합니다.")
+    if port == 465:
+        raise RuntimeError("SMTP_PORT 465(암묵적 TLS)는 지원하지 않습니다. STARTTLS(587)를 사용하세요.")
+    mail_from = values["MAIL_FROM"]
+    if "@" not in mail_from or "\r" in mail_from or "\n" in mail_from:
+        raise RuntimeError("MAIL_FROM 형식이 올바르지 않습니다.")
+    return MailSettings(
+        host=values["SMTP_HOST"],
+        port=port,
+        user=values["SMTP_USER"],
+        password=values["SMTP_PASSWORD"],
+        mail_from=mail_from,
+    )

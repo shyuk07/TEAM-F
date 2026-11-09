@@ -1630,22 +1630,186 @@ async def account_locked(request: Request, exc: AccountLockedError):
 | 37 | REQ-35 구현 위치 | REQ-35 | **확정(위임, 2026-11-06)**: `withdraw_user`에서 삭제(admin 파일 수정 없음), 생성자에 `codes` 추가 | 두 경로가 공유하는 유일한 지점 | `AuthApplicationService.withdraw_user` |
 | 38 | 로그인 시도 로그 | (없음) | 새 잠금 발생 시에만 `user_id` WARNING 로그(선택) | 이메일·비밀번호는 남기지 않음 | `login` |
 
+## 17. 2026-11-09 재설정 코드 이메일 발송 (SMTP, REQ-26·27)
+
+- 상태: **설계(코드 변경 없음).** 기준: worktree 브랜치 `claude/auth-reset-email`, `origin/main` `424314d`. §16의 **코드**(`BackgroundTasks`, `ResetDelivery`)는 아직 main에 없다(이 브랜치의 `password_reset_service.py`는 `commit` 뒤 `await notifier.send_code`). 이 절은 §1 `D-재설정전달`의 "실제 메일 구현으로 교체(container 한 곳)"를 실행하는 것이고, §16과 충돌하면 §16 합류 방식은 C-35를 따른다.
+- 방향(SMTP, 표준 라이브러리, 환경변수 5개, 로그 자동 전환, 응답 뒤 발송은 범위 밖)은 사용자 확정(2026-11-09). 나머지 세부는 위임에 따라 추천안으로 정했고 **"확정(위임, 2026-11-09)"**으로 표시한다.
+- 이번에 추가하는 ID: 결정 `D-메일설정`~`D-메일테스트`(§17.2), 차단 확인 `B-39`~`B-42`, 정합 이슈 `C-34`~`C-38`(§17.9), 질문 `39`~`43`(§17.10).
+
+### 17.0 차단 이슈 (실행 결과)
+
+| # | 확인 명령 | 결과 | 판정 |
+| --- | --- | --- | --- |
+| B-39 | `(cd src && uv run python -c "import main; print('ok')")` | `ok` | 차단 아님 |
+| B-40 | `uv run python -c "import smtplib, email.message"` | 성공 | 새 패키지 없음(`pyproject.toml` 변경 없음, R16 `uv add` 해당 없음) |
+| B-41 | `.env.example` 확인 | `SMTP_*`·`MAIL_FROM` 키 없음(`ADMIN_*`는 주석, `KAKAO_REST_API_KEY=`는 빈 값 선례) | 키 5개 추가 필요(§17.7) |
+| B-42 | `Grep Notifier` (src, tests) | 사용처: `src/container.py:118`(싱글턴)·`:179`(`notifier=_reset_notifier`, 호출 시점에 전역을 읽음), `password_reset_service.py`, 테스트는 `RecordingNotifier`(fake)와 `tests/test_container.py:87`의 `isinstance` 단언 | 추상·서비스·기존 테스트 변경 없음. `container.py`의 해당 한 줄만 바뀜 |
+
+차단 이슈 없음.
+
+### 17.1 현재 흐름과 한계
+
+- `request_reset`: 코드 저장 → `commit` → `await notifier.send_code` → 예외는 `logger.exception`으로 삼킴 → 204. 이 PR은 이 흐름을 **바꾸지 않는다.**
+- **REQ-27-1 한계(중요):** 가입 회원의 요청만 SMTP 왕복(연결·STARTTLS·로그인·전송, 보통 0.5~3초, 최악 §17.2 타임아웃 합)을 응답 안에서 기다린다. 미가입·탈퇴·재요청 간격 안은 SMTP를 부르지 않아 즉시 끝난다(bcrypt 0.3초 균등화는 효과 없음). 즉 **이 PR만 배포하면 응답 시간으로 가입 여부를 쉽게 구분할 수 있다.** 해소는 §16 `D-재설정전달분리`(응답 뒤 발송)로만 가능하다. 그 전까지는 개발·시연용 설정으로만 쓰고 운영 배포는 §16 합류 뒤로 미룬다(C-35, 질문 39).
+
+### 17.2 결정 표 (D-이름, 모두 "확정(위임, 2026-11-09)")
+
+| ID | 결정 | 근거 |
+| --- | --- | --- |
+| D-메일설정 | `auth/infrastructure/settings.py`에 `MailSettings(host, port, user, password, mail_from, timeout_seconds=10.0)`(frozen dataclass)와 `get_mail_settings(env=None) -> MailSettings \| None` 추가(`get_admin_seed_settings`와 같은 모양: `env` 주입 가능, 없으면 `load_dotenv()` + `os.environ`, 값은 `strip`). 규칙: ① `SMTP_HOST`·`SMTP_PORT`·`SMTP_USER`·`SMTP_PASSWORD`·`MAIL_FROM` **모두 비어 있으면 `None`**(로그 전달) ② **하나라도 있으면 `SMTP_HOST`·`SMTP_USER`·`SMTP_PASSWORD`·`MAIL_FROM`이 모두 있어야 한다.** 빠지면 `RuntimeError("SMTP 설정이 불완전합니다. 누락: SMTP_HOST, ...")`(누락된 **키 이름만** 적고 값은 넣지 않음) ③ `SMTP_PORT`는 선택, 기본 587, 정수 1~65535 아니면 `RuntimeError`, **465는 거부**(암묵적 TLS는 지원하지 않음, 아래 D-메일전송). `SMTP_PORT`만 있고 나머지가 없으면 ②로 `RuntimeError` ④ `MAIL_FROM`에 `@`가 없거나 줄바꿈(`\r`·`\n`)이 있으면 `RuntimeError`(헤더 주입 방어). 인증 없는 릴레이는 지원하지 않는다(질문 40). 정책은 `get_admin_seed_settings`("둘 다 설정하거나 둘 다 비움, 일부면 `RuntimeError`, 메시지에 값 없음")와 **같은 종류**이며 키 수만 다르다. `.env.example`의 예시값 거부(`change-me`)는 두지 않는다(비밀번호는 외부 서비스가 검증) | 사용자 확정, `settings.py` 선례 |
+| D-메일시작 | 설정은 `src/container.py` 모듈 로드 시 **한 번** 읽는다(`_geocoder = KakaoGeocoder(get_kakao_geocoding_settings())`와 같은 위치·방식). 일부만 있으면 `import main`·서버 시작이 `RuntimeError`로 멈춘다(lifespan 시드와 같은 "시작 시 실패"). 선택 결과는 시작 시 로그 1줄(설정 값 없이): 메일이면 `INFO "재설정 코드 전달: SMTP (host=<host>)"`(host만, 계정·비밀번호 제외), 없으면 `WARNING "SMTP 설정이 없어 재설정 코드를 로그로 전달합니다(개발용)"` | 사용자 확정, R9 |
+| D-메일조립 | `container.py`에 `build_reset_notifier(settings: MailSettings \| None) -> PasswordResetNotifier`(순수 함수: `None`이면 `LoggingPasswordResetNotifier()`, 아니면 `SmtpPasswordResetNotifier(settings)`)를 두고 `_reset_notifier = build_reset_notifier(get_mail_settings())`. 서비스·추상·`create_password_reset_service`는 불변(R8, R9). 상태 없는 유틸이므로 싱글턴 유지 | R8, R9 |
+| D-메일전송 | `auth/infrastructure/reset_notifier.py`에 `SmtpPasswordResetNotifier(PasswordResetNotifier)` 추가. 생성자 `(settings, smtp_factory=smtplib.SMTP)`(테스트가 가짜 클래스를 넘김, 인프라 안의 기본값이라 R8 영향 없음). `send_code`는 `await asyncio.to_thread(self._send_blocking, message)`로 블로킹 호출을 스레드로 보낸다(이벤트 루프 차단 방지). `_send_blocking`: `with self._smtp_factory(host, port, timeout=timeout) as smtp:` → `smtp.starttls(context=ssl.create_default_context())` → `smtp.login(user, password)` → `smtp.send_message(message)`. **인증서 검증을 끄지 않는다**(기본 컨텍스트). STARTTLS 없이 평문으로 로그인하지 않는다(`starttls`가 실패하면 예외, 폴백 없음). 연결은 요청마다 새로 연다(풀 없음: 재설정 요청은 드물고 60초 제한이 있다). 타임아웃 **10초**(`socket` 타임아웃이라 연결·각 명령마다 적용, 최악 합은 6단계 × 10초이므로 §17.1 한계가 커질 수 있음, 질문 41). 상수는 `MailSettings.timeout_seconds` 한 곳 | 사용자 확정(STARTTLS 587), 타임아웃은 위임 |
+| D-메일본문 | `EmailMessage`: `From = MAIL_FROM`, `To = user.email`(서비스가 넘긴 정규화된 가입 이메일), `Subject = "[마감 직전] 비밀번호 재설정 코드 안내"`. 본문(텍스트 한 파트): 아래 §17.3. 만료 시각은 `expires_at`을 **KST(UTC+9, `timezone(timedelta(hours=9))`, tzdata 불필요)**로 바꿔 `YYYY-MM-DD HH:MM` + " (한국 시간)"으로 표기. 헤더·본문에 줄바꿈이 섞여도 `EmailMessage`가 헤더 값의 줄바꿈을 `ValueError`로 거부하므로 `send_code`가 이를 `PasswordResetDeliveryError`로 바꾼다 | REQ-26 |
+| D-메일실패 | 새 도메인 예외 `PasswordResetDeliveryError(Exception)`(`auth/domain/exceptions.py`, 메시지 고정 "재설정 코드를 전달하지 못했습니다.", **`ValueError`·`PermissionError`·`LookupError`를 상속하지 않음**: HTTP로 새지 않게 서비스가 삼키는 것이 전제라 `error_handlers.py` 변경 없음). `SmtpPasswordResetNotifier.send_code`는 `smtplib.SMTPException`·`OSError`(`TimeoutError`·`ConnectionError` 포함)·`ValueError`(헤더)를 잡아 **WARNING 한 줄**을 남기고 `raise PasswordResetDeliveryError() from None`한다. 로그 형식: `"비밀번호 재설정 메일 발송 실패 stage=%s error=%s"`(`stage`는 `connect`/`starttls`/`login`/`send` 중 하나, `error`는 예외 **클래스 이름**과, `SMTPResponseException`이면 SMTP 코드 숫자). **이메일 주소·코드·예외 메시지·트레이스백은 로그에 넣지 않는다**(`SMTPRecipientsRefused` 등의 메시지에 수신자 주소가 들어가고 `SMTPAuthenticationError` 메시지에 서버 응답이 들어가기 때문). `from None`이라 서비스의 기존 `logger.exception`도 원인 예외를 싣지 않는다 | 사용자 확정(코드 비로그, 실패 WARNING), R16 |
+| D-메일로그금지 | SMTP 구현은 코드 원문·`expires_at`·이메일을 어떤 로그에도 남기지 않는다(정상 발송 시 로그 없음 또는 `INFO "비밀번호 재설정 메일 발송 완료"` 한 줄, 값 없음). `smtp.set_debuglevel`은 호출하지 않는다(디버그 출력에 `AUTH` 자격증명·본문이 나옴). `LoggingPasswordResetNotifier`는 **변경 없음**(개발용, 코드 원문 로그는 그대로) | 사용자 확정 |
+| D-서비스불변 | `password_reset_service.py`는 **이 PR에서 수정하지 않는다.** 기존 `except Exception` + `logger.exception("비밀번호 재설정 코드 전달 실패")`가 그대로 삼키고, 구체적 WARNING은 notifier가 남긴다(서비스 쪽 ERROR 한 줄은 중복이지만 원인·주소가 없다). §16 합류 때 `deliver`로 옮겨 가는 한 곳과만 충돌하도록 하려는 것이다(C-35) | 사용자 확정(§16과 분리) |
+| D-메일테스트 | 실제 메일·네트워크 없음. 가짜 `smtplib.SMTP`(`smtp_factory`로 주입)를 쓰고, 서비스·API 테스트는 `RecordingNotifier`(기존) 또는 `LoggingPasswordResetNotifier`로 고정한다(§17.8). 개발자 `.env`에 SMTP 설정이 있어도 테스트가 실제 메일을 보내지 않도록 `tests/conftest.py`에서 `container._reset_notifier`를 `LoggingPasswordResetNotifier()`로 되돌리는 autouse fixture를 둔다 | R16 |
+
+### 17.3 메일 문구 (확정(위임, 2026-11-09))
+
+제목: `[마감 직전] 비밀번호 재설정 코드 안내`
+
+본문(줄바꿈은 `\n`, 값은 f-string으로 채움):
+```text
+안녕하세요, 마감 직전입니다.
+
+비밀번호 재설정 코드는 아래와 같습니다.
+
+    {code}
+
+이 코드는 {expires_at_kst} (한국 시간)까지 한 번만 사용할 수 있습니다.
+코드와 새 비밀번호를 앱의 재설정 화면에 입력해 주세요.
+
+본인이 요청하지 않았다면 이 메일을 무시해 주세요. 비밀번호는 바뀌지 않습니다.
+코드를 다른 사람에게 알려 주지 마세요. 마감 직전은 코드를 묻지 않습니다.
+```
+- 본문에 가입 여부를 암시하는 문구를 두지 않는다(받은 사람은 가입자다). 유효 분(15)은 본문에 적지 않고 **만료 시각만** 적어 도메인 상수(`PasswordResetCode`의 유효 시간)와 문구가 어긋나지 않게 한다.
+- 단일 텍스트 파트(HTML 없음): 코드 복사가 쉽고 스팸 필터 위험이 낮다.
+
+### 17.4 도메인·인프라·응용·표현 변경 요약
+
+| 계층 | 변경 |
+| --- | --- |
+| domain | `exceptions.py`에 `PasswordResetDeliveryError` 한 개 추가. `service.py`의 `PasswordResetNotifier` 시그니처 불변(R10 그대로). R1: 새 import 없음 |
+| infrastructure | `reset_notifier.py`: `SmtpPasswordResetNotifier` 추가(`asyncio`, `smtplib`, `ssl`, `logging`, `email.message`는 표준 라이브러리). `settings.py`: `MailSettings`, `get_mail_settings`. 레포지토리·모델 변경 없음 → **스키마 변경 없음(R14), 동시성·`with_for_update` 해당 없음**(발송은 DB를 쓰지 않음) |
+| application | 변경 없음(D-서비스불변). 트랜잭션 경계: `commit` 뒤 발송이라 발송 실패·지연이 DB에 영향을 주지 않는다(코드는 이미 저장됨, 회원은 60초 뒤 재요청 가능: REQ-28-1) |
+| presentation | 변경 없음. 응답은 항상 204(R7·R15 영향 없음) |
+| container | `_reset_notifier` 한 줄을 `build_reset_notifier(get_mail_settings())`로 교체하고 `build_reset_notifier` 함수·import 추가(범위 확장, §17.6) |
+
+### 17.5 R1~R16 영향 (설계 판정, 공식 판정은 `layer-checker`)
+
+| 규칙 | 영향 |
+| --- | --- |
+| R1 | domain은 예외 클래스 1개만 추가, 순수 파이썬 |
+| R2·R8 | 구현체는 infrastructure, 서비스는 추상 `PasswordResetNotifier`만 받음. 서비스 코드 불변 |
+| R3 | 비즈니스 판단 추가 없음(메일 문구 조립은 전달 기술의 일부로 infrastructure) |
+| R4·R5·R13·R14 | 영향 없음(DB·commit·모델 불변) |
+| R6·R7·R15 | `PasswordResetDeliveryError`는 서비스가 삼키므로 HTTP 변환 없음. 응답·명세 필드 불변. 명세 문구만 갱신(§17.6) |
+| R9 | 연결은 `container.py`에서만(`build_reset_notifier`). `provide_*` 추가 없음 |
+| R10 | `send_code`만 호출 |
+| R11·R12 | 다른 모듈 import 없음, 순환 없음 |
+| R16 | 비밀번호·계정은 환경변수만, `.env.example`은 값 빈칸, 로그에 자격증명·코드·주소 없음, 새 의존성 없음(`uv add` 불필요), 설정 테스트 skip 없음 |
+
+### 17.6 쓰기 범위 (구현자 발주서용)
+
+| 파일 | 소유 | 변경 | 범위 확장 |
+| --- | --- | --- | --- |
+| `src/auth/domain/exceptions.py` | auth | `PasswordResetDeliveryError` | 아니오 |
+| `src/auth/infrastructure/settings.py` | auth | `MailSettings`, `get_mail_settings` | 아니오 |
+| `src/auth/infrastructure/reset_notifier.py` | auth | `SmtpPasswordResetNotifier` | 아니오 |
+| `tests/auth/test_smtp_notifier.py` (신규) | auth | §17.8 | 아니오 |
+| `tests/auth/test_mail_settings.py` (신규) | auth | §17.8 | 아니오 |
+| `src/container.py` | 오케스트레이터 | `_reset_notifier` 교체, `build_reset_notifier`, import 2개(`get_mail_settings`, `SmtpPasswordResetNotifier`) | **예**(auth 구역 밖의 전역 싱글턴 구역, C-19와 같은 방식으로 발주서에 명시) |
+| `tests/conftest.py`, `tests/test_container.py` | 공용 | autouse fixture, `build_reset_notifier` 단언 | **예** |
+| `.env.example` | 오케스트레이터 | §17.7 | **예** |
+| `README.md` | 오케스트레이터 | §17.7 | **예** |
+| `docs/reference/auth.md` | 오케스트레이터(설계자 수정 금지) | §17.7 | **예**(R15) |
+| `src/auth/application/password_reset_service.py`, `src/error_handlers.py`, `pyproject.toml`, `uv.lock` | - | **수정하지 않음** | - |
+
+### 17.7 명세·문서 변경 제안 (오케스트레이터 소유, 설계자는 수정하지 않음)
+
+1. **`.env.example`** (`KAKAO_*` 블록 뒤에 추가, 값은 전부 빈칸):
+```dotenv
+# 비밀번호 재설정 코드를 메일로 보내는 SMTP. 전부 비워 두면 코드가 서버 로그에만 남습니다(개발용).
+# 쓰려면 SMTP_HOST·SMTP_USER·SMTP_PASSWORD·MAIL_FROM을 모두 채웁니다. 일부만 채우면 서버가 시작하지 않습니다.
+# STARTTLS(587)만 지원합니다. 465(암묵적 TLS)는 지원하지 않습니다.
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASSWORD=
+MAIL_FROM=
+```
+`SMTP_PORT=`가 빈 값이면 587로 취급한다(D-메일설정 ③: 빈 문자열은 "없음").
+2. **`README.md`** 로컬 실행 절, 관리자 계정 문단 뒤: "비밀번호 재설정 코드를 실제 메일로 받으려면 `.env`에 `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`(선택 `SMTP_PORT`, 기본 587)을 모두 채우고 서버를 시작합니다. 비워 두면 코드는 서버 로그(`auth.password_reset`)에만 남습니다. 일부만 채우면 서버가 시작하지 않습니다. Gmail 등은 앱 비밀번호가 필요합니다."
+3. **`docs/reference/auth.md` §10** 의 "임시(개발용) 전달" 인용문(현재 `:364`)을 교체: "> **전달 방식:** SMTP 설정(`SMTP_HOST` 등, README 참고)이 있으면 코드를 가입한 이메일로 보낸다. 설정이 없으면 개발용으로 서버 로그(`auth.password_reset`)에 코드가 남으며 이때는 배포하지 않는다. 메일 발송이 실패해도 응답은 항상 204이고, 회원은 60초 뒤 다시 요청할 수 있다." 응답·에러 표는 불변.
+4. 요구조건(`docs/requirements/auth.md`) 변경 없음(REQ-26·27 충족).
+
+### 17.8 테스트 계획 (실제 메일 없음)
+
+`tests/auth/test_smtp_notifier.py` (가짜 `FakeSMTP`: 컨텍스트 매니저, 호출을 `calls` 리스트에 `("starttls", ...)`, `("login", user, pw)`, `("send_message", msg)` 순으로 기록, 생성 인자(host, port, timeout) 기록; 실패 주입 옵션)
+
+| 테스트 | 단언 |
+| --- | --- |
+| 정상 발송 | 호출 순서 `starttls` → `login` → `send_message`, 생성 인자 `(host, 587, timeout=10.0)`, `login` 인자가 설정값, `starttls`에 `ssl.SSLContext` 전달 |
+| 메시지 내용 | `To == "user@test.com"`, `From == MAIL_FROM`, 제목 `[마감 직전] 비밀번호 재설정 코드 안내`, 본문에 코드 `"123456"`과 KST 변환된 만료 시각 문자열(예: UTC 09:15 → `18:15`) 포함 |
+| 이벤트 루프 | `send_code`가 `asyncio.to_thread`를 거침(스레드 이름이 메인 스레드와 다름을 가짜가 기록) |
+| 실패 변환 | 가짜가 `SMTPAuthenticationError`·`TimeoutError`·`ConnectionRefusedError`·`SMTPRecipientsRefused` 중 하나를 내면 `PasswordResetDeliveryError`(`__cause__ is None`) |
+| 로그 | 실패 시 `caplog`에 WARNING 1건, 레코드 텍스트에 코드·이메일·비밀번호 없음, `stage`와 예외 클래스 이름은 있음. 성공 시 어떤 레코드에도 코드·이메일 없음 |
+| 서비스 연동 | `PasswordResetService`에 실패하는 `SmtpPasswordResetNotifier`(가짜 SMTP)를 넣어도 `request_reset`이 정상 반환, `commit`은 이미 1회(기존 `RecordingNotifier(fail=True)` 테스트와 같은 구조) |
+| 실제 `smtplib.SMTP` 미사용 | `smtp_factory` 기본값을 쓰는 경로(`SmtpPasswordResetNotifier(settings)`)는 생성만 하고 `send_code`를 부르지 않는 테스트 1건(소켓을 열지 않음) |
+
+`tests/auth/test_mail_settings.py` (`get_mail_settings(env)`에 dict 주입, `test_admin_seed_settings.py` 형식)
+
+| 입력 | 기대 |
+| --- | --- |
+| `{}`, 전부 `""`, 공백만 | `None` |
+| 4개 필수 + 포트 없음 | `MailSettings(port=587, timeout_seconds=10.0)` |
+| 5개 전부(포트 2525) | 값 일치, 공백 `strip` |
+| 필수 4개 중 각각 하나 빠짐(parametrize), `SMTP_PORT`만 있음, `SMTP_HOST`만 있음 | `RuntimeError`, 메시지에 누락 키 이름 포함·비밀번호 값 미포함 |
+| 포트 `"abc"`, `"0"`, `"70000"`, `"465"` | `RuntimeError` |
+| `MAIL_FROM` `"no-at"`, `"a@b.com\nBcc: x@y.z"` | `RuntimeError` |
+
+`tests/test_container.py`: `build_reset_notifier(None)`은 `LoggingPasswordResetNotifier`, `build_reset_notifier(MailSettings(...))`는 `SmtpPasswordResetNotifier`(생성만, 발송 없음). 기존 `isinstance(reset.notifier, PasswordResetNotifier)` 유지. `tests/conftest.py` autouse fixture: `monkeypatch.setattr(container, "_reset_notifier", LoggingPasswordResetNotifier())`(`create_password_reset_service`가 호출 시점에 전역을 읽으므로 유효, B-42).
+
+완료 게이트(backend-invariants §7 정본): `python3 .claude/skills/layer-check/check_layers.py`, `(cd src && uv run python -c "import main")`, `uv run pytest -rs`. 추가로 **수동 시연**(선택, 사용자가 직접): 테스트용 계정으로 `.env`를 채우고 `POST /v1/auth/password-reset/request` → 메일 수신 → 로그에 코드가 없는지 확인.
+
+### 17.9 정합 이슈 (C-34~C-38)
+
+| ID | 위치 | 내용 | 제안 / 상태 |
+| --- | --- | --- | --- |
+| C-34 | §1 `D-재설정전달`, `reset_notifier.py` docstring, `container.py:117` 주석, `docs/reference/auth.md:364` | "임시 로그 구현을 실제 메일로 교체한 뒤에만 배포"라는 문구가 여러 곳에 있다. 이번 구현 뒤에도 SMTP 설정이 비면 로그 구현으로 자동 전환되므로 문구가 "SMTP 설정이 있을 때만 메일"로 바뀐다 | 구현 때 docstring·주석 갱신(`LoggingPasswordResetNotifier`는 유지), 명세는 §17.7-3. §1 표 행은 이 절이 우선한다는 표시만 추가 |
+| C-35 | `src/auth/application/password_reset_service.py`, `src/container.py`, §16 `D-재설정전달분리` | 이 PR은 응답 안에서 `await send_code`(§17.1 한계)를 유지하고, §16 브랜치(`claude/auth-login-lockout`)는 `request_reset`이 `ResetDelivery`를 돌려주고 라우터가 `BackgroundTasks`로 `deliver`를 부른다. **합칠 때 충돌 지점:** (1) `password_reset_service.py`: 이 PR은 수정하지 않으므로 §16 쪽 변경이 그대로 들어온다. 합류 뒤 `deliver`의 `except Exception`이 `PasswordResetDeliveryError`도 삼키는지 확인하고, 로그를 `logger.exception`(ERROR)에서 `logger.warning("... 실패")`로 낮추면 notifier의 WARNING과 중복이 없다 (2) `container.py`: 이 PR은 `_reset_notifier` 줄(`:117-118`)을, §16은 `create_auth_service`·`create_password_reset_code_repository` 순서(C-28)와 `AuthApplicationService(codes=...)`를 건드린다. 줄이 다르므로 기계적 충돌은 작지만 같은 파일이라 두 번째로 머지하는 쪽이 `git diff`로 확인 (3) 라우터·`request_reset` 반환 형태는 이 PR이 건드리지 않음. **머지 순서 권장:** §16 먼저, 이 PR 나중(그러면 REQ-27-1 한계가 처음부터 없음). 이 PR이 먼저 들어가면 그 사이는 개발·시연 전용 | 사용자 확인(질문 39). 이 설계는 §16 코드를 가정하지 않는다 |
+| C-36 | `docs/reference/auth.md`, `README.md`, `.env.example` | 모두 오케스트레이터 소유(R15·R16). 설계자는 수정하지 않았다 | §17.7을 발주서에 포함 |
+| C-37 | `tests/conftest.py`, `tests/test_container.py`(공용) | autouse fixture는 모든 테스트에 적용됨. `container._reset_notifier`를 임포트하는 것이 `tests/conftest.py`의 import 순서(환경변수 설정 전 import 여부)에 영향을 줄 수 있음 | 구현자가 `tests/conftest.py` 상단 환경 설정 순서를 확인하고, 문제가 있으면 fixture 안에서 지연 import |
+| C-38 | `container.py` 모듈 로드 시점 설정 읽기 | 부분 설정이면 `import main`뿐 아니라 `import container`를 하는 **모든 테스트 수집이 `RuntimeError`로 실패**한다(개발자 `.env`가 일부만 채워진 경우). 의도된 "시작 시 실패"지만 원인이 보이도록 메시지에 누락 키 이름을 넣는다 | D-메일설정 ②로 반영. README에 "일부만 채우면 시작하지 않음" 명시 |
+
+### 17.10 질문 목록과 확정값
+
+| # | 항목 | 출처 | 확정값 | 근거 | 바꾸기 쉬운 곳 |
+| --- | --- | --- | --- | --- | --- |
+| 39 | 이 PR을 §16(응답 뒤 발송)보다 먼저 머지·배포해도 되는가 | REQ-27-1 | **미결정(사용자 결정 필요).** 임시: 먼저 머지하되 운영 배포는 §16 합류 뒤, 그 전은 개발·시연 한정(§17.1, C-35) | 응답 시간 차이가 커지는 한계 | 머지 순서 |
+| 40 | 인증 없는 SMTP 릴레이 지원 | 사용자 요구(5개 키) | **확정(위임, 2026-11-09)**: 지원하지 않음(`SMTP_USER`·`SMTP_PASSWORD` 필수) | 키 5개 모두 있는 구성을 기준으로 단순화 | `get_mail_settings` ② |
+| 41 | 타임아웃 | 사용자 위임 | **확정(위임, 2026-11-09)**: 10초(소켓 단위) | 일반 SMTP 서버 응답 여유, 너무 길면 응답 지연 한계 악화 | `MailSettings.timeout_seconds` |
+| 42 | 만료 시각 표기 | 문구 | **확정(위임, 2026-11-09)**: KST `YYYY-MM-DD HH:MM (한국 시간)` | 한국 서비스, tzdata 불필요 | `reset_notifier.py` 상수 |
+| 43 | 메일 제목·본문 문구 | 문구 | **확정(위임, 2026-11-09)**: §17.3 | 코드·만료 시각·무시 안내만 포함 | `reset_notifier.py` 상수 |
+
 ---
 
-## 17. 관리자 회원 목록용 조회 (2026-11-09 추가, admin.md §13의 선행)
+## 18. 관리자 회원 목록용 조회 (2026-11-09 추가, admin.md §13의 선행)
 
 - 상태: **설계(코드 변경 없음).** 목적: 관리자가 승인 대기 상점주를 찾도록 `GET /v1/admin/users`(EP는 **admin 모듈 소유**, `docs/design/admin.md` §13)가 부를 **회원 목록 조회**를 auth에 둔다. 이 절은 auth 쪽(도메인 VO·레포지토리·응용 메서드·테스트)만 정한다. EP·응답 스키마·사용자 대면 결정(D45~D57)과 질문 목록은 admin.md §13이 정본이고, 이 절은 번호(`admin D55` 등)로만 가리킨다.
 - 이 절은 §16(로그인 잠금, 아직 미구현 설계)과 독립이다. §16이 구현되든 아니든 이 절의 변경은 `User` 엔티티의 속성·메서드를 바꾸지 않는다(조회만 추가).
-- 이번에 추가하는 ID: 결정 `D-목록배치`~`D-목록읽기전용`(§17.2), 차단 확인 `B-39`~`B-41`(§17.0), 정합 이슈 `C-34`~`C-37`(§17.8).
+- 이번에 추가하는 ID: 결정 `D-목록배치`~`D-목록읽기전용`(§18.2), 차단 확인 `B-43`~`B-45`(§18.0), 정합 이슈 `C-39`~`C-42`(§18.8).
 - 기준: `backend-invariants` R1~R16, `layer-architecture` §3.4·§5, 실제 코드 `src/auth/domain/repository/user_repository.py`, `src/auth/infrastructure/{repositories,models}.py`, `src/auth/application/service.py`(`list_points`, `PointHistoryPage`), `src/admin/application/ports.py`.
 
 ### 17.0 차단 이슈 (실행·정독 결과)
 
 | # | 확인 | 결과 | 판정 |
 | --- | --- | --- | --- |
-| B-39 | `UserRepository` 구현체·가짜 찾기: `grep -rn "def find_by_email" src tests` | 구현체 `SqlAlchemyUserRepository`(`src/auth/infrastructure/repositories.py:26`) 1개, 테스트 가짜 `FakeUsers(UserRepository)` 2개: `tests/auth/test_service.py:58`, `tests/auth/test_optional_user.py:49` | **추상 메서드를 추가하면 두 가짜가 `TypeError: Can't instantiate abstract class`로 깨진다**(ABC). 구현 범위에 두 파일의 가짜 갱신을 포함한다(C-34). 차단은 아님 |
-| B-40 | SQLAlchemy `icontains(autoescape=True)`의 PostgreSQL 컴파일: `PYTHONPATH=.venv/Lib/site-packages python -B -c ...`(시스템 3.11, 파일 쓰기 없음) | `WHERE (users.email ILIKE '%%' \|\| 'a/%%b/_c' \|\| '%%' ESCAPE '/')`, 바인드 값 `'a/%b/_c'` (입력 `a%b_c`) | `%`·`_`가 `/`로 이스케이프되고 `ESCAPE '/'`가 붙는다 = **와일드카드가 글자 그대로 검색된다**(`%%`는 기본 방언의 파라미터 표기 이스케이프일 뿐 리터럴 `%` 하나로 해석된다. asyncpg 방언의 실제 SQL은 이 환경에서 확인하지 못했다). 새 의존성 없음. 실제 DB 동작은 이 환경에서 실행하지 않았다(DB 테스트로 확인, §17.6) |
-| B-41 | 현재 코드의 페이지 검증 방식: `src/auth/application/service.py:336-338`, `src/admin/presentation/router.py:105-115`, `tests/admin/test_api_db.py:529-531` | `list_points`는 `page < 1 or size < 1 or size > MAX_PAGE_SIZE(100)`이면 `InvalidPageError`(400 `INVALID_PAGE` "페이지 값이 올바르지 않습니다."). router는 `page: int = 1, size: int = 20`만(Query 제약 없음), 숫자가 아닌 값은 전역 핸들러의 400 `VALIDATION_ERROR`. 테스트는 `page=0`·`size=0`·`size=101`·`page=-1`을 모두 `INVALID_PAGE`로 단언 | 목록도 **같은 방식**을 쓴다(admin D47·D48, 사용자 확정). 다만 규칙 위치는 서비스 `if`가 아니라 도메인 VO에 둔다(D-목록쿼리VO, R3) |
+| B-43 | `UserRepository` 구현체·가짜 찾기: `grep -rn "def find_by_email" src tests` | 구현체 `SqlAlchemyUserRepository`(`src/auth/infrastructure/repositories.py:26`) 1개, 테스트 가짜 `FakeUsers(UserRepository)` 2개: `tests/auth/test_service.py:58`, `tests/auth/test_optional_user.py:49` | **추상 메서드를 추가하면 두 가짜가 `TypeError: Can't instantiate abstract class`로 깨진다**(ABC). 구현 범위에 두 파일의 가짜 갱신을 포함한다(C-39). 차단은 아님 |
+| B-44 | SQLAlchemy `icontains(autoescape=True)`의 PostgreSQL 컴파일: `PYTHONPATH=.venv/Lib/site-packages python -B -c ...`(시스템 3.11, 파일 쓰기 없음) | `WHERE (users.email ILIKE '%%' \|\| 'a/%%b/_c' \|\| '%%' ESCAPE '/')`, 바인드 값 `'a/%b/_c'` (입력 `a%b_c`) | `%`·`_`가 `/`로 이스케이프되고 `ESCAPE '/'`가 붙는다 = **와일드카드가 글자 그대로 검색된다**(`%%`는 기본 방언의 파라미터 표기 이스케이프일 뿐 리터럴 `%` 하나로 해석된다. asyncpg 방언의 실제 SQL은 이 환경에서 확인하지 못했다). 새 의존성 없음. 실제 DB 동작은 이 환경에서 실행하지 않았다(DB 테스트로 확인, §18.6) |
+| B-45 | 현재 코드의 페이지 검증 방식: `src/auth/application/service.py:336-338`, `src/admin/presentation/router.py:105-115`, `tests/admin/test_api_db.py:529-531` | `list_points`는 `page < 1 or size < 1 or size > MAX_PAGE_SIZE(100)`이면 `InvalidPageError`(400 `INVALID_PAGE` "페이지 값이 올바르지 않습니다."). router는 `page: int = 1, size: int = 20`만(Query 제약 없음), 숫자가 아닌 값은 전역 핸들러의 400 `VALIDATION_ERROR`. 테스트는 `page=0`·`size=0`·`size=101`·`page=-1`을 모두 `INVALID_PAGE`로 단언 | 목록도 **같은 방식**을 쓴다(admin D47·D48, 사용자 확정). 다만 규칙 위치는 서비스 `if`가 아니라 도메인 VO에 둔다(D-목록쿼리VO, R3) |
 
 `uv run python`·`.venv\Scripts\python.exe`는 이 환경의 Application Control 정책에 막혀 실행되지 않았다(`os error 4551`). 그래서 `import main`·`check_layers.py`·DB 테스트는 이 설계 작성 중 실행하지 못했다. 구현자는 `backend-invariants` §7 게이트를 직접 실행한다. 새 패키지·환경변수는 필요 없다(`pyproject.toml`·`.env.example` 변경 없음).
 
@@ -1664,7 +1828,7 @@ async def account_locked(request: Request, exc: AccountLockedError):
 | D-목록배치 | 회원 목록 **데이터 조회**(레포 메서드·응용 메서드)는 auth에 둔다. EP는 admin이 소유하고 admin 포트로 부른다 | admin D45(사용자 확정), R11 | **확정**(사용자, 2026-11-09) |
 | D-목록쿼리VO | 입력 검증·정규화는 **도메인 VO** `UserListQuery.create(...)`가 한다(page·size → role → status → email 순서). 서비스에 검증 `if`를 두지 않는다(R3). 레포지토리는 이 VO만 받는다 | R3, 기존 `list_points`의 서비스 `if`와 달리 규칙을 엔티티 쪽에 | **확정**(사용자, 2026-11-09) |
 | D-목록레포 | `UserRepository`에 추상 메서드 2개: `find_all(query, now) -> list[User]`, `count_all(query, now) -> int`. `now`는 호출자가 넘긴다(실효 상태 판정용, 두 쿼리가 같은 시각을 쓰게) | 기존 이름 규칙(`find_*`), 페이지 목록·개수 분리는 `PointLogRepository.find_by_user/count_by_user` 선례 | **확정**(사용자, 2026-11-09) |
-| D-목록실효상태SQL | `status` 필터는 **실효 상태**로 계산한다(admin D55): `APPROVED` = 저장 `APPROVED` 또는 (저장 `SUSPENDED`이고 `suspended_until <= now`), `SUSPENDED` = 저장 `SUSPENDED`이고 (`suspended_until IS NULL` 또는 `suspended_until > now`), 그 외는 저장값 그대로. 도메인 `effective_status`와 같은 경계(`until == now`는 만료). 규칙이 SQL과 도메인에 둘 있으므로 **일관성 테스트가 필수**(catalog `_status_clause` 선례, C-37) | admin D55 | **확정**(사용자, 2026-11-09) |
+| D-목록실효상태SQL | `status` 필터는 **실효 상태**로 계산한다(admin D55): `APPROVED` = 저장 `APPROVED` 또는 (저장 `SUSPENDED`이고 `suspended_until <= now`), `SUSPENDED` = 저장 `SUSPENDED`이고 (`suspended_until IS NULL` 또는 `suspended_until > now`), 그 외는 저장값 그대로. 도메인 `effective_status`와 같은 경계(`until == now`는 만료). 규칙이 SQL과 도메인에 둘 있으므로 **일관성 테스트가 필수**(catalog `_status_clause` 선례, C-42) | admin D55 | **확정**(사용자, 2026-11-09) |
 | D-목록요약 | 응용 계층 DTO `UserSummary`(`id, email, name, role, status, created_at`; `status`는 `user.effective_status(now).value`)와 `UserPage(items, page, size, total)`. 서비스는 `User` 엔티티를 그대로 돌려주지 않는다(전화번호·해시·사유가 응답에 새지 않게 하는 1차 방어, R15) | `PointHistoryPage`·`LoginResult` 선례 | **확정**(사용자, 2026-11-09) |
 | D-목록예외 | 잘못된 role·status·email → 새 `InvalidUserFilterError(_CodedValueError)`(`error_code`는 부모 기본 `VALIDATION_ERROR` 그대로 → 400). 페이지 오류는 기존 `InvalidPageError`(400 `INVALID_PAGE`) 재사용. `error_handlers.py` 변경 없음 | R6, 테스트에서 예외 클래스로 구분 | **확정**(사용자, 2026-11-09) |
 | D-목록읽기전용 | 읽기 전용: `commit()` 없음, `with_for_update` 없음. 개수와 목록은 별도 SELECT라 순간적 불일치를 허용한다(같은 방식: `list_points`). 가입이 계속 일어나도 정렬이 가입 시각 오름차순이라 이미 본 페이지의 행은 밀리지 않는다 | R5, admin.md 4.3의 EP 8과 같은 판단 | **확정**(사용자, 2026-11-09) |
@@ -1675,7 +1839,7 @@ async def account_locked(request: Request, exc: AccountLockedError):
 
 | 항목 | 내용 |
 | --- | --- |
-| 상수 | `DEFAULT_PAGE = 1`, `DEFAULT_SIZE = 20`, `MAX_SIZE = 100`, `EMAIL_MAX_LENGTH = 255`(= `users.email VARCHAR(255)`). 기본값·최대값은 이 한 곳에서 바꾼다(admin D53). 응용의 `MAX_PAGE_SIZE`(`service.py:23`, 포인트 이력용)와 값이 같지만 별도 상수다(C-35) |
+| 상수 | `DEFAULT_PAGE = 1`, `DEFAULT_SIZE = 20`, `MAX_SIZE = 100`, `EMAIL_MAX_LENGTH = 255`(= `users.email VARCHAR(255)`). 기본값·최대값은 이 한 곳에서 바꾼다(admin D53). 응용의 `MAX_PAGE_SIZE`(`service.py:23`, 포인트 이력용)와 값이 같지만 별도 상수다(C-40) |
 | `UserListQuery` | `@dataclass(frozen=True)`: `role: Role \| None`, `status: UserStatus \| None`, `email: str \| None`, `page: int`, `size: int`. 속성 `offset = (page - 1) * size` |
 | `UserListQuery.create(*, role=None, status=None, email=None, page=DEFAULT_PAGE, size=DEFAULT_SIZE)` | 입력은 원시 값(`str \| None`, `int`). 아래 검증 순서 |
 
@@ -1759,7 +1923,7 @@ async def count_all(self, query, now):
 
 - 새 import: `and_`, `or_`(`sqlalchemy`), `UserListQuery`(도메인), `datetime`은 이미 있음. `UserModel`을 밖으로 내보내지 않는다(R4): `_to_domain`으로 `User`만 반환.
 - `_to_domain`이 `User.__init__` 불변식을 다시 검사한다(저장된 데이터도 참이어야 함, §3.1.1). 불변식을 어기는 행(예: `status=SUSPENDED`인데 `suspended_at`이 NULL, DB를 직접 고친 경우)이 있으면 단건 조회는 그 회원만 실패하지만 **목록은 그 행이 든 페이지 전체가 500**이 된다. 정상 경로(`User.register`·EP 1~4)로는 만들어지지 않는 행이라 수용하고, 문제가 생기면 그때 방안을 따로 연다(admin.md §13.11 후속).
-- `email` 이스케이프 문자는 SQLAlchemy가 `/`를 쓴다. 입력에 `/`가 있어도 함께 이스케이프된다(`autoescape`가 `/` 자체도 처리). DB 테스트로 `a/b` 검색을 포함한다(§17.6).
+- `email` 이스케이프 문자는 SQLAlchemy가 `/`를 쓴다. 입력에 `/`가 있어도 함께 이스케이프된다(`autoescape`가 `/` 자체도 처리). DB 테스트로 `a/b` 검색을 포함한다(§18.6).
 - 정렬 `created_at`은 `server_default now()`라 같은 트랜잭션 안 INSERT끼리 시각이 같을 수 있다. 그래서 `id`로 동률을 깬다(admin D51). `created_at`은 `Mapped[datetime]`(NOT NULL, 서버 기본값 `now()`, `models.py:33`)이라 NULL 정렬 문제는 없다.
 
 **동시성:** 읽기 전용이라 `with_for_update()` 불필요(D-목록읽기전용). 쓰기 경합은 없다. 같은 요청 세션을 쓰는 다른 호출과 identity map이 공유되지만 `populate_existing`은 필요 없다(EP는 목록만 읽고 쓰지 않는다).
@@ -1827,8 +1991,8 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 
 - **도메인 (`tests/auth/test_user_list_query.py`, DB 없음)**: 기본값(page 1·size 20·필터 없음), `offset` 계산, `page` 0·-1 → `InvalidPageError`, `size` 0·101 → `InvalidPageError`, `size` 100·1 통과, `bool` 값 거부, `role`·`status` 대문자 통과, 소문자(`owner`)·모르는 값 → `InvalidUserFilterError`, 공백만 있는 role·status·email → 필터 없음, 앞뒤 공백 제거, email 255자 통과·256자 거부, **검증 순서**(page가 틀리고 role도 틀리면 `InvalidPageError`), 오류 메시지가 `Role`·`UserStatus` 멤버에서 만들어졌는지(모든 값이 문구에 포함), `%`·`_`는 값이 그대로 보존됨(VO는 변형하지 않음), `UserListQuery`가 불변(frozen).
 - **서비스 (fake `UserRepository`, `FakeClock`, `tests/auth/test_user_list_service.py`)**: 필터·페이지가 VO를 거쳐 `find_all`에 전달됨(인자 기록), `now`가 두 호출에 같은 값, 잘못된 입력은 저장소 호출 0회, 저장 `SUSPENDED`+과거 `suspended_until`인 회원의 항목 `status`가 `APPROVED`(실효), 저장 `SUSPENDED`+미래·무기한은 `SUSPENDED`, 항목에 `password_hash`·`phone`·`users_point` 속성이 없음(`UserSummary` 필드 집합 고정), `page`·`size` 에코와 `total`, **`commit` 0회**(fake session 계수), 빈 결과.
-- **레포지토리 (DB, `tests/auth/test_user_list_repository_db.py`)**: 시드 `CUSTOMER`·`OWNER`(PENDING/APPROVED/REJECTED/SUSPENDED 무기한·기간 중·기간 지남·정확히 만료 시각)·`ADMIN`·`WITHDRAWN`을 `created_at`을 명시해 삽입. ① 정렬: `created_at` 오름차순, 같은 시각이면 `id` 오름차순 ② `role` 필터 ③ `status` 필터(각 값) ④ 이메일 부분 일치, 대소문자 무시(`Owner`로 검색해 소문자 이메일 일치) ⑤ **와일드카드**: `%`로 검색하면 `%`가 들어간 이메일만 일치(전체 일치 아님), `_`가 임의 한 글자와 일치하지 않음, `a/b`·`\` 포함 검색이 오류 없이 글자 그대로 동작 ⑥ 필터 조합(role+status+email) ⑦ 페이지: 2페이지 경계, 마지막 페이지 일부, 마지막 다음 페이지 → 빈 목록, `count_all`은 `page`·`size`와 무관 ⑧ **일관성 테스트(C-37)**: 위 시드 전체에 대해 모든 `UserStatus` 값마다 `find_all(status=s)`의 ID 집합 == 전체 회원 중 `user.effective_status(now) == s`인 집합(경계: `suspended_until == now`는 `APPROVED`, `now` 1초 후 만료 직전은 `SUSPENDED`) ⑨ `WITHDRAWN`이 필터 없이도 포함되고 `status=WITHDRAWN`으로 거를 수 있음 ⑩ 반환이 `User` 도메인 객체(R4).
-- **구조**: `FakeUsers`(2곳)에 `find_all`·`count_all`을 추가한 뒤 기존 테스트가 그대로 통과(C-34). `UserRepository` 추상 메서드 집합에 두 이름이 있는지 확인.
+- **레포지토리 (DB, `tests/auth/test_user_list_repository_db.py`)**: 시드 `CUSTOMER`·`OWNER`(PENDING/APPROVED/REJECTED/SUSPENDED 무기한·기간 중·기간 지남·정확히 만료 시각)·`ADMIN`·`WITHDRAWN`을 `created_at`을 명시해 삽입. ① 정렬: `created_at` 오름차순, 같은 시각이면 `id` 오름차순 ② `role` 필터 ③ `status` 필터(각 값) ④ 이메일 부분 일치, 대소문자 무시(`Owner`로 검색해 소문자 이메일 일치) ⑤ **와일드카드**: `%`로 검색하면 `%`가 들어간 이메일만 일치(전체 일치 아님), `_`가 임의 한 글자와 일치하지 않음, `a/b`·`\` 포함 검색이 오류 없이 글자 그대로 동작 ⑥ 필터 조합(role+status+email) ⑦ 페이지: 2페이지 경계, 마지막 페이지 일부, 마지막 다음 페이지 → 빈 목록, `count_all`은 `page`·`size`와 무관 ⑧ **일관성 테스트(C-42)**: 위 시드 전체에 대해 모든 `UserStatus` 값마다 `find_all(status=s)`의 ID 집합 == 전체 회원 중 `user.effective_status(now) == s`인 집합(경계: `suspended_until == now`는 `APPROVED`, `now` 1초 후 만료 직전은 `SUSPENDED`) ⑨ `WITHDRAWN`이 필터 없이도 포함되고 `status=WITHDRAWN`으로 거를 수 있음 ⑩ 반환이 `User` 도메인 객체(R4).
+- **구조**: `FakeUsers`(2곳)에 `find_all`·`count_all`을 추가한 뒤 기존 테스트가 그대로 통과(C-39). `UserRepository` 추상 메서드 집합에 두 이름이 있는지 확인.
 
 ### 17.7 구현 순서와 파일 목록 (auth, 먼저 끝낸다)
 
@@ -1841,19 +2005,19 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 | `src/auth/domain/repository/user_repository.py` | `find_all`, `count_all` 추상 |
 | `src/auth/infrastructure/repositories.py` | 구현 + `_conditions`·`_status_clause` |
 | `src/auth/application/service.py` | `UserSummary`, `UserPage`, `list_users` |
-| `tests/auth/test_user_list_query.py`, `tests/auth/test_user_list_service.py`, `tests/auth/test_user_list_repository_db.py` (신규) | §17.6 |
+| `tests/auth/test_user_list_query.py`, `tests/auth/test_user_list_service.py`, `tests/auth/test_user_list_repository_db.py` (신규) | §18.6 |
 | `tests/auth/test_service.py`, `tests/auth/test_optional_user.py` | `FakeUsers`에 두 메서드 추가(`NotImplementedError`로 두면 안 되고, 호출되지 않는 테스트는 `return []`·`return 0`) |
 
 `presentation/`(라우터·스키마·의존성)·`container.py`·`main.py`는 **바꾸지 않는다**(EP는 admin). `schema.sql`·`models.py` 변경 없음.
 
-### 17.8 정합 이슈 (C-34~C-37)
+### 17.8 정합 이슈 (C-39~C-42)
 
 | ID | 위치 | 내용 | 제안 / 상태 |
 | --- | --- | --- | --- |
-| C-34 | `tests/auth/test_service.py:58`, `tests/auth/test_optional_user.py:49` | `UserRepository`에 추상 메서드가 늘면 `FakeUsers`가 인스턴스화되지 않는다(B-39) | 구현 범위에 포함. 호출되지 않는 가짜 메서드는 빈 결과를 돌려준다 |
-| C-35 | `src/auth/application/service.py:23` `MAX_PAGE_SIZE`, `list_points`의 서비스 `if` | 페이지 규칙이 두 곳(응용 상수 + 새 도메인 VO 상수)에 있고, 포인트 이력은 서비스 `if`로, 회원 목록은 도메인 VO로 검증해 방식이 갈린다 | 지금은 포인트 이력을 건드리지 않는다(범위 밖). 후속: `list_points`도 VO로 옮겨 상수 하나로 합친다(auth 담당 승인) |
-| C-36 | `docs/reference/auth.md` 6번(관리자 회원 조회), `docs/design/auth.md` D-관리자조회(철회 이력) | 단건 조회(auth)와 목록(admin)이 다른 모듈에 있다. 목록 항목의 `status`는 실효 상태이고 단건 `UserResponse.status`는 저장값이다(admin C22) | admin.md §13 C22에서 다룬다. auth 쪽 변경 없음 |
-| C-37 | `_status_clause`(SQL) ↔ `User.effective_status`(도메인) | 같은 규칙이 두 곳에 있다. 한쪽만 고치면 필터와 응답이 어긋난다 | §17.6 ⑧ 일관성 테스트로 고정. 규칙을 바꾸는 사람이 두 곳을 함께 고친다는 주석을 `_status_clause`에 남긴다 |
+| C-39 | `tests/auth/test_service.py:58`, `tests/auth/test_optional_user.py:49` | `UserRepository`에 추상 메서드가 늘면 `FakeUsers`가 인스턴스화되지 않는다(B-43) | 구현 범위에 포함. 호출되지 않는 가짜 메서드는 빈 결과를 돌려준다 |
+| C-40 | `src/auth/application/service.py:23` `MAX_PAGE_SIZE`, `list_points`의 서비스 `if` | 페이지 규칙이 두 곳(응용 상수 + 새 도메인 VO 상수)에 있고, 포인트 이력은 서비스 `if`로, 회원 목록은 도메인 VO로 검증해 방식이 갈린다 | 지금은 포인트 이력을 건드리지 않는다(범위 밖). 후속: `list_points`도 VO로 옮겨 상수 하나로 합친다(auth 담당 승인) |
+| C-41 | `docs/reference/auth.md` 6번(관리자 회원 조회), `docs/design/auth.md` D-관리자조회(철회 이력) | 단건 조회(auth)와 목록(admin)이 다른 모듈에 있다. 목록 항목의 `status`는 실효 상태이고 단건 `UserResponse.status`는 저장값이다(admin C22) | admin.md §13 C22에서 다룬다. auth 쪽 변경 없음 |
+| C-42 | `_status_clause`(SQL) ↔ `User.effective_status`(도메인) | 같은 규칙이 두 곳에 있다. 한쪽만 고치면 필터와 응답이 어긋난다 | §18.6 ⑧ 일관성 테스트로 고정. 규칙을 바꾸는 사람이 두 곳을 함께 고친다는 주석을 `_status_clause`에 남긴다 |
 
 ### 17.9 질문 목록
 
