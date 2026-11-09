@@ -1,5 +1,7 @@
 """구현체 연결(조립) 지점. 추상 ↔ 구현체 매핑은 이 파일에서만 한다 (R9)."""
 
+import logging
+
 from fastapi import Depends, FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,12 +31,16 @@ from auth.infrastructure.repositories import (
     SqlAlchemyTokenBlacklistRepository,
     SqlAlchemyUserRepository,
 )
-from auth.infrastructure.reset_notifier import LoggingPasswordResetNotifier
+from auth.infrastructure.reset_notifier import (
+    LoggingPasswordResetNotifier,
+    SmtpPasswordResetNotifier,
+)
 from auth.infrastructure.security import (
     BcryptPasswordHasher,
     JwtTokenProvider,
     SecretsResetCodeGenerator,
 )
+from auth.infrastructure.settings import MailSettings, get_mail_settings
 from auth.presentation.dependencies import (
     provide_auth_service,
     provide_password_reset_service,
@@ -109,13 +115,24 @@ from stores.infrastructure.repositories import SqlAlchemyStoreRepository
 from stores.infrastructure.settings import get_kakao_geocoding_settings
 from stores.presentation.dependencies import provide_store_repository, provide_stores_service
 
+logger = logging.getLogger(__name__)
+
+
+def build_reset_notifier(settings: MailSettings | None) -> PasswordResetNotifier:
+    """SMTP 설정이 있으면 메일, 없으면 로그(개발용)로 재설정 코드를 전달한다. 설정 값은 로그에 남기지 않는다."""
+    if settings is None:
+        logger.warning("SMTP 설정이 없어 재설정 코드를 로그로 전달합니다(개발용)")
+        return LoggingPasswordResetNotifier()
+    logger.info("재설정 코드 전달: SMTP (host=%s)", settings.host)
+    return SmtpPasswordResetNotifier(settings)
+
+
 # 상태 없는 유틸은 싱글턴 (세션을 가진 객체는 요청마다 만든다)
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
 _auth_clock: AuthClock = AuthSystemClock()
 _reset_code_generator: ResetCodeGenerator = SecretsResetCodeGenerator()
-# 임시(개발·시연 전용): 재설정 코드 원문을 로그에 남긴다. 실제 메일 발송 구현으로 이 한 줄을 교체한 뒤에만 배포한다.
-_reset_notifier: PasswordResetNotifier = LoggingPasswordResetNotifier()
+_reset_notifier: PasswordResetNotifier = build_reset_notifier(get_mail_settings())
 _stores_clock: StoresClock = SystemClock()
 _catalog_clock: CatalogClock = CatalogSystemClock()
 _reservations_clock: ReservationsClock = ReservationsSystemClock()
