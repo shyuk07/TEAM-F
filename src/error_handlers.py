@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from admin.domain.exceptions import ReservationDataInconsistentError
-from auth.domain.exceptions import AuthenticationError, EmailDuplicatedError
+from auth.domain.exceptions import AccountLockedError, AuthenticationError, EmailDuplicatedError
 from reservations.domain.exceptions import ReservationConflictError
 from stores.domain.exceptions import GeocodingUnavailableError
 
@@ -28,6 +28,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AuthenticationError)
     async def authentication_error(request: Request, exc: AuthenticationError):
         return _response(401, exc.error_code, str(exc), {"WWW-Authenticate": "Bearer"})
+
+    @app.exception_handler(AccountLockedError)
+    async def account_locked(request: Request, exc: AccountLockedError):
+        return _response(429, exc.error_code, str(exc), {"Retry-After": str(exc.retry_after_seconds)})
 
     @app.exception_handler(EmailDuplicatedError)
     async def email_duplicated(request: Request, exc: EmailDuplicatedError):

@@ -165,11 +165,18 @@ def create_token_blacklist_repository(
     return SqlAlchemyTokenBlacklistRepository(session)
 
 
+def create_password_reset_code_repository(
+    session: AsyncSession = Depends(get_db),
+) -> PasswordResetCodeRepository:
+    return SqlAlchemyPasswordResetCodeRepository(session)
+
+
 def create_auth_service(
     session: AsyncSession = Depends(get_db),
     users: UserRepository = Depends(create_user_repository),
     point_logs: PointLogRepository = Depends(create_point_log_repository),
     blacklist: TokenBlacklistRepository = Depends(create_token_blacklist_repository),
+    codes: PasswordResetCodeRepository = Depends(create_password_reset_code_repository),
 ) -> AuthApplicationService:
     return AuthApplicationService(
         session=session,
@@ -179,13 +186,8 @@ def create_auth_service(
         hasher=_password_hasher,
         tokens=_token_provider,
         clock=_auth_clock,
+        codes=codes,
     )
-
-
-def create_password_reset_code_repository(
-    session: AsyncSession = Depends(get_db),
-) -> PasswordResetCodeRepository:
-    return SqlAlchemyPasswordResetCodeRepository(session)
 
 
 def create_password_reset_service(
@@ -211,6 +213,7 @@ def build_auth_service(session: AsyncSession) -> AuthApplicationService:
         SqlAlchemyUserRepository(session),
         SqlAlchemyPointLogRepository(session),
         SqlAlchemyTokenBlacklistRepository(session),
+        SqlAlchemyPasswordResetCodeRepository(session),
     )
 
 

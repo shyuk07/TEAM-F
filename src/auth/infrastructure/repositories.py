@@ -75,6 +75,8 @@ class SqlAlchemyUserRepository(UserRepository):
                 business_number=user.business_number,
                 token_version=user.token_version,
                 token_keep_jti=user.token_keep_jti,
+                failed_login_count=user.failed_login_count,
+                login_locked_until=user.login_locked_until,
             )
             self._write_status(model, user)
             if user.created_at is not None:
@@ -96,6 +98,8 @@ class SqlAlchemyUserRepository(UserRepository):
             model.password_hash = user.password_hash
             model.token_version = user.token_version
             model.token_keep_jti = user.token_keep_jti
+            model.failed_login_count = user.failed_login_count
+            model.login_locked_until = user.login_locked_until
             self._write_status(model, user)
             await self.session.flush()
         return user
@@ -162,6 +166,8 @@ class SqlAlchemyUserRepository(UserRepository):
             deleted_reason=model.deleted_reason,
             token_version=model.token_version,
             token_keep_jti=model.token_keep_jti,
+            failed_login_count=model.failed_login_count,
+            login_locked_until=model.login_locked_until,
         )
 
 

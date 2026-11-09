@@ -66,13 +66,15 @@ async def run(r: Report, keep: bool) -> None:
                 r.check(r1.status_code == 401 and is_error(r1, "INVALID_CREDENTIALS"), "비밀번호 틀림 401 INVALID_CREDENTIALS")
                 r.check(r2.status_code == 401 and is_error(r2, "INVALID_CREDENTIALS"), "없는 사용자 401 INVALID_CREDENTIALS")
                 r.check(r1.json() == r2.json(), "로그인 실패 2종 본문 동일 (계정 존재 여부 비노출)")
-                statuses = []
-                for _ in range(10):
-                    statuses.append((await c.post(LOGIN, json={"email": email, "password": "wrong-pass"})).status_code)
-                if 429 in statuses:
-                    r.add("통과", "로그인 시도 제한", "연속 실패 시 429")
-                else:
-                    r.add("주의", "로그인 시도 제한 없음", f"연속 10회 실패가 모두 {set(statuses)}")
+                # REQ-13: 연속 5회 실패 -> 10분 잠금. 잠긴 사실은 비밀번호가 맞을 때만 429(REQ-13-1). 별도 계정으로 확인한다.
+                lock_email = f"sec-lock-{tag}@example.com"
+                await c.post("/v1/auth/signup", json={"email": lock_email, "password": PW, "name": "보안점검", "phone": "010-0000-0000", "role": "CUSTOMER"})
+                statuses = [(await c.post(LOGIN, json={"email": lock_email, "password": "wrong-pass"})).status_code for _ in range(7)]
+                r.check(set(statuses) == {401}, "잠금 뒤에도 틀린 비밀번호는 401 (잠김 비노출, REQ-13-1)", str(statuses))
+                res = await c.post(LOGIN, json={"email": lock_email, "password": PW})
+                r.check(res.status_code == 429 and is_error(res, "ACCOUNT_LOCKED") and res.headers.get("retry-after", "").isdigit()
+                        and not res.headers.get("www-authenticate"),
+                        "연속 5회 실패 뒤 맞는 비밀번호 429 ACCOUNT_LOCKED + Retry-After (REQ-13)", f"{res.status_code} {res.headers.get('retry-after')}")
                 res = await c.post(LOGIN, json={"email": email, "password": PW})
                 body = res.json()
                 r.check(res.status_code == 200 and body.get("token_type") == "bearer" and body.get("access_token"),

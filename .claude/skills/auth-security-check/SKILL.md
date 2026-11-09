@@ -80,7 +80,7 @@ passlib이 출력하는 `(trapped) error reading bcrypt version`은 passlib 1.7.
 - [ ] `.env`가 `.gitignore`에 있고 저장소에 커밋되지 않았다 (`git ls-files .env`가 비어 있음, `static_check`)
 
 ## 7. 알려진 남은 위험 (코드 수정 전까지 매번 보고)
-- [ ] **로그인 시도 제한:** 연속 실패해도 429나 잠금이 없다. 무차별 대입 방어가 필요한지 팀이 정한다 (`e2e_auth`가 10회 연속 실패로 확인)
+- [x] **로그인 시도 제한(해소, REQ-13):** 같은 계정 연속 5회 실패 시 10분 잠금, 맞는 비밀번호에만 429 `ACCOUNT_LOCKED`(`e2e_auth`가 확인). 남은 한계: 알려진 이메일을 일부러 5번 틀려 잠글 수 있고(서비스 거부), IP별 제한은 없다
 - [ ] **상점주 가입:** 누구나 `role=OWNER`로 가입할 수 있다. stores 구현 시 승인 상태(명세 "승인 대기 중인 상점주 403")를 확인하는지 본다 (`e2e_auth`)
 - [ ] **블랙리스트 정리:** `purge_expired_tokens`를 호출하는 곳이 없어 `token_blacklist`가 계속 쌓인다. lifespan이나 로그아웃 시 정리 호출을 검토한다 (`static_check`)
 - [ ] **bcrypt 72바이트 절단:** 72바이트를 넘는 비밀번호는 뒷부분이 무시된다. 가입 시 최대 길이를 72바이트로 제한하거나 안내한다 (`jwt_matrix`)
