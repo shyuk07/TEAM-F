@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from reservations.application.ports import StockPort
 from reservations.application.views import CancelledReservation, RefundTarget, ReservationView
+from reservations.domain import rules
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
     DataInconsistentError,
     InconsistencyDetail,
@@ -89,13 +91,14 @@ class ReservationLifecycleService:
         *,
         reason: str,
         actor_user_id: uuid.UUID,
+        cancelled_by: CancelActor,
         commit: bool = False,
     ) -> PickupReservation:
         view = await self._load_locked(reservation_id)
         if view is None:
             raise ReservationNotFoundError()
         reservation = view.reservation
-        reservation.cancel(self.clock.now())  # 상태 검사가 재고 복구보다 먼저 (이중 복구 방지)
+        reservation.cancel(self.clock.now(), cancelled_by)  # 상태 검사가 재고 복구보다 먼저 (이중 복구 방지)
         await self._release_stock(reservation, user_id=actor_user_id, reason=reason)
         await self.reservations.save(reservation)
         if commit:
@@ -111,7 +114,7 @@ class ReservationLifecycleService:
         reservation = view.reservation
         if reservation.is_cancelled:
             return  # 멱등: 재고·환불을 다시 건드리지 않는다
-        reservation.cancel(self.clock.now())
+        reservation.cancel(self.clock.now(), rules.REFUND_REQUEST_CANCEL_ACTOR)
         await self._release_stock(reservation, user_id=reservation.user_id, reason=reason)
         await self.reservations.save(reservation)
         if commit:
@@ -138,7 +141,7 @@ class ReservationLifecycleService:
                     pickup_start=terms.pickup_start,
                     status=str(ReservationStatus.RESERVED),
                 )
-            reservation.cancel(now)
+            reservation.cancel(now, rules.OFFER_CLOSE_CANCEL_ACTOR)
             await self.reservations.save(reservation)
             cancelled.append(CancelledReservation(reservation, target, check_paid_payment))
         return cancelled
@@ -176,7 +179,7 @@ class ReservationLifecycleService:
                     pickup_start=terms.pickup_start,
                     status=str(ReservationStatus.RESERVED),
                 )
-            reservation.cancel(now)
+            reservation.cancel(now, rules.WITHDRAWAL_CANCEL_ACTOR)
             await self._release_stock(reservation, user_id=reservation.user_id, reason=reason)
             await self.reservations.save(reservation)
             cancelled.append(CancelledReservation(reservation, target, check_paid_payment))

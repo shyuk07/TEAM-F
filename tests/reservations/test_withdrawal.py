@@ -12,6 +12,7 @@ from reservations.application.service import ReservationApplicationService
 from reservations.application.store_adapters import CatalogStoreOffersAdapter
 from reservations.application.store_query import StoreReservationQuery
 from reservations.domain import rules
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import DataInconsistentError
 from reservations.domain.pickup_reservation import ReservationStatus as S
 from tests.reservations.fakes import (
@@ -106,6 +107,8 @@ async def test_cancel_all_for_user_cancels_pending_and_reserved_skips_others():
     result = await lifecycle.cancel_all_for_user(user, reason="회원 탈퇴")
     assert len(result) == 3
     assert {p1.status, p2.status, r1.status} == {S.CANCELLED}
+    assert {p1.cancelled_by, p2.cancelled_by, r1.cancelled_by} == {CancelActor.SYSTEM}  # P4·P5
+    assert other.cancelled_by is None and picked.cancelled_by is None
     assert picked.status == S.PICKED_UP and done.status == S.CANCELLED  # 기록 유지
     assert other.status == S.PENDING_PAYMENT  # 다른 회원은 건드리지 않음
     assert len(stock.released) == 3 and sorted(q for _, q, _, _ in stock.released) == [1, 1, 2]

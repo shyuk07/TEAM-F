@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from reservations.domain import rules
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
     NotPickupStoreOwnerError,
     NotReservationOwnerError,
@@ -121,17 +122,66 @@ def test_mark_paid_table():
 @pytest.mark.parametrize("status", [S.PENDING_PAYMENT, S.RESERVED])
 def test_cancel_allowed(status):
     r = make(status)
-    r.cancel(NOW)
+    r.cancel(NOW, CancelActor.CUSTOMER)
     assert r.status == S.CANCELLED and r.cancelled_at == NOW and not r.holds_stock
+    assert r.cancelled_by == CancelActor.CUSTOMER
+
+
+@pytest.mark.parametrize("actor", list(CancelActor))
+def test_cancel_records_actor(actor):
+    r = make(S.RESERVED)
+    r.cancel(NOW, actor)
+    assert r.cancelled_by == actor and r.cancelled_at == NOW and r.status == S.CANCELLED
 
 
 def test_cancel_rejected():
     with pytest.raises(ReservationAlreadyCancelledError, match="이미 취소된 예약입니다."):
-        make(S.CANCELLED).cancel(NOW)
+        make(S.CANCELLED).cancel(NOW, CancelActor.CUSTOMER)
     with pytest.raises(ReservationAlreadyPickedUpError, match="이미 픽업 완료된 예약입니다."):
-        make(S.PICKED_UP).cancel(NOW)
+        make(S.PICKED_UP).cancel(NOW, CancelActor.STORE)
     with pytest.raises(ValueError):
-        make().cancel(datetime(2026, 1, 1))
+        make().cancel(datetime(2026, 1, 1), CancelActor.CUSTOMER)
+
+
+def test_cancel_terminal_error_precedes_actor_validation():
+    with pytest.raises(ReservationAlreadyCancelledError):
+        make(S.CANCELLED).cancel(NOW, "NOBODY")  # type: ignore[arg-type]
+    with pytest.raises(ReservationAlreadyPickedUpError):
+        make(S.PICKED_UP).cancel(NOW, "NOBODY")  # type: ignore[arg-type]
+
+
+def test_cancel_invalid_actor_rejected_without_state_change():
+    r = make(S.RESERVED)
+    with pytest.raises(ValueError):
+        r.cancel(NOW, "NOBODY")  # type: ignore[arg-type]
+    assert r.status == S.RESERVED and r.cancelled_at is None and r.cancelled_by is None
+
+
+def test_cancel_requires_actor_argument():
+    with pytest.raises(TypeError):
+        make().cancel(NOW)  # type: ignore[call-arg]
+
+
+def test_constructor_cancelled_by_rules():
+    base = make(S.CANCELLED)
+    assert base.cancelled_by is None  # 기존 취소 행(NULL)은 허용
+    kw = dict(
+        user_id=base.user_id, offer_id=base.offer_id, quantity=base.quantity,
+        unit_price=base.unit_price, total_price=base.total_price, pickup_code=base.pickup_code,
+        store_name=base.store_name, pickup_address=base.pickup_address, product_name=base.product_name,
+    )
+    ok = PickupReservation(**kw, status=S.CANCELLED, cancelled_at=NOW, cancelled_by="STORE")
+    assert ok.cancelled_by is CancelActor.STORE
+    with pytest.raises(ValueError, match="취소 주체는 취소된 예약에만 있어야 합니다."):
+        PickupReservation(**kw, status=S.RESERVED, cancelled_by=CancelActor.CUSTOMER)
+    with pytest.raises(ValueError):
+        PickupReservation(**kw, status=S.CANCELLED, cancelled_at=NOW, cancelled_by="NOBODY")
+
+
+def test_rules_actor_constants():
+    assert rules.REFUND_REQUEST_CANCEL_ACTOR is CancelActor.CUSTOMER
+    assert rules.OFFER_CLOSE_CANCEL_ACTOR is CancelActor.STORE
+    assert rules.WITHDRAWAL_CANCEL_ACTOR is CancelActor.SYSTEM
 
 
 def test_pick_up_ok_and_rejections():

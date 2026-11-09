@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import ReservationNotFoundError
 from reservations.domain.pickup_reservation import PickupReservation, ReservationStatus
 from reservations.domain.repository import ReservationRepository
@@ -148,6 +149,7 @@ class SqlAlchemyReservationRepository(ReservationRepository):
                 pickup_address=reservation.pickup_address,
                 product_name=reservation.product_name,
                 cancelled_at=reservation.cancelled_at,
+                cancelled_by=None if reservation.cancelled_by is None else str(reservation.cancelled_by),
                 picked_up_at=reservation.picked_up_at,
             )
             if reservation.created_at is not None:
@@ -162,6 +164,7 @@ class SqlAlchemyReservationRepository(ReservationRepository):
                 raise ReservationNotFoundError("저장할 예약을 찾을 수 없습니다.")
             model.status = str(reservation.status)
             model.cancelled_at = reservation.cancelled_at
+            model.cancelled_by = None if reservation.cancelled_by is None else str(reservation.cancelled_by)
             model.picked_up_at = reservation.picked_up_at
             await self.session.flush()
         return reservation
@@ -182,5 +185,6 @@ class SqlAlchemyReservationRepository(ReservationRepository):
             product_name=model.product_name,  # type: ignore[arg-type]
             created_at=model.created_at,
             cancelled_at=model.cancelled_at,
+            cancelled_by=None if model.cancelled_by is None else CancelActor(model.cancelled_by),
             picked_up_at=model.picked_up_at,
         )

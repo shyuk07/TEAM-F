@@ -19,6 +19,7 @@ from auth.presentation.dependencies import (
 from main import app
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.service import ReservationApplicationService
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.offer_ref import OfferRef
 from reservations.domain.pickup_reservation import PickupReservation
 from reservations.domain.pickup_reservation import ReservationStatus as S
@@ -194,6 +195,7 @@ async def test_cancel_unpaid_is_200(client, env):
     r = await client.post(f"/v1/reservations/{res.id}/cancel", headers=headers())
     assert r.status_code == 200
     assert r.json()["id"] == str(res.id) and r.json()["status"] == "CANCELLED"
+    assert r.json()["cancelled_by"] == "CUSTOMER"
     assert env[1].commits == 1
 
 
@@ -264,6 +266,18 @@ async def test_list_returns_own_reservations(client, env):
     await add_reservation(env, user_id=OTHER_ID)
     r = await client.get("/v1/users/me/reservations", headers=headers())
     assert r.status_code == 200 and r.json()["total"] == 1
+    assert r.json()["reservations"][0]["cancelled_by"] is None
+
+
+async def test_list_shows_cancelled_by_after_cancel(client, env):
+    res = await add_reservation(env)
+    await client.post(f"/v1/reservations/{res.id}/cancel", headers=headers())
+    item = (await client.get("/v1/users/me/reservations", headers=headers())).json()["reservations"][0]
+    assert item["status"] == "CANCELLED" and item["cancelled_by"] == "CUSTOMER"
+    store_item = env[2].items[res.id]
+    store_item.cancelled_by = CancelActor.STORE
+    item = (await client.get("/v1/users/me/reservations", headers=headers())).json()["reservations"][0]
+    assert item["cancelled_by"] == "STORE"
 
 
 async def test_pickup_requires_owner_role(client, env):

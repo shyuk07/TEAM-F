@@ -156,7 +156,10 @@ CREATE TABLE pickup_reservations (
     store_name      VARCHAR(150),                          -- 예약 시점 스냅샷
     pickup_address  VARCHAR(500),                          -- 예약 시점 스냅샷
     product_name    VARCHAR(200),                          -- 예약 시점 스냅샷
-    price           INTEGER                                -- 확인 필요: unit_price/total_price와 중복
+    price           INTEGER,                               -- 확인 필요: unit_price/total_price와 중복
+    cancelled_by    VARCHAR(20),                           -- 취소 주체. 기존 취소 행·미취소 행은 NULL (reservations.md 16.3)
+    CONSTRAINT ck_reservation_cancelled_by CHECK (cancelled_by IN ('CUSTOMER', 'STORE', 'SYSTEM')),
+    CONSTRAINT ck_reservation_cancelled_by_status CHECK (cancelled_by IS NULL OR status = 'CANCELLED')
 );
 CREATE INDEX ix_pickup_reservations_user_id ON pickup_reservations (user_id);
 CREATE INDEX ix_pickup_reservations_offer_id ON pickup_reservations (offer_id);
