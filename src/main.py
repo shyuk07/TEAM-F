@@ -13,6 +13,7 @@ from database import AsyncSessionLocal, Base, engine
 from error_handlers import register_exception_handlers
 from payments.infrastructure import models as payments_models  # noqa: F401
 from payments.presentation.router import router as payments_router
+from schema_check import check_schema
 
 # FK 대상(users)이 먼저 등록돼야 하므로 auth → stores 순서를 유지한다.
 from stores.infrastructure import models as stores_models  # noqa: F401
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     get_auth_settings()
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+    await check_schema(engine)  # create_all이 못 채우는 차이(기존 테이블의 새 컬럼·CHECK)를 드러낸다
     await seed_admin()  # 설정 오류·이메일 충돌은 시작을 중단시킨다
     yield
     await engine.dispose()
