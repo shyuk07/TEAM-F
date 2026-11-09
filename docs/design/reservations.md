@@ -985,3 +985,185 @@ async def has_pickup_pending_for_store(self, store_id) -> bool:  # stores Pickup
 
 R1(도메인 변경은 추상 메서드 선언뿐), R2·R11(catalog는 추상 레포지토리, 포트는 reservations 정의, admin·stores는 reservations를 import하지 않음), R3(상태 전이는 `PickupReservation.cancel`, 서비스는 조율만), R4(ID 목록·도메인 객체만 반환), R5·R13(`cancel_all_for_user`·어댑터·질의는 commit 안 함, 시작한 서비스가 1회), R6·R7(새 예외는 `DataInconsistentError`/admin 번역 예외, 500 형식 유지), R8~R10(추상만 받음, 선언된 메서드만 호출), R12(15.6 검사), R14(스키마 불변), R15(명세 불변), R16(검사를 약하게 하지 않음, DB 테스트는 승인 후 실행). 충돌하는 요구 없음.
 
+## 16. 취소 주체(`cancelled_by`) 기록과 조회 노출 (2026-11-09 추가)
+
+- 기준: `origin/main` c954de2. 사용자 결정(**확정, 2026-11-09**): 코드에 취소 주체를 추가한다. 목적은 고객 화면(와이어프레임 C5 "직접 취소", C5b "매장 사정 취소")에서 두 경우를 구분해 보여 주는 것이다.
+- 이 절의 세부 결정(값 집합·NULL 허용·시그니처 방식)은 모두 **확정(위임, 2026-11-09)** 이다. 질문은 16.10에 따로 모은다.
+- 범위 밖: "픽업 시간 지남"은 DB 변경 없이 화면이 `pickup_end`로 계산한다. 이 절은 다루지 않는다.
+- 용어: 취소 주체 = `cancelled_by`(누가 취소를 일으켰는가). 사유 문구(`reason`, 재고·환불 기록용)와 다르며 저장하지 않던 `reason`은 이번에도 저장하지 않는다.
+
+### 16.0 차단 이슈
+
+없음. 확인: `git status --short`(깨끗함), `grep -rn "cancel" src`로 취소 경로 전수 조사(16.1). 새 의존성·환경변수 없음. 스키마 변경은 개발 DB에 ALTER가 필요하다(16.3, `create_all`은 기존 테이블에 컬럼을 추가하지 않는다).
+
+### 16.1 현재 취소 경로 전수 조사와 주체 매핑
+
+예약 상태를 CANCELLED로 만드는 곳은 `PickupReservation.cancel` 호출 4곳뿐이다(`src/reservations/application/lifecycle_service.py:98,114,141,~190`).
+
+| # | 경로 | 진입점 (파일:위치) | 호출 시그니처(불변) | 주체 | 근거 |
+| --- | --- | --- | --- | --- | --- |
+| P1 | 고객 직접 취소 `POST /v1/reservations/{id}/cancel` | `reservations/application/service.py:74 cancel_reservation` -> `lifecycle.cancel` | 외부 호출 없음(EP) | `CUSTOMER` | 본인 요청 |
+| P2 | 고객 환불 요청으로 인한 취소 `POST /v1/payments/{id}/refunds` | `payments/application/service.py:160` -> `ReservationLifecyclePort.cancel_for_refund(reservation_id, reason, commit)` -> `lifecycle.cancel_for_refund` | **불변** | `CUSTOMER` | 환불 EP는 `CurrentUser`가 본인 결제를 환불(`payments/presentation/router.py:78-88`). 고객이 시작한 취소 |
+| P3 | 점주 판매 중단(`cancel_reservations=true`) | `catalog/application/service.py:278` -> `ReservationCancelPort.cancel_all_for_offer(offer_id, *, reason)` -> `reservations/application/service.py:135` | **불변** | `STORE` | 호출자는 `OwnerUser` 전용 EP(`catalog/presentation/router.py:247`) |
+| P4 | 자진 회원 탈퇴 | `auth/application/withdrawal_service.py:~58` -> `cancel_active_for_user(user_id, *, reason="회원 탈퇴")` -> `service.cancel_all_for_user` | **불변** | `SYSTEM` | 탈퇴 처리의 부수 효과 |
+| P5 | 관리자 강제 탈퇴 | `admin/application/service.py:98` -> `cancel_active_for_user` -> `service.cancel_all_for_user` | **불변** | `SYSTEM` | P4와 같은 메서드라 포트가 구분하지 못한다(아래 결정 D-42) |
+| P6 | 상점 폐점·관리자 정지(`end_all_sales_of_store`) | `catalog/application/service.py:462` | - | (해당 없음) | **예약을 취소하지 않는다**. 할인만 종료(`offer.end_sale`)하고, 타 고객 RESERVED가 있으면 폐점이 거부된다(`has_reserved_for_store`). 취소 경로가 아니다 |
+| P7 | 관리자 할인 정지(`suspended_reason`) | catalog | - | (해당 없음) | `ReservationCancelPort`는 `deactivate_offer` 한 곳에서만 쓴다(`grep ReservationCancelPort`). 예약을 취소하지 않는다 |
+
+조사 결론
+- 주체 값 최소 집합: **`CUSTOMER`, `STORE`, `SYSTEM`** 세 개. 추천안에 있던 `ADMIN`은 **넣지 않는다**: 관리자가 예약을 직접 취소하는 경로가 없고(P5는 회원 탈퇴 처리), 강제 탈퇴된 회원은 토큰이 401이라 자기 예약 목록을 볼 수 없다. 나중에 경로가 생기면 값 하나와 CHECK 한 줄을 추가한다.
+- `SYSTEM`(P4·P5)은 탈퇴한 회원의 예약에만 붙으므로 **고객 화면에 노출되지 않는다**. 값은 데이터 정합(누가 취소했는지 감사)용이다. 점주 목록(`/stores/{id}/reservations`)에도 넣지 않는다(16.5).
+- 화면 매핑(와이어프레임 쪽에 전달): `CUSTOMER` -> C5 "직접 취소", `STORE` -> C5b "매장 사정 취소", `null`(기존 취소 행) -> 구분 없이 "취소됨", `SYSTEM` -> 노출되지 않음(방어적으로 "취소됨").
+
+### 16.2 도메인 (`domain/`, R1·R3)
+
+- 새 `StrEnum` `CancelActor`(`domain/cancel_actor.py`, 순수 파이썬): `CUSTOMER`, `STORE`, `SYSTEM`. 값 문자열은 DB CHECK·응답과 같다.
+- `PickupReservation.__init__`에 `cancelled_by: CancelActor | None = None` 추가(**기존 인자 순서 뒤에 키워드로 추가**, 기존 호출 불변).
+  - 검증 추가: `cancelled_by`가 있으면 `CancelActor(cancelled_by)`로 변환(값 오류는 `ValueError`), 그리고 `status`가 `CANCELLED`여야 한다. 아니면 `ValueError("취소 주체는 취소된 예약에만 있어야 합니다.")`.
+  - **`CANCELLED`인데 `cancelled_by`가 None인 것은 허용**한다(기존 행, 16.3). 새 취소는 `cancel`이 반드시 채운다.
+- 시그니처 변경(**R3: 규칙은 엔티티에**): `cancel(self, now: datetime, cancelled_by: CancelActor) -> None`. 기본값을 두지 않는다(호출부가 빠뜨리면 즉시 `TypeError`로 드러나게).
+  - 검사 순서: ① `_raise_terminal()`(이미 취소·픽업이면 기존 예외 그대로) ② `now` timezone ③ `CancelActor(cancelled_by)` 변환 실패 시 `ValueError`. 기존 예외 순서·메시지는 바뀌지 않는다.
+  - 성공 시 `status=CANCELLED`, `cancelled_at=now`, `cancelled_by` 저장.
+- 상태 전이표 불변(PENDING_PAYMENT/RESERVED -> CANCELLED). 주체는 전이 조건이 아니다(누구든 같은 규칙).
+- 상수는 `domain/rules.py`에 한곳으로 모은다: `REFUND_REQUEST_CANCEL_ACTOR = CancelActor.CUSTOMER`(P2), `OFFER_CLOSE_CANCEL_ACTOR = CancelActor.STORE`(P3), `WITHDRAWAL_CANCEL_ACTOR = CancelActor.SYSTEM`(P4·P5). (`pickup_reservation.py`가 `rules.py`를 이미 import하므로, `CancelActor`를 별도 파일 `domain/cancel_actor.py`에 두어 `rules.py`·`pickup_reservation.py`가 함께 import한다. 순환 없음.)
+
+### 16.3 인프라와 스키마 변경 제안 (S-번호, R14)
+
+`schema.sql`·`db-schema/SKILL.md`는 이 작업에서 **고치지 않는다**(설계는 변경안만). 구현 시 R14에 따라 두 파일을 함께 고친다(`.claude/` 수정이므로 16.9의 범위 확장, 사용자 승인 필요).
+
+| 항목 | 값 |
+| --- | --- |
+| 테이블 | `pickup_reservations` |
+| 새 컬럼 | `cancelled_by VARCHAR(20)` |
+| NULL | **허용**. 기존 취소 행과 CANCELLED가 아닌 행은 NULL |
+| CHECK 1 | `ck_reservation_cancelled_by`: `cancelled_by IN ('CUSTOMER','STORE','SYSTEM')` (NULL은 통과) |
+| CHECK 2 | `ck_reservation_cancelled_by_status`: `cancelled_by IS NULL OR status = 'CANCELLED'` |
+| 하지 않는 것 | `status = 'CANCELLED'`이면 NOT NULL을 요구하는 CHECK는 **넣지 않는다**(기존 취소 행이 위반됨) |
+| `models.py` | `cancelled_by: Mapped[str \| None] = mapped_column(String(20))` + 위 두 `CheckConstraint`(`__table_args__`) |
+
+기존 취소 행 처리: **백필하지 않고 NULL로 둔다**(확정 위임). 이유: 저장된 `reason`이 없어 고객 취소(CUSTOMER)와 판매 중단(STORE)을 사후에 구분할 근거가 없다. 추측으로 CUSTOMER를 채우면 판매 중단 취소가 "직접 취소"로 잘못 보인다. 응답에서는 `null`이다.
+
+개발 DB ALTER문(이미 만들어진 DB용, 되돌리기 포함):
+
+```sql
+ALTER TABLE pickup_reservations ADD COLUMN cancelled_by VARCHAR(20);
+ALTER TABLE pickup_reservations
+    ADD CONSTRAINT ck_reservation_cancelled_by
+    CHECK (cancelled_by IN ('CUSTOMER', 'STORE', 'SYSTEM'));
+ALTER TABLE pickup_reservations
+    ADD CONSTRAINT ck_reservation_cancelled_by_status
+    CHECK (cancelled_by IS NULL OR status = 'CANCELLED');
+-- 되돌리기: ALTER TABLE pickup_reservations DROP COLUMN cancelled_by;  (CHECK도 함께 삭제됨)
+```
+
+실행은 사용자가 한다(설계자·구현자는 DB를 바꾸지 않는다). 컬럼이 없는 DB에 새 코드를 띄우면 예약 조회·저장이 모두 실패하므로 **ALTER를 먼저** 적용한다. 테스트 DB가 `create_all`이면 이미 있는 테이블에는 컬럼이 안 생기므로 테스트 DB도 같은 ALTER가 필요하다(또는 테스트 DB 재생성).
+
+레포지토리(`infrastructure/repositories.py`): `save`의 신규 INSERT와 UPDATE 분기 모두 `cancelled_by=...`를 쓰고(UPDATE는 `model.cancelled_by = reservation.cancelled_by`, 현재 `repositories.py:164` 부근), `_to_domain`은 `CancelActor(model.cancelled_by)`(None이면 None)로 변환한다. 추상 `ReservationRepository`의 메서드 목록은 불변(R10). 동시성: 기존 `for_update` 경로 그대로. 새 잠금 없음.
+
+### 16.4 응용 (`application/`)
+
+핵심 원칙: **다른 모듈이 부르는 포트 시그니처는 바꾸지 않는다.** 주체는 reservations가 진입점별로 직접 정한다(D-41).
+
+| 메서드 | 변경 |
+| --- | --- |
+| `ReservationApplicationService.cancel_reservation` (P1) | `lifecycle.cancel(..., cancelled_by=CancelActor.CUSTOMER, ...)` |
+| `ReservationLifecycleService.cancel` | 키워드 인자 `cancelled_by: CancelActor` 추가(필수) -> `reservation.cancel(now, cancelled_by)` |
+| `ReservationLifecycleService.cancel_for_refund` (P2) | 내부에서 `rules.REFUND_REQUEST_CANCEL_ACTOR`를 `reservation.cancel`에 전달. 시그니처 불변(payments 포트·어댑터 `adapters.py:52` 불변) |
+| `ReservationLifecycleService.cancel_all_for_offer` (P3) | `reservation.cancel(now, rules.OFFER_CLOSE_CANCEL_ACTOR)`. 시그니처 불변 |
+| `ReservationLifecycleService.cancel_all_for_user` (P4·P5) | `reservation.cancel(now, rules.WITHDRAWAL_CANCEL_ACTOR)`. 시그니처 불변 |
+| `ReservationApplicationService.cancel_all_for_offer`·`cancel_all_for_user` | 변경 없음(`reason`만 받는다) |
+
+- 트랜잭션 경계·잠금 순서·환불 순서(RD-5, D-6, 13.6.4)는 불변이다. 주체 기록은 같은 `save()`에 실린다.
+- `cancel_reservation`의 호출 시그니처 `(user_id, reservation_id)`와 응답은 불변. 반환 도메인 객체에 `cancelled_by`가 실려 응답에 나간다.
+
+### 16.5 표현 (`presentation/`, R15)
+
+`GET /v1/users/me/reservations`와 `POST /v1/reservations/{id}/cancel`만 바꾼다. **별도 상세 조회 EP는 없다**(`router.py`에 `GET /reservations/{id}` 없음). 기존 필드의 이름·타입·순서·의미는 불변이고 필드 하나만 **추가**한다.
+
+| 스키마 | 추가 필드 | 타입 | 값 |
+| --- | --- | --- | --- |
+| `ReservationListItem` (내 예약 목록 항목) | `cancelled_by` | `str \| None` | `CUSTOMER`/`STORE`/`SYSTEM`. 취소되지 않았거나 기존 취소 행이면 `null` |
+| `ReservationCancelResponse` (취소 EP 응답) | `cancelled_by` | `str \| None` | 이 EP로는 항상 `CUSTOMER`(직접 취소). 타입은 목록과 같게 둔다 |
+
+- `ReservationCreateResponse`, `StoreReservationListItem`(점주용)에는 넣지 않는다(고객 구분 화면이 목적이고, 점주 목록은 고객 정보 최소화 원칙 R-REQ25와 같은 방향).
+- 에러 코드·상태 코드 불변(400/401/403/404/409).
+- 이 필드 때문에 목록의 `status=CANCELLED`로 거르는 쿼리·정렬은 바뀌지 않는다(`cancelled_by`로 필터하는 쿼리 매개변수는 추가하지 않는다).
+
+명세 변경(`docs/reference/reservations.md`, 구현자 쓰기 범위): ① 2절 "내 예약 목록" 응답 표에 `cancelled_by`(string 또는 null) 행과 값 설명(`CUSTOMER` 고객 직접 취소, `STORE` 매장 사정 취소, `SYSTEM` 시스템 처리, `null` 취소 주체를 알 수 없음) 추가, ② 3절 취소 응답 표(`:164` 부근)와 JSON 예시에 `"cancelled_by": "CUSTOMER"` 추가. 3절의 "확인 필요"는 그대로 둔다. `docs/reference/README.md`의 상태 값 표 옆에 취소 주체 값 표를 두는 것은 선택(16.10 Q-38).
+
+### 16.6 다른 모듈 영향 (R11, R12)
+
+| 모듈 | 영향 | 변경 필요 |
+| --- | --- | --- |
+| catalog | `ReservationCancelPort.cancel_all_for_offer(offer_id, *, reason)` 불변 | 없음 |
+| admin | `cancel_active_for_user(user_id, *, reason)` 불변 | 없음 |
+| auth(탈퇴 조정) | 같은 포트 불변 | 없음 |
+| payments | `cancel_for_refund(reservation_id, reason, *, commit)` 불변 | 없음 |
+| stores | 영향 없음 | 없음 |
+| `src/container.py` | 조립 변경 없음(새 의존성 없음) | 없음 |
+
+그러므로 **이 설계는 범위 확장이 없다**(src/reservations 안과 문서·스키마 파일만). 단 P4와 P5를 `SYSTEM` 하나로 합친 것은 포트를 바꾸지 않기 위한 선택이다. 나중에 "관리자 강제 탈퇴"를 따로 구분하려면 admin 포트에 주체 인자를 더해야 하므로 그때 범위 확장(admin·auth 수정)으로 다룬다(Q-37).
+
+### 16.7 테스트 계획 (`tests/reservations/**`, `testing.md` 기준)
+
+기존 `reservation.cancel(now)` 직접 호출은 시그니처 변경으로 깨진다. 호출 수정 위치: `tests/reservations/test_domain.py`, `tests/reservations/test_service.py`, `tests/payments/test_integration.py`(payments 테스트가 `.cancel(`를 직접 부르는지 구현자가 확인; 부르면 **범위 확장**으로 표시하고 보고).
+
+| 구분 | 케이스 |
+| --- | --- |
+| 도메인 | `cancel(now, CUSTOMER/STORE/SYSTEM)`이 `cancelled_by`·`cancelled_at`·`status`를 세팅 / 잘못된 문자열이면 `ValueError` / 이미 CANCELLED·PICKED_UP에서는 주체와 상관없이 기존 예외가 먼저 / 생성자: `cancelled_by`가 있는데 상태가 CANCELLED가 아니면 `ValueError`, CANCELLED + None은 허용(기존 행) |
+| 서비스(fake) | P1 `cancel_reservation` -> `CUSTOMER` / P2 `cancel_for_refund` -> `CUSTOMER` / P3 `cancel_all_for_offer` -> 취소된 모든 예약이 `STORE` / P4·P5 `cancel_all_for_user` -> `SYSTEM` / 멱등: 이미 취소된 예약의 `cancelled_by`는 덮어쓰지 않는다(`cancel_for_refund`의 `is_cancelled` 조기 반환 유지) |
+| 표현 | 취소 응답과 내 목록 항목에 `cancelled_by` 포함, 취소 안 된 항목은 `null`, 기존 필드 그대로(기존 `test_api.py` 단언 불변으로 통과) |
+| DB(`-m db`) | ALTER 적용 후 `save`/`find_by_id` 왕복에서 `cancelled_by` 보존 / CHECK 위반 값 INSERT 거부 / `cancelled_by`가 있고 status가 CANCELLED가 아니면 거부 / 기존 취소 행(NULL)이 `_to_domain`으로 읽힘 |
+
+DB 테스트 skip은 통과가 아니다(R16). 이 절의 변경은 테스트 DB에 ALTER가 먼저 적용되어야 DB 테스트가 돈다.
+
+### 16.8 구현 순서
+
+1. `domain/cancel_actor.py`, `PickupReservation.cancel`·생성자, `rules.py` 상수 -> 2. `models.py`(+CHECK), `repositories.py` -> 3. `lifecycle_service.py`, `service.py`(`cancel_reservation`) -> 4. `schemas.py` 필드 두 개 -> 5. 테스트 수정·추가 -> 6. `docs/reference/reservations.md` -> 7. (승인 후) `schema.sql`·`db-schema/SKILL.md`.
+
+### 16.9 구현자 쓰기 범위 (`layer-implementer` 발주용)
+
+| 구분 | 경로 |
+| --- | --- |
+| 쓴다 | `src/reservations/**`, `tests/reservations/**`, `docs/reference/reservations.md` |
+| **범위 확장(사용자 승인 후)** | `.claude/skills/db-schema/schema.sql`, `.claude/skills/db-schema/SKILL.md`(R14: models와 같이 고쳐야 함), `tests/payments/**`(`.cancel(` 직접 호출이 있을 때만) |
+| 쓰지 않는다 | `src/catalog/**`, `src/admin/**`, `src/auth/**`, `src/payments/**`, `src/stores/**`, `src/container.py`, `src/main.py`, `docs/reference/README.md` |
+| 사용자가 직접 | 개발·테스트 DB에 16.3 ALTER 실행 |
+
+완료 게이트는 `backend-invariants` §7과 같다.
+
+### 16.10 결정 표(D-번호), 정합 이슈(C-번호), 질문(Q-번호)
+
+결정(이어서 번호: 기존 최대는 D-39(15.9), C-21(15.10), Q-36이며 `RD-40`은 별도 계열이다. 이 절은 D-40, C-22, Q-37부터 쓴다)
+
+| # | 결정 | 근거 | 상태 |
+| --- | --- | --- | --- |
+| D-40 | 취소 주체 값은 `CUSTOMER`·`STORE`·`SYSTEM` 3개(`ADMIN` 제외). 컬럼 `pickup_reservations.cancelled_by VARCHAR(20)` NULL 허용 + CHECK 2개(16.3) | 16.1 경로 조사: 관리자 직접 취소 경로 없음, SYSTEM은 탈퇴 전용 | 확정(위임, 2026-11-09) |
+| D-41 | 규칙은 도메인 `PickupReservation.cancel(now, cancelled_by)`(기본값 없음). 주체 결정은 reservations 내부(진입점별 상수 `rules.*_CANCEL_ACTOR`)이고 **타 모듈 포트 시그니처는 바꾸지 않는다** | R3, R11, 범위 최소화 | 확정(위임, 2026-11-09) |
+| D-42 | 자진 탈퇴(P4)와 관리자 강제 탈퇴(P5)는 모두 `SYSTEM`. 두 경우 모두 대상 회원이 목록을 볼 수 없어 구분 이득이 없고, 구분하려면 admin·auth 포트 변경이 필요 | 16.1, 범위 확장 회피 | 확정(위임, 2026-11-09) |
+| D-43 | 기존 취소 행은 백필하지 않고 NULL. 응답 `null` | 취소 사유가 저장돼 있지 않아 사후 추정 불가 | 확정(위임, 2026-11-09) |
+| D-44 | 응답 필드 이름은 `cancelled_by`(기존 `cancelled_at`과 같은 형태). 내 목록 항목과 취소 응답에만 추가, 기존 필드 불변. 점주 목록·생성 응답은 불변 | R15, 호환성 | 확정(위임, 2026-11-09) |
+| D-45 | "픽업 시간 지남"은 저장하지 않고 화면이 `pickup_end`로 계산(DB·API 변경 없음) | 사용자 결정 2026-11-09 | 확정 |
+
+정합 이슈
+
+| # | 대상 | 내용 |
+| --- | --- | --- |
+| C-22 | `.claude/skills/db-schema/schema.sql`, `SKILL.md` (R14) | 16.3 컬럼·CHECK 반영과 ERD(`pickup_reservations`)에 `cancelled_by` 추가. 이 작업은 설계만 하므로 아직 반영하지 않았다. `.claude/` 변경이라 사용자 승인 필요 |
+| C-23 | `docs/reference/reservations.md` | 16.5 명세 변경. 코드와 같은 변경에서 갱신(R15) |
+| C-24 | 개발·테스트 DB | 16.3 ALTER를 코드 배포 전에 적용(사용자). 미적용이면 예약 API 전체가 컬럼 없음 오류 |
+| C-25 | `tests/payments/test_integration.py` | `.cancel(` 직접 호출이 있으면 새 시그니처로 수정 필요(범위 확장, 16.9) |
+
+질문 목록과 임시 기본값(위 확정 외에 남은 것)
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
+| --- | --- | --- | --- | --- |
+| Q-37 | 관리자 강제 탈퇴를 `SYSTEM`과 구분해(`ADMIN`) 기록할지 | D-42 | 구분하지 않음(`SYSTEM`) | 화면 노출 없음, 포트 변경 회피. 값 상수는 `rules.py`와 enum 한곳이라 나중에 바꾸기 쉽다 |
+| Q-38 | `docs/reference/README.md`에 취소 주체 값 표를 둘지 | 16.5 | 두지 않고 `reservations.md` 한 곳에만 쓴다 | "정본은 하나" 원칙(AGENTS.md) |
+| Q-39 | 내 목록 항목에 `cancelled_at`도 추가할지(화면이 취소 시각을 보여야 하면) | 현재 목록 항목에 없음 | 추가하지 않음(이번 요구는 취소 주체만) | 요구 범위, 필요하면 같은 방식으로 추가 |
+| Q-40 | `SYSTEM`/`null`을 화면이 어떻게 표시할지 | 16.1 | 둘 다 "취소됨"(구분 없음) | `SYSTEM`은 노출되지 않음, `null`은 주체 불명 |
+
+### 16.11 불변 규칙 점검
+
+R1(`cancel_actor.py`·`pickup_reservation.py`는 표준 라이브러리만), R2·R4(레포지토리는 도메인 객체만, `CancelActor` 변환은 `_to_domain`), R3(주체 검증·상태 전이는 엔티티 `cancel`, 서비스는 상수를 넘기기만), R5·R13(commit 위치·트랜잭션 불변), R6·R7(새 예외 없음, 도메인 `ValueError`는 기존 400 `VALIDATION_ERROR`), R8~R10(추상 메서드 목록 불변), R11·R12(타 모듈 포트·조립 불변, 새 import 방향 없음), R14(models와 schema.sql·SKILL.md를 함께 고쳐야 함: C-22 승인 전에는 불일치 상태가 되므로 7단계를 같은 PR에서 처리), R15(응답은 필드 추가만, 명세 C-23), R16(테스트를 약하게 하지 않음, DB 테스트는 ALTER 후 실행). 충돌하는 요구 없음.
+
