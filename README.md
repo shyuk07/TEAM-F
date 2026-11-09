@@ -64,6 +64,8 @@ uv run python -c "import secrets; print(secrets.token_hex(32))"
 
 관리자 계정이 필요하면 `.env`에 `ADMIN_EMAIL`과 `ADMIN_PASSWORD`를 함께 설정합니다(선택). 서버 시작 시 관리자가 없으면 만들어집니다. 자세한 규칙은 `docs/reference/auth.md`의 "관리자 계정 생성"을 봅니다.
 
+비밀번호 재설정 코드를 실제 메일로 받으려면 `.env`에 `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`(선택 `SMTP_PORT`, 기본 587)을 모두 채우고 서버를 시작합니다. 비워 두면 코드는 서버 로그(`auth.password_reset`)에만 남습니다. 일부만 채우면 서버가 시작하지 않습니다. Gmail 등은 앱 비밀번호가 필요합니다.
+
 ### 4. PostgreSQL 실행
 
 Docker Desktop을 켜고 실행합니다.
