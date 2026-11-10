@@ -131,6 +131,8 @@ class ReservationLifecycleService:
         for reservation in reservations:
             if not reservation.holds_stock:
                 continue
+            if reservation.is_no_show(terms.pickup_end, now):
+                continue  # 미수령: 취소·환불하지 않고 RESERVED로 남긴다(A안). 바뀌는 것이 없어 불일치 검사 대상도 아니다
             target = None
             check_paid_payment = reservation.is_pending_payment  # 취소하기 전 상태로 판단
             if reservation.is_paid:
@@ -165,13 +167,15 @@ class ReservationLifecycleService:
         for reservation in reservations:
             if not reservation.holds_stock:
                 continue
+            terms = terms_by_offer.get(reservation.offer_id)
+            if terms is None:  # 재조회에서 새로 나타난 offer(드문 경우): 잠그고 추가
+                terms = await self.stock.get_terms(reservation.offer_id, for_update=True)
+                terms_by_offer[reservation.offer_id] = terms
+            if reservation.is_no_show(terms.pickup_end, now):
+                continue  # 미수령: 환불·재고 복구 없이 RESERVED로 남긴다(A안)
             target = None
             check_paid_payment = reservation.is_pending_payment  # 취소하기 전 상태로 판단
             if reservation.is_paid:
-                terms = terms_by_offer.get(reservation.offer_id)
-                if terms is None:  # 재조회에서 새로 나타난 offer(드문 경우): 잠그고 추가
-                    terms = await self.stock.get_terms(reservation.offer_id, for_update=True)
-                    terms_by_offer[reservation.offer_id] = terms
                 target = RefundTarget(
                     reservation_id=reservation.id,  # type: ignore[arg-type]
                     user_id=reservation.user_id,

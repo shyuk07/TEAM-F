@@ -1,6 +1,7 @@
 """reservations가 외부 모듈에 요구하는 포트. catalog·payments를 import하지 않고 구조적으로 맞춘다 (R11)."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
@@ -53,6 +54,10 @@ class StoreOffersPort(Protocol):
     async def list_offer_ids_of_store(
         self, store_id: uuid.UUID, *, for_update: bool = False
     ) -> list[uuid.UUID]: ...
+
+    async def get_pickup_ends(self, offer_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, datetime]:
+        """할인별 픽업 마감 시각. 없는 할인은 빠진다. 잠그지 않는다."""
+        ...
 
 
 class StoreOwnerInfo(Protocol):

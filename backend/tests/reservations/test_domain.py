@@ -255,3 +255,17 @@ def test_pickup_window_is_enforced_with_both_ends_inclusive():
             offer.ensure_pickup_time(now)
         assert e.value.error_code == "PICKUP_OUTSIDE_WINDOW" and isinstance(e.value, ValueError)  # 400
     assert not hasattr(rules, "PICKUP_WINDOW_ENFORCED")  # 임시 스위치 제거됨
+
+
+# ── 미수령(A안, 2026-11-10): RESERVED이면서 now > pickup_end. 새 상태는 없다 ──
+def test_is_no_show_only_for_reserved_after_pickup_end():
+    end = NOW + timedelta(hours=3)
+    r = make(ReservationStatus.RESERVED)
+    assert r.is_no_show(end, end) is False  # 마감 순간은 아직 픽업 가능
+    assert r.is_no_show(end, end + timedelta(microseconds=1)) is True
+    for status in (ReservationStatus.PENDING_PAYMENT, ReservationStatus.CANCELLED, ReservationStatus.PICKED_UP):
+        assert make(status).is_no_show(end, end + timedelta(days=1)) is False
+    assert set(ReservationStatus) == {
+        ReservationStatus.PENDING_PAYMENT, ReservationStatus.RESERVED,
+        ReservationStatus.PICKED_UP, ReservationStatus.CANCELLED,
+    }  # NO_SHOW 상태를 추가하지 않는다

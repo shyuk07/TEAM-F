@@ -93,6 +93,12 @@ class FakeRepo(ReservationRepository):
         rows.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
         return rows[(page - 1) * size : page * size], len(rows)
 
+    async def find_offer_ids_with_status(self, offer_ids, status, *, excluding_user_id=None):
+        return {
+            r.offer_id for r in self.items.values()
+            if r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id
+        }
+
     async def exists_by_offers_and_status(self, offer_ids, status, *, excluding_user_id=None):
         self.log.events.append("res_exists")
         return any(

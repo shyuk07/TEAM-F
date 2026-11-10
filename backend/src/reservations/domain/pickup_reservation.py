@@ -145,6 +145,14 @@ class PickupReservation:
     def is_paid(self) -> bool:
         return self.status == ReservationStatus.RESERVED
 
+    def is_no_show(self, pickup_end: datetime, now: datetime) -> bool:
+        """미수령: 결제 완료(RESERVED)인데 픽업 마감이 지났다(now > pickup_end, 마감 순간은 아직 픽업 가능).
+
+        새 상태를 두지 않는다(사용자 결정 2026-11-10, A안). 미수령 예약은 RESERVED로 남고, 판매 중단·회원 탈퇴 일괄 취소에서
+        자동 취소·환불·재고 복구를 하지 않으며, 폐점·상점주 탈퇴를 막는 '픽업 대기 예약'에서도 빠진다.
+        """
+        return self.status == ReservationStatus.RESERVED and now > pickup_end
+
     @property
     def is_pending_payment(self) -> bool:
         return self.status == ReservationStatus.PENDING_PAYMENT

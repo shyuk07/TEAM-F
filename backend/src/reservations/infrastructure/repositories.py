@@ -146,6 +146,24 @@ class SqlAlchemyReservationRepository(ReservationRepository):
         models = (await self.session.execute(stmt)).scalars().all()
         return [self._to_domain(m) for m in models], int(total or 0)
 
+    async def find_offer_ids_with_status(
+        self,
+        offer_ids: Sequence[uuid.UUID],
+        status: ReservationStatus,
+        *,
+        excluding_user_id: uuid.UUID | None = None,
+    ) -> set[uuid.UUID]:
+        if not offer_ids:
+            return set()
+        conditions = [
+            PickupReservationModel.offer_id.in_(list(offer_ids)),
+            PickupReservationModel.status == str(status),
+        ]
+        if excluding_user_id is not None:
+            conditions.append(PickupReservationModel.user_id != excluding_user_id)
+        rows = await self.session.execute(select(PickupReservationModel.offer_id).where(*conditions).distinct())
+        return set(rows.scalars().all())
+
     async def save(self, reservation: PickupReservation) -> PickupReservation:
         if reservation.id is None:
             model = PickupReservationModel(
