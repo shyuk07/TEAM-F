@@ -1,8 +1,8 @@
 # app 계층 설계: 라우터·셸·의존성 조립
 
-- 대상: `app` 계층(`app/router`, `app/layouts`, `app/container.ts`, `main.tsx`)과 이를 받치는 `widgets/owner-nav`, `shared/config/routes.ts`
+- 대상: `app` 계층(`app/router`, `app/layouts`, `app/container.ts`, `main.tsx`)과 이를 받치는 `widgets/owner-nav`, `shared/lib/routes.ts`
 - 대응 화면: 상점주 O1, O2, O3(라우트 자리만), O4, O6, O11 / 공개 A1(자리만). O12·O5·O7·O8·O9·O10은 이번 범위 밖
-- 상태: 설계안 2차. 사용자 확정 결정(D-1, D-2, D-5, Q-1, Q-3, Q-4, Q-5)을 반영했다. 구현을 막는 미결정 항목은 없다(§10).
+- 상태: 설계안 3차. 사용자 확정 결정(D-1, D-2, D-5, D-17, Q-1, Q-3, Q-4, Q-5)을 반영했다. 구현을 막는 미결정 항목은 없다(§10).
 - 정본: `../../design-system/layout.md`, `screens.md`, `wireframe.html`, `components/TabBar|AppBar/README.md`, `components/bundle.css`, `frontend/.claude/skills/{fsd-structure,layer-architecture,react-implementation,api-client,tdd-workflow,code-annotations}`
 - 코드 현황: `src/main.tsx`는 `App`만 렌더, `src/app/App.tsx`는 `BrowserRouter` + 자리표시 `/`, `src/shared/{api,config,lib}` 구현 완료, features·entities·widgets·pages 없음, `tests/`에는 `setup.ts`와 `shared/`뿐
 
@@ -11,7 +11,7 @@
 | 대상 | 계층·위치 | 이유 |
 | --- | --- | --- |
 | 라우트 정의 | `app/router/routes.tsx`(배열), `app/router/index.tsx`(`createBrowserRouter`) | `react-implementation` §5 |
-| 경로 상수 | `shared/config/routes.ts` | app 라우터, widgets(탭 링크), pages(이동)가 모두 씀. 위 계층이 app을 import할 수 없으므로 shared에 둠 |
+| 경로 상수 | `shared/lib/routes.ts` | app 라우터, widgets(탭 링크·domain), pages(이동)가 모두 씀. 위 계층이 app을 import할 수 없으므로 shared에 두고, domain이 쓸 수 있도록 `shared/lib`에 둠(F6, D-17) |
 | 상점주 셸(프레임 `.app` + 조건부 TabBar + Outlet) | `app/layouts/OwnerLayout.tsx` | 역할별 레이아웃 라우트(`react-implementation` §5) |
 | TabBar·TopNav·AccountButton(상점주용 묶음) | `widgets/owner-nav/` | §3 |
 | 자리 page | `app/router/placeholders.tsx` | D-8 |
@@ -91,7 +91,7 @@ OwnerLayout (app/layouts)                  <div className="app"> 프레임
 
 | C | 내용 | 상태 |
 | --- | --- | --- |
-| C-1 | `layer-architecture` §6.7 container 예시는 7개 wiring을 모두 import해 지금은 `tsc`가 깨진다. D-5 확정 운영은 "만든 영역만 추가" | 정본 §6.7 예시를 오케스트레이터가 갱신 예정 |
+| C-1 | `layer-architecture` §6.7 container 예시는 7개 wiring을 모두 import해 지금은 `tsc`가 깨진다. D-5 확정 운영은 "만든 영역만 추가" | 해소: 오케스트레이터가 `layer-architecture` §6.7에 '빈 배열로 시작, 영역 wiring 생성 시 한 줄씩 추가' 안내를 반영함(커밋 eb9d163) |
 | C-2 | `react-implementation` §5는 `createBrowserRouter`, 현재 코드는 `<BrowserRouter><Routes>` | 구현 때 `createBrowserRouter`로 교체 |
 | C-3 | `app/layouts/`의 `[구조]` 허용 여부 | 해소: app 아래 4계층 이름 폴더만 금지(오케스트레이터 확인) |
 | C-4 | 가드 항상 통과 상태로는 배포하지 않는다 | 남길 주석 A-1(FIXME)로 추적 |
@@ -119,6 +119,7 @@ OwnerLayout (app/layouts)                  <div className="app"> 프레임
 | D-14 | O4 폐점 링크(O7)·계정 행 | 자리만 | 확정 | 사용자 | |
 | D-15 | 자리 page 문구 | 화면 ID 표시(예: 「O1 오늘」). 개발용 임시값이며 해당 화면 구현 때 교체 | 확정 | 사용자(Q-1) | |
 | D-16 | 정의되지 않은 경로 | `/`로 리다이렉트 | 확정 | 사용자(Q-4) | |
+| D-17 | 경로 상수(`ROUTES`, `ROUTE_PATTERNS`) 위치 | `src/shared/lib/routes.ts` | 확정 | 사용자 결정. 골격 단계 layer-check 위반 `[외부의존] widgets/owner-nav/domain/ownerTabs.ts:1 domain → shared/config (F6)`: domain은 shared 중 `shared/lib`만 쓸 수 있고, 경로 상수는 업무 로직 없는 순수 값이다. 검토했으나 채택하지 않은 안: 탭 목록을 인자로 주입, F6 예외 인정 | |
 
 ## 8. 골격과 테스트
 
@@ -128,7 +129,7 @@ OwnerLayout (app/layouts)                  <div className="app"> 프레임
 
 | 파일 | 내용 |
 | --- | --- |
-| `src/shared/config/routes.ts` | `export const ROUTES = { login: '/login', home: '/', owner: '/owner', ownerToday: '/owner/today', ownerOffers: '/owner/offers', ownerOfferNew: '/owner/offers/new', ownerStore: '/owner/store', ownerProductNew: '/owner/products/new', ownerProduct: (id: string) => \`/owner/products/${encodeURIComponent(id)}\` } as const`, `ROUTE_PATTERNS`(`ownerProduct: '/owner/products/:productId'`) |
+| `src/shared/lib/routes.ts` | `export const ROUTES = { login: '/login', home: '/', owner: '/owner', ownerToday: '/owner/today', ownerOffers: '/owner/offers', ownerOfferNew: '/owner/offers/new', ownerStore: '/owner/store', ownerProductNew: '/owner/products/new', ownerProduct: (id: string) => \`/owner/products/${encodeURIComponent(id)}\` } as const`, `ROUTE_PATTERNS`(`ownerProduct: '/owner/products/:productId'`) |
 | `src/widgets/owner-nav/domain/ownerTabs.ts` | `export type OwnerTabKey = 'today' \| 'offers' \| 'store'`, `export type OwnerTab = { key; label; path }`, `OWNER_TABS` 실제 값. `activeOwnerTab(pathname: string): OwnerTabKey \| null`은 본문을 `void pathname; throw new Error('not implemented: activeOwnerTab')`로 비움 |
 | `src/widgets/owner-nav/index.ts` | §3.2 공개 API |
 | `src/app/router/routes.tsx` | `export const routes: RouteObject[]` 실제 구조(경로·`handle.tabBar`·리다이렉트·`*`)와 `element`로 자리 page·`OwnerLayout` 연결 |
