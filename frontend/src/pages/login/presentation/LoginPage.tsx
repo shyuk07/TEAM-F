@@ -47,27 +47,37 @@ export function LoginPage() {
         <Link className="link" to={ROUTES.passwordReset} state={linkState}>
           비밀번호 재설정
         </Link>
+        {/* PC(720px 이상)용 한 벌. .cta는 그 폭에서 숨고 .dk가 보인다(bundle.css, SignupForm 등과 같은 관례) */}
+        <div
+          className="dk"
+          style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}
+        >
+          <SignupLinks linkState={linkState} />
+        </div>
       </div>
-      {/* .cta는 720px 이상에서 숨는다(bundle.css). 가입 링크는 PC에서도 보여야 하므로 display를 직접 지정한다 */}
+      {/* 모바일용 한 벌. 720px 이상에서는 bundle.css가 숨긴다 */}
       <div
         className="cta"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'stretch',
-          gap: 'var(--s2)',
-        }}
+        style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}
       >
-        <span className="m" style={{ textAlign: 'center' }}>
-          계정이 없나요?
-        </span>
-        <Link className="btn" to={ROUTES.signup} state={linkState}>
-          회원가입
-        </Link>
-        <Link className="link" to={ROUTES.ownerSignup} state={linkState}>
-          사장님이신가요? 입점 신청
-        </Link>
+        <SignupLinks linkState={linkState} />
       </div>
     </div>
+  );
+}
+
+function SignupLinks({ linkState }: { linkState: { from: string } | undefined }) {
+  return (
+    <>
+      <span className="m" style={{ textAlign: 'center' }}>
+        계정이 없나요?
+      </span>
+      <Link className="btn" to={ROUTES.signup} state={linkState}>
+        회원가입
+      </Link>
+      <Link className="link" to={ROUTES.ownerSignup} state={linkState}>
+        사장님이신가요? 입점 신청
+      </Link>
+    </>
   );
 }

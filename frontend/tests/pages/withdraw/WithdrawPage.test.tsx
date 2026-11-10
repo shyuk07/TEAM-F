@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { routes } from '@/app/router/routes';
+import { BACK_LABEL } from '@/features/auth';
 import { ApiError } from '@/shared/api/error';
 import { signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
@@ -85,5 +86,83 @@ describe('WithdrawPage (C7)', () => {
     expect(pending).toHaveAttribute('aria-disabled', 'true');
     await userEvent.click(pending);
     expect(fakes.account.withdraw).toHaveBeenCalledTimes(1);
+  });
+
+  it('비밀번호 오류면 입력칸이 aria-invalid이고 aria-describedby가 오류 문구를 가리킨다', async () => {
+    const fakes = withBalance();
+    fakes.account.withdraw.mockRejectedValue(
+      new ApiError(400, 'CURRENT_PASSWORD_MISMATCH', '현재 비밀번호가 올바르지 않습니다.'),
+    );
+    renderWithdraw(fakes);
+    const input = await screen.findByLabelText('현재 비밀번호 *');
+    expect(input).not.toHaveAttribute('aria-invalid');
+    expect(input).not.toHaveAttribute('aria-describedby');
+    await userEvent.type(input, 'wrong-pw');
+    await userEvent.click(submitButton());
+    const error = await screen.findByText('비밀번호가 일치하지 않습니다.');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(error.id).not.toBe('');
+    expect(input).toHaveAttribute('aria-describedby', error.id);
+    expect(input).toHaveAccessibleDescription('비밀번호가 일치하지 않습니다.');
+  });
+
+  it('폼 오류(비밀번호 칸 오류 아님)면 입력칸은 aria-invalid가 아니다', async () => {
+    const fakes = withBalance();
+    fakes.account.withdraw.mockRejectedValue(new ApiError(500, 'DATA_INCONSISTENT', '서버 문구'));
+    renderWithdraw(fakes);
+    const input = await screen.findByLabelText('현재 비밀번호 *');
+    await userEvent.type(input, 'pw123456');
+    await userEvent.click(submitButton());
+    expect(await screen.findByText('서버 문구')).toBeInTheDocument();
+    expect(input).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('처리 중에 화면을 떠나도(언마운트) account.withdraw에 넘긴 signal은 abort되지 않는다', async () => {
+    const fakes = withBalance();
+    const d = deferred<void>();
+    fakes.account.withdraw.mockReturnValue(d.promise);
+    const { unmount } = renderWithdraw(fakes);
+    await userEvent.type(await screen.findByLabelText('현재 비밀번호 *'), 'pw123456');
+    await userEvent.click(submitButton());
+    await screen.findByRole('button', { name: '처리 중…' });
+    unmount();
+    const signal = fakes.account.withdraw.mock.calls[0]?.[1];
+    expect(signal?.aborted ?? false).toBe(false);
+    d.resolve();
+    await waitFor(() => expect(fakes.session.clear).toHaveBeenCalled());
+  });
+
+  it('처리 중에는 「취소」·「←」가 aria-disabled이고 눌러도 이동하지 않는다', async () => {
+    const fakes = withBalance();
+    const d = deferred<void>();
+    fakes.account.withdraw.mockReturnValue(d.promise);
+    const { router } = renderWithdraw(fakes);
+    await userEvent.type(await screen.findByLabelText('현재 비밀번호 *'), 'pw123456');
+    const cancel = screen.getByRole('link', { name: '취소' });
+    const back = screen.getByRole('link', { name: BACK_LABEL });
+    expect(cancel).not.toHaveAttribute('aria-disabled');
+    expect(back).not.toHaveAttribute('aria-disabled');
+    await userEvent.click(submitButton());
+    await screen.findByRole('button', { name: '처리 중…' });
+    expect(screen.getByRole('link', { name: '취소' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('link', { name: BACK_LABEL })).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(screen.getByRole('link', { name: '취소' }));
+    await userEvent.click(screen.getByRole('link', { name: BACK_LABEL }));
+    expect(router.state.location.pathname).toBe('/me/withdraw');
+  });
+
+  it('처리가 실패로 끝나면 「취소」는 다시 /me로 이동한다', async () => {
+    const fakes = withBalance();
+    fakes.account.withdraw.mockRejectedValue(
+      new ApiError(400, 'CURRENT_PASSWORD_MISMATCH', '현재 비밀번호가 올바르지 않습니다.'),
+    );
+    const { router } = renderWithdraw(fakes);
+    await userEvent.type(await screen.findByLabelText('현재 비밀번호 *'), 'wrong-pw');
+    await userEvent.click(submitButton());
+    await screen.findByText('비밀번호가 일치하지 않습니다.');
+    const cancel = screen.getByRole('link', { name: '취소' });
+    expect(cancel).not.toHaveAttribute('aria-disabled');
+    await userEvent.click(cancel);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/me'));
   });
 });

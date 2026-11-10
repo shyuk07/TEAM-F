@@ -16,6 +16,11 @@ function visibleButton(page: Page, name: string) {
   return page.getByRole('button', { name }).filter({ visible: true }).first();
 }
 
+// A1 가입 안내 링크도 .cta(모바일)와 .dk(720px 이상) 두 벌이다. 지금 뷰포트에서 보이는 것을 누른다.
+function visibleLink(page: Page, name: string) {
+  return page.getByRole('link', { name }).filter({ visible: true }).first();
+}
+
 // 가입 → 로그인 → /users/me 흐름을 모킹하고 가입 요청 본문을 모은다.
 async function mockSignupFlow(page: Page, role: 'OWNER' | 'CUSTOMER') {
   const signupBodies: unknown[] = [];
@@ -47,7 +52,7 @@ async function openAccountMenu(page: Page) {
 test('A1 → A2 → C1: 고객으로 가입하면 로그인되어 /로 이동한다', async ({ page }) => {
   const bodies = await mockSignupFlow(page, 'CUSTOMER');
   await page.goto('/login');
-  await page.getByRole('link', { name: '회원가입' }).click();
+  await visibleLink(page, '회원가입').click();
   await expect(page).toHaveURL(/\/signup$/);
   await fillSignup(page, '이름 *');
   await visibleButton(page, '가입하기').click();
@@ -62,7 +67,7 @@ test('A1 → A2(상점주) → O1: 입점 신청으로 들어오면 상점주가
 }) => {
   const bodies = await mockSignupFlow(page, 'OWNER');
   await page.goto('/login');
-  await page.getByRole('link', { name: '사장님이신가요? 입점 신청' }).click();
+  await visibleLink(page, '사장님이신가요? 입점 신청').click();
   await expect(page).toHaveURL(/\/signup\?role=owner$/);
   await expect(page.getByRole('radio', { name: /^상점주/ })).toHaveAttribute(
     'aria-checked',

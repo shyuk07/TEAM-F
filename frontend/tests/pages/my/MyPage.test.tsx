@@ -99,6 +99,25 @@ describe('MyPage (C6·C10)', () => {
     expect(screen.getByRole('link', { name: '전체 보기' })).toBeInTheDocument();
   });
 
+  it('로그아웃 시트를 Escape로 닫으면 포커스가 「로그아웃」 버튼으로 돌아온다', async () => {
+    renderMy(withRecentPoints());
+    await userEvent.click(await screen.findByRole('button', { name: /로그아웃/ }));
+    const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    await waitFor(() => expect(within(sheet).getByRole('button', { name: '취소' })).toHaveFocus());
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /로그아웃/ })).toHaveFocus());
+  });
+
+  it('로그아웃 시트를 「취소」로 닫아도 포커스가 「로그아웃」 버튼으로 돌아온다', async () => {
+    renderMy(withRecentPoints());
+    await userEvent.click(await screen.findByRole('button', { name: /로그아웃/ }));
+    const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    await userEvent.click(within(sheet).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /로그아웃/ })).toHaveFocus());
+  });
+
   it('로그아웃을 확정하면 auth.logout을 부르고 /(상단 「로그인」 보임)로 간다', async () => {
     const fakes = withRecentPoints();
     const { router } = renderMy(fakes);

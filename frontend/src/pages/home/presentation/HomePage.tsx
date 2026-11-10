@@ -160,8 +160,8 @@ export function HomePage() {
           ) : null}
         </div>
       )}
-      {auth.status !== 'authenticated' ? (
-        // 탭 바 바로 위 고정 위치(wireframe.html:320, screens.md C1, D-18).
+      {auth.status === 'anonymous' ? (
+        // 「로그인」과 같이 비로그인일 때만(세션 확인 중 제외). 탭 바 바로 위 고정 위치(wireframe.html:320, screens.md C1, D-18).
         <Link className="link" style={{ padding: 'var(--s2)' }} to={ROUTES.ownerSignup}>
           {OWNER_APPLY_LINK}
         </Link>

@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { useWithdraw } from '../application/useWithdraw';
+import type { WithdrawController } from '../application/useWithdraw';
 import { WITHDRAW_RESERVATIONS_TEXT, withdrawErrorView } from '../domain/accountMessages';
 import { pointExpiryText } from '../domain/points';
 
@@ -9,12 +9,23 @@ import { pointExpiryText } from '../domain/points';
 // TODO: 진행 중 예약 줄에 건수 대신 「모두 취소·환불」을 보인다.
 //   왜: 예약 건수는 reservations 영역 API가 필요하다 (customer-home.md C-6)
 //   언제: C5 구현 시
-export function WithdrawForm({ balance, cancelTo }: { balance: number; cancelTo: string }) {
-  const { submit, pending, error } = useWithdraw();
+// 제출 상태(withdraw)는 page가 useWithdraw()로 만들어 넘긴다. 처리 중에는 page의 「←」도 막아야 하기 때문이다(customer-home.md D-32).
+export function WithdrawForm({
+  balance,
+  cancelTo,
+  withdraw,
+}: {
+  balance: number;
+  cancelTo: string;
+  withdraw: WithdrawController;
+}) {
+  const { submit, pending, error } = withdraw;
   const [password, setPassword] = useState('');
   const passwordId = useId();
+  const passwordErrorId = useId();
 
   const errorView = error !== null ? withdrawErrorView(error) : null;
+  const passwordInvalid = errorView?.field === 'password';
   const disabled = password === '' || pending;
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -49,9 +60,11 @@ export function WithdrawForm({ balance, cancelTo }: { balance: number; cancelTo:
           maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          aria-invalid={passwordInvalid ? 'true' : undefined}
+          aria-describedby={passwordInvalid ? passwordErrorId : undefined}
         />
-        {errorView?.field === 'password' ? (
-          <div className="err" role="alert">
+        {passwordInvalid ? (
+          <div className="err" role="alert" id={passwordErrorId}>
             {errorView.message}
           </div>
         ) : null}
@@ -62,7 +75,15 @@ export function WithdrawForm({ balance, cancelTo }: { balance: number; cancelTo:
         ) : null}
       </div>
       <div className="cta">
-        <Link className="btn" to={cancelTo}>
+        {/* 처리 중에는 이동을 막는다. 탈퇴 요청은 끊지 않으므로 결과를 이 화면에서 받는다(D-32). */}
+        <Link
+          className="btn"
+          to={cancelTo}
+          aria-disabled={pending ? 'true' : undefined}
+          onClick={(e) => {
+            if (pending) e.preventDefault();
+          }}
+        >
           취소
         </Link>
         <button type="submit" className="btn dark" aria-disabled={disabled ? 'true' : undefined}>

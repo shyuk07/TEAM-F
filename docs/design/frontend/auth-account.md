@@ -626,7 +626,7 @@ D-1~D-30은 사용자 위임으로 추천안대로 확정됐다(2026-11-10). 구
 | D-29 | 로그인 후 `/account/*` 복귀 | 안전한 `from`이 `/account/*`면 역할과 관계없이 복귀 | 확정(위임, 2026-11-10) | C8·C9에서 세션이 끊겨 다시 로그인한 상점주가 `/owner/today`로 튕기지 않게 | 아니오 |
 | D-30 | DTO 변환 공유 | `infrastructure/userDto.ts`(`MeDto`, `toUser`)로 옮겨 `HttpAuthGateway`·`HttpAccountGateway`가 함께 씀 | 확정(위임, 2026-11-10) | `PATCH /users/me` 응답이 `GET /users/me`와 같음(reference §8). 같은 변환을 두 번 쓰지 않음 | 아니오 |
 | D-31 | 이어받는 확정값 | 토큰 `localStorage`(`auth.md` D-11), 경로 상수 `shared/lib/routes.ts`(`app-shell.md` D-17), `location.state` 복귀(`auth.md` D-1), Context 위치(`auth.md` D-14), 역할별 도착지(`auth.md` D-6 임시) | 확정(이전 결정) | 다시 묻지 않음(`frontend-orchestration.md` §6) | |
-| D-32 | AbortSignal 전달 경로 | `useSubmit<I, R>(run: (input: I, signal: AbortSignal) => Promise<R>)`. `useSubmit`이 `AbortController`를 하나 두고 언마운트 정리 때 `abort()`하며, `run`에 그 `signal`을 넘긴다(각 훅은 컨트롤러를 따로 두지 않고 받은 `signal`을 유스케이스에 넘김). 유스케이스 4개는 마지막 인자 `signal?: AbortSignal`을 받아 `AccountGateway`에 넘긴다. abort로 생긴 오류는 상태로 만들지 않는다(§3.2 `useSubmit`) | 확정(오케스트레이터, 2026-11-10) | F10, `react-implementation` §2 "`signal`은 포트 → infrastructure → `shared/api`까지". 발주서에서 D-31로 지정했으나 D-31이 이미 있어 D-32로 둠 | 아니오 |
+| D-32 | AbortSignal 전달 경로 | `useSubmit<I, R>(run: (input: I, signal: AbortSignal) => Promise<R>)`. `useSubmit`이 `AbortController`를 하나 두고 언마운트 정리 때 `abort()`하며, `run`에 그 `signal`을 넘긴다(각 훅은 컨트롤러를 따로 두지 않고 받은 `signal`을 유스케이스에 넘김). 유스케이스 4개는 마지막 인자 `signal?: AbortSignal`을 받아 `AccountGateway`에 넘긴다. abort로 생긴 오류는 상태로 만들지 않는다(§3.2 `useSubmit`) | 확정(오케스트레이터, 2026-11-10) | F10, `react-implementation` §2 "`signal`은 포트 → infrastructure → `shared/api`까지". 발주서에서 D-31로 지정했으나 D-31이 이미 있어 D-32로 둠. 탈퇴는 예외(customer-home 참고: `customer-home.md` D-32, 탈퇴 POST에는 언마운트 abort signal을 넘기지 않음) | 아니오 |
 
 ## 10. 정책·보안 메모
 

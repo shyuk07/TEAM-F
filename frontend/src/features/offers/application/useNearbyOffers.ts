@@ -48,10 +48,17 @@ export function useNearbyOffers(
   const lng = location?.lng ?? null;
   // retry()가 바꾸면 같은 조건으로 첫 페이지를 다시 받는다.
   const [attempt, setAttempt] = useState(0);
+  // 요청 세대: ready가 false → true가 될 때(위치 재요청 포함)마다 올린다. 좌표가 같아도 앞 결과를 쓰지 않는다(customer-home.md D-33).
+  const [generation, setGeneration] = useState(0);
+  const [prevReady, setPrevReady] = useState(ready);
+  if (prevReady !== ready) {
+    setPrevReady(ready);
+    if (ready) setGeneration((n) => n + 1);
+  }
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
   const loadingMoreRef = useRef(false);
-  const key = JSON.stringify([sort, radiusKm, keyword, lat, lng, attempt]);
+  const key = JSON.stringify([sort, radiusKm, keyword, lat, lng, attempt, generation]);
 
   useEffect(() => {
     if (!ready) return;

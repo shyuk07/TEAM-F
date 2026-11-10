@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router';
 import { LoginPage } from '@/pages/login';
@@ -52,18 +52,36 @@ describe('LoginPage (A1)', () => {
     expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true');
   });
 
+  // jsdom은 컨테이너 쿼리를 평가하지 않아 .dk(PC)·.cta(모바일) 두 벌이 모두 잡힌다.
   it('「회원가입」·「비밀번호 재설정」·「사장님이신가요? 입점 신청」은 A2·A3로 가는 링크다', () => {
     renderLogin();
-    expect(screen.getByText('계정이 없나요?')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '회원가입' })).toHaveAttribute('href', '/signup');
+    expect(screen.getAllByText('계정이 없나요?')).toHaveLength(2);
+    const signups = screen.getAllByRole('link', { name: '회원가입' });
+    expect(signups).toHaveLength(2);
+    for (const a of signups) expect(a).toHaveAttribute('href', '/signup');
     expect(screen.getByRole('link', { name: '비밀번호 재설정' })).toHaveAttribute(
       'href',
       '/password-reset',
     );
-    expect(screen.getByRole('link', { name: '사장님이신가요? 입점 신청' })).toHaveAttribute(
-      'href',
-      '/signup?role=owner',
-    );
+    const applies = screen.getAllByRole('link', { name: '사장님이신가요? 입점 신청' });
+    expect(applies).toHaveLength(2);
+    for (const a of applies) expect(a).toHaveAttribute('href', '/signup?role=owner');
+  });
+
+  it('가입 안내는 PC용 .dk(본문 끝, 「비밀번호 재설정」 다음)와 모바일용 .cta 두 벌이고, .cta는 display를 직접 정하지 않는다', () => {
+    renderLogin();
+    const cta = document.querySelector<HTMLElement>('.app > .cta');
+    const dk = document.querySelector<HTMLElement>('.body > .dk');
+    expect(cta).not.toBeNull();
+    expect(dk).not.toBeNull();
+    expect(cta?.style.display).toBe('');
+    expect(screen.getByRole('link', { name: '비밀번호 재설정' }).nextElementSibling).toBe(dk);
+    for (const box of [cta, dk]) {
+      const scope = within(box as HTMLElement);
+      expect(scope.getByText('계정이 없나요?')).toBeInTheDocument();
+      expect(scope.getByRole('link', { name: '회원가입' })).toHaveClass('btn');
+      expect(scope.getByRole('link', { name: '사장님이신가요? 입점 신청' })).toHaveClass('link');
+    }
   });
 
   it('「닫기」(✕)는 /로 가는 링크다', () => {
@@ -206,12 +224,28 @@ describe('LoginPage (A1)', () => {
 describe('LoginPage (A1) 계정 화면 연결 (auth-account D-7·D-10·D-17·D-25)', () => {
   const fromOffers: InitialEntry = { pathname: '/login', state: { from: '/owner/offers' } };
 
-  it('state.from이 있을 때 「회원가입」을 누르면 A2로 가고 from을 넘긴다', async () => {
-    const { router } = renderLogin({ entry: fromOffers });
-    await userEvent.setup().click(screen.getByRole('link', { name: '회원가입' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/signup'));
-    expect(router.state.location.state).toEqual({ from: '/owner/offers' });
-  });
+  it.each([0, 1])(
+    'state.from이 있을 때 「회원가입」(%i번째 벌)을 누르면 A2로 가고 from을 넘긴다',
+    async (index) => {
+      const { router } = renderLogin({ entry: fromOffers });
+      const link = screen.getAllByRole('link', { name: '회원가입' })[index];
+      await userEvent.setup().click(link);
+      await waitFor(() => expect(router.state.location.pathname).toBe('/signup'));
+      expect(router.state.location.state).toEqual({ from: '/owner/offers' });
+    },
+  );
+
+  it.each([0, 1])(
+    'state.from이 있을 때 「사장님이신가요? 입점 신청」(%i번째 벌)을 누르면 ?role=owner A2로 가고 from을 넘긴다',
+    async (index) => {
+      const { router } = renderLogin({ entry: fromOffers });
+      const link = screen.getAllByRole('link', { name: '사장님이신가요? 입점 신청' })[index];
+      await userEvent.setup().click(link);
+      await waitFor(() => expect(router.state.location.pathname).toBe('/signup'));
+      expect(router.state.location.search).toBe('?role=owner');
+      expect(router.state.location.state).toEqual({ from: '/owner/offers' });
+    },
+  );
 
   it('state.from이 있을 때 「비밀번호 재설정」을 누르면 A3로 가고 from을 넘긴다', async () => {
     const { router } = renderLogin({ entry: fromOffers });
