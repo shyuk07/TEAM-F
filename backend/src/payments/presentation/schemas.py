@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # 결제/환불 상태는 domain 계층에 정의된 것을 그대로 사용
 from payments.domain.payment import PaymentStatus
 from payments.domain.refund import RefundStatus
+from payments.domain.rules import REFUND_REASON_RAW_MAX_LENGTH
 
 
 # 결제 요청
@@ -27,7 +28,8 @@ class PaymentResponse(BaseModel):
 
 # 환불 요청
 class RefundCreate(BaseModel):
-    reason: str = Field(min_length=1, max_length=200)
+    # 원문 길이는 남용 방지 상한만 둔다. 앞뒤 공백을 뺀 1~200자 판정은 도메인(Refund)이 한다(REQ-34).
+    reason: str = Field(min_length=1, max_length=REFUND_REASON_RAW_MAX_LENGTH)
 
 
 # 환불 요청 응답 (completed_at·reason 없음, D-13)

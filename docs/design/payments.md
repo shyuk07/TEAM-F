@@ -45,7 +45,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | POST | `/v1/payments` | 회원(본인 예약) | `{reservation_id}` | `{id, reservation_id, amount, status, paid_at}` | 201 | 400 결제할 수 없는 예약 / 401 / 404 예약 없음 / 409 이미 결제된 예약 / 422 / 500 |
 | 2 | GET | `/v1/payments/{payment_id}` | 회원(본인 결제) | 없음 | 위와 같은 5개 필드 | 200 | 401 / 403 조회 권한 없음 / 404 / 422 |
-| 3 | POST | `/v1/payments/{payment_id}/refunds` | 회원(본인 결제) | `{reason}` (필수, 최대 200자) | `{id, payment_id, refund_amount, penalty_amount, status}` | 201 | 400 환불할 수 없는 결제 / 401 / 403 환불 처리 권한 없음 / 404 / 409 이미 환불 처리된 결제 / 422 / 500 |
+| 3 | POST | `/v1/payments/{payment_id}/refunds` | 회원(본인 결제) | `{reason}` (필수. 앞뒤 공백을 뺀 1~200자, 저장은 앞뒤 공백을 뺀 값, 원문 최대 1000자는 임시값. REQ-34) | `{id, payment_id, refund_amount, penalty_amount, status}` | 201 | 400 환불할 수 없는 결제 / 401 / 403 환불 처리 권한 없음 / 404 / 409 이미 환불 처리된 결제 / 422 / 500 |
 | 4 | GET | `/v1/refunds/{refund_id}` | 회원(본인 환불) | 없음 | `{id, payment_id, refund_amount, penalty_amount, status, completed_at}` | 200 | 401 / 403 / 404 / 422 |
 
 URI는 노션에 없고 reference 문서가 제안한 값입니다(README "URI를 정한 규칙"). 목록 API는 payments에 없으므로 페이지네이션도 없습니다.
@@ -221,7 +221,7 @@ users 1─N pickup_reservations 1─N payments 1─N refunds
 | `Payment.request(reservation_id, total_price, use_point=0, now=None)` | `READY` 결제 생성. `amount = total_price − use_point` | `total_price`가 None/음수 → `ReservationNotPayableError`(400). `use_point < 0` 또는 `use_point > total_price` → `ValueError` (100P 단위·잔액은 auth `User.use_points`가 검증, 단위 규칙을 두 곳에 두지 않음) |
 | `approve(provider_payment_id, now=None)` | `READY → PAID`, `paid_at` 기록 | `READY`가 아니면 `InvalidPaymentTransitionError`(400 `INVALID_PAYMENT_STATE`) |
 | `fail(response, now=None)` | `READY → FAILED`, `failed_at`, `failed_response` 기록 | 같음 |
-| `refund(penalty_amount, reason, now=None) -> Refund` | `PAID`일 때만 환불 객체를 만들고 자기 상태를 `REFUNDED`로 바꿈 | `REFUNDED` → `PaymentAlreadyRefundedError`(409). `READY`/`FAILED` → `PaymentNotRefundableError`(400 `PAYMENT_NOT_REFUNDABLE`). `penalty_amount`가 `0..amount` 밖 → `ValueError`. `reason`이 비었거나 200자 초과 → `ValueError` |
+| `refund(penalty_amount, reason, now=None) -> Refund` | `PAID`일 때만 환불 객체를 만들고 자기 상태를 `REFUNDED`로 바꿈 | `REFUNDED` → `PaymentAlreadyRefundedError`(409). `READY`/`FAILED` → `PaymentNotRefundableError`(400 `PAYMENT_NOT_REFUNDABLE`). `penalty_amount`가 `0..amount` 밖 → `ValueError`. `reason`이 비었거나 앞뒤 공백을 뺀 길이가 200자 초과 → `ValueError`(새 환불은 앞뒤 공백을 뺀 사유를 저장, REQ-34) |
 | `earn_point_amount()` | `amount * POINT_EARN_PERCENT // 100` | 없음(0이면 서비스가 적립을 건너뜀) |
 
 상태 허용 전이표:
@@ -241,7 +241,7 @@ users 1─N pickup_reservations 1─N payments 1─N refunds
 | `id` | `uuid.UUID \| None` | |
 | `payment_id` | `uuid.UUID` | 필수 |
 | `refund_amount`, `penalty_amount` | `int` | 각각 0 이상 |
-| `reason` | `str` | 공백 아님, 200자 이하 |
+| `reason` | `str` | 공백만은 아님, 앞뒤 공백을 뺀 길이 200자 이하(새 환불은 앞뒤 공백을 뺀 값으로 저장, REQ-34) |
 | `status` | `RefundStatus` (`StrEnum`) | 임시: `COMPLETED`만 (D-8). 명세에 없는 `PENDING`/`FAILED`는 확정 전까지 만들지 않음 |
 | `created_at`, `completed_at` | `datetime \| None` | timezone 필수, `COMPLETED`면 `completed_at` 필수 |
 

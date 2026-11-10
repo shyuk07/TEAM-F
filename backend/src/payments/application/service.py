@@ -159,7 +159,7 @@ class PaymentApplicationService:
             await self._apply_refund(payment)
             # RD-2: 환불 API도 예약 취소 + 재고 복구까지. 재고 복구가 안 되면 503으로 중단되고 위 저장은 롤백된다.
             try:
-                await self.reservations.cancel_for_refund(payment.reservation_id, reason, commit=False)
+                await self.reservations.cancel_for_refund(payment.reservation_id, refund.reason, commit=False)  # 앞뒤 공백을 뺀 사유(REQ-34)
             except PaymentStateInconsistentError as error:
                 # 재고 복구 상한 초과 등 데이터 이상. 이 요청의 유일한 ERROR 로그 지점이다(어댑터는 번역만 한다).
                 self._log_inconsistency("refund", error)

@@ -351,6 +351,26 @@ async def test_refund_reason_200_chars_ok(client, service):
     assert (await refund_post(client, payment_id, reason="가" * 200)).status_code == 201
 
 
+async def test_refund_reason_padded_over_200_raw_is_accepted(client, service):
+    """앞뒤 공백을 빼고 200자면 원문이 200자를 넘어도 된다(REQ-34)."""
+    payment_id = await paid(client, service)
+    assert (await refund_post(client, payment_id, reason="   " + "가" * 200 + "   ")).status_code == 201
+
+
+@pytest.mark.parametrize("reason", ["가" * 201, "   ", " " * 10 + "가" * 201 + " " * 10])
+async def test_refund_reason_invalid_is_400(client, service, reason):
+    payment_id = await paid(client, service)
+    r = await refund_post(client, payment_id, reason=reason)
+    assert r.status_code == 400 and r.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_refund_reason_raw_over_1000_is_400(client, service):
+    """원문 길이 상한(남용 방지 임시값 1000자). 앞뒤 공백이어도 원문이 너무 길면 거절."""
+    payment_id = await paid(client, service)
+    r = await refund_post(client, payment_id, reason=" " * 801 + "가" * 200)
+    assert r.status_code == 400 and r.json()["error_code"] == "VALIDATION_ERROR"
+
+
 # ---------- use_point (REQ-42~44) ----------
 async def pay_with_point(client, reservation_id, use_point):
     return await client.post(
