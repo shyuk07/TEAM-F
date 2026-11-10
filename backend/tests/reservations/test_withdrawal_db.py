@@ -12,7 +12,7 @@ from reservations.infrastructure.repositories import SqlAlchemyReservationReposi
 from stores.infrastructure import models as stores_models  # noqa: F401
 from tests.admin.test_api_db import admin_headers, assert_error, user_id
 from tests.helpers import bearer, token_for
-from tests.reservations.test_api_db import reserve, seed, seed_offer
+from tests.reservations.test_api_db import reserve, seed, seed_offer, in_pickup_window
 from tests.reservations.test_stock_db import pay, scalar, stock_state
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
@@ -44,9 +44,10 @@ async def test_withdraw_customer_cancels_pending_and_reserved_and_keeps_picked_u
     reserved = await make_reserved(client, me, offer_id, 3)
     pending = (await reserve(client, me, offer_id, 2)).json()["id"]
     picked, code = await seed(client, me, offer_id, 1, paid=True)
-    await client.post(
-        f"/v1/reservations/{picked}/pickup", json={"pickup_code": code}, headers=bearer(owner)
-    )
+    async with in_pickup_window(client, offer_id):  # 픽업은 픽업 시간 안에서만(사용자 결정 2026-11-10)
+        await client.post(
+            f"/v1/reservations/{picked}/pickup", json={"pickup_code": code}, headers=bearer(owner)
+        )
     assert await status_of(client, picked) == "PICKED_UP"
     before_remaining = (await stock_state(client, offer_id))[0]  # 10 - 2 - 3 - 1
 
@@ -111,7 +112,8 @@ async def test_suspended_owner_can_pickup_but_not_reserve_or_cancel_and_withdraw
     # 정지된 상점주: 생성·취소는 403, 픽업은 200
     assert (await reserve(client, owner, offer_id, 1)).status_code == 403
     assert (await client.post(f"/v1/reservations/{rid}/cancel", headers=bearer(owner))).status_code == 403
-    r = await client.post(f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner))
+    async with in_pickup_window(client, offer_id):  # 픽업은 픽업 시간 안에서만(사용자 결정 2026-11-10)
+        r = await client.post(f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner))
     assert r.status_code == 200, r.text
     assert await status_of(client, rid) == "PICKED_UP"
 
@@ -127,11 +129,13 @@ async def test_suspended_owner_can_pickup_but_not_reserve_or_cancel_and_withdraw
     rid2 = await make_reserved(client, await token_for(client, "c3@test.com"), offer_id, 1)
     # 매장에 RESERVED가 남아 있으면 탈퇴가 막히므로 먼저 픽업한다
     code2 = await scalar(client, "SELECT pickup_code FROM pickup_reservations WHERE id = :i", i=uuid.UUID(rid2))
-    assert (await client.post(
-        f"/v1/reservations/{rid2}/pickup", json={"pickup_code": code2}, headers=bearer(owner)
-    )).status_code == 200
+    async with in_pickup_window(client, offer_id):  # 픽업은 픽업 시간 안에서만(사용자 결정 2026-11-10)
+        assert (await client.post(
+            f"/v1/reservations/{rid2}/pickup", json={"pickup_code": code2}, headers=bearer(owner)
+        )).status_code == 200
     assert (await withdraw(client, admin, owner_id)).status_code == 200
-    r = await client.post(f"/v1/reservations/{rid2}/pickup", json={"pickup_code": code2}, headers=bearer(owner))
+    async with in_pickup_window(client, offer_id):  # 시간 안이어도 탈퇴 토큰은 401
+        r = await client.post(f"/v1/reservations/{rid2}/pickup", json={"pickup_code": code2}, headers=bearer(owner))
     assert r.status_code == 401, r.text
 
 

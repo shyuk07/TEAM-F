@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from reservations.domain import rules
-from reservations.domain.exceptions import NotPickupStoreOwnerError
+from reservations.domain.exceptions import NotPickupStoreOwnerError, PickupOutsideWindowError
 
 
 class OfferRef:
@@ -59,6 +59,6 @@ class OfferRef:
             raise ValueError("본인 매장의 상품은 예약할 수 없습니다.")
 
     def ensure_pickup_time(self, now: datetime) -> None:
-        """픽업 시간 창 규칙 (Q-5). 기본값은 강제하지 않는다."""
-        if rules.PICKUP_WINDOW_ENFORCED and not self.pickup_start <= now <= self.pickup_end:
-            raise ValueError("픽업 시간이 아닙니다.")
+        """픽업 완료는 픽업 시작~마감 안에서만 된다. 시작·마감 시각 모두 포함(확정, 사용자 결정 2026-11-10)."""
+        if not self.pickup_start <= now <= self.pickup_end:
+            raise PickupOutsideWindowError()

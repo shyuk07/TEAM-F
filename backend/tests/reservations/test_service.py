@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 import pytest
 
@@ -12,13 +13,14 @@ from reservations.domain.exceptions import (
     OutOfStockError,
     PickedUpReservationExistsError,
     PickupCodeMismatchError,
+    PickupOutsideWindowError,
     ReservationAlreadyCancelledError,
     ReservationAlreadyPickedUpError,
     ReservationNotFoundError,
     ReservationNotPaidError,
 )
 from reservations.domain.pickup_reservation import ReservationStatus as S
-from tests.reservations.fakes import build, set_status
+from tests.reservations.fakes import NOW, build, set_status
 
 pytestmark = pytest.mark.anyio
 
@@ -169,6 +171,7 @@ async def test_pickup_ok_locks_only_reservation():
     set_status(r, S.RESERVED)
     log.events.clear()
     session.commits = 0
+    service.clock = AtClock(NOW + timedelta(hours=2))  # 픽업 시간(NOW+1h ~ NOW+3h) 안
     out = await service.complete_pickup(owner, r.id, "a12345")
     assert out.status == S.PICKED_UP and out.picked_up_at is not None and session.commits == 1
     assert "offer_lock" not in log.events and "release" not in log.events
@@ -178,6 +181,7 @@ async def test_pickup_errors():
     env = build()
     service, _, session, _, _, _, _, owner = env
     r, _ = await created(env)
+    service.clock = AtClock(NOW + timedelta(hours=2))  # 픽업 시간 안: 아래는 시간 외 오류만 확인
     with pytest.raises(NotPickupStoreOwnerError):
         await service.complete_pickup(uuid.uuid4(), r.id, "A12345")
     with pytest.raises(ReservationNotFoundError):
@@ -281,3 +285,75 @@ async def test_cancel_actor_p3_offer_close_is_store():
     set_status(b, S.RESERVED)
     assert await service.cancel_all_for_offer(stock.offer_id, reason="판매 중단") == 2
     assert a.cancelled_by == b.cancelled_by == CancelActor.STORE
+
+
+class AtClock:
+    def __init__(self, at):
+        self.at = at
+
+    def now(self):
+        return self.at
+
+
+@pytest.mark.parametrize(
+    "offset,allowed",
+    [
+        (timedelta(hours=1) - timedelta(microseconds=1), False),  # 시작 직전
+        (timedelta(hours=1), True),  # 정확히 시작
+        (timedelta(hours=3), True),  # 정확히 마감
+        (timedelta(hours=3) + timedelta(microseconds=1), False),  # 마감 직후
+    ],
+)
+async def test_pickup_window_boundaries_and_rejection_changes_nothing(offset, allowed):
+    """가짜 할인 픽업 시간은 NOW+1h ~ NOW+3h. 시작·마감 포함, 밖이면 400이고 아무것도 바뀌지 않는다."""
+    env = build()
+    service, _, session, _, stock, _, log, owner = env
+    r, _ = await created(env)
+    set_status(r, S.RESERVED)
+    session.commits = 0
+    log.events.clear()
+    service.clock = AtClock(NOW + offset)
+    if allowed:
+        out = await service.complete_pickup(owner, r.id, "A12345")
+        assert out.status == S.PICKED_UP and session.commits == 1
+        return
+    with pytest.raises(PickupOutsideWindowError) as e:
+        await service.complete_pickup(owner, r.id, "A12345")
+    assert e.value.error_code == "PICKUP_OUTSIDE_WINDOW"
+    assert r.status == S.RESERVED and r.picked_up_at is None and session.commits == 0
+    assert "release" not in log.events
+
+
+async def test_pickup_window_does_not_replace_owner_status_or_code_checks():
+    """시간 안이라도 기존 검증(해당 매장 상점주, 예약 확정, 픽업 코드)은 그대로다. 시간 밖이면 권한(403)이 먼저다."""
+    env = build()
+    service, _, _, _, _, _, _, owner = env
+    r, _ = await created(env)
+    service.clock = AtClock(NOW)  # 시간 밖
+    with pytest.raises(NotPickupStoreOwnerError):
+        await service.complete_pickup(uuid.uuid4(), r.id, "A12345")  # 다른 상점주: 403이 400보다 먼저
+    service.clock = AtClock(NOW + timedelta(hours=2))
+    with pytest.raises(ReservationNotPaidError):
+        await service.complete_pickup(owner, r.id, "A12345")  # 결제 대기
+    set_status(r, S.RESERVED)
+    with pytest.raises(PickupCodeMismatchError):
+        await service.complete_pickup(owner, r.id, "B99999")
+    set_status(r, S.PICKED_UP)
+    with pytest.raises(ReservationAlreadyPickedUpError):
+        await service.complete_pickup(owner, r.id, "A12345")  # 이미 픽업 완료
+
+
+async def test_outside_window_time_400_comes_before_state_409():
+    """판단 순서: 403(상점주 아님) -> 404 -> 400(시간) -> 409(상태) -> 400(코드). 시간 밖이면 상태와 무관하게 400."""
+    env = build()
+    service, _, session, _, _, _, _, owner = env
+    r, _ = await created(env)  # 결제 대기
+    service.clock = AtClock(NOW)  # 시간 밖(픽업 NOW+1h ~ NOW+3h)
+    with pytest.raises(ReservationNotFoundError):
+        await service.complete_pickup(owner, uuid.uuid4(), "A12345")  # 404가 시간보다 먼저
+    with pytest.raises(PickupOutsideWindowError):
+        await service.complete_pickup(owner, r.id, "A12345")  # 결제 대기(409)보다 시간(400)이 먼저
+    set_status(r, S.CANCELLED)
+    with pytest.raises(PickupOutsideWindowError):
+        await service.complete_pickup(owner, r.id, "WRONG1")  # 취소·코드 불일치보다 시간이 먼저
+    assert r.status == S.CANCELLED

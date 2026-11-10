@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.helpers import bearer, token_for
-from tests.reservations.test_api_db import reserve, seed_offer
+from tests.reservations.test_api_db import reserve, seed_offer, in_pickup_window
 from tests.reservations.test_stock_db import cancel, pay, refund, scalar, stock_state
 
 pytestmark = [pytest.mark.db, pytest.mark.anyio]
@@ -72,9 +72,10 @@ async def test_reserve_pay_pickup_flow(client):
     # 3) 픽업 (점주). 생성 응답에 pickup_code가 없으면 DB에서 읽는다.
     code = r_code = (await reservation_row(client, rid)).pickup_code
     assert r_code
-    r = await client.post(
-        f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner)
-    )
+    async with in_pickup_window(client, offer_id):  # 픽업은 픽업 시간 안에서만(사용자 결정 2026-11-10)
+        r = await client.post(
+            f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner)
+        )
     assert r.status_code == 200, r.text
     row = await reservation_row(client, rid)
     assert row.status == "PICKED_UP" and row.picked_up_at is not None

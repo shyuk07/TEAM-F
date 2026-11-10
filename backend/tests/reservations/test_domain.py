@@ -9,6 +9,7 @@ from reservations.domain.exceptions import (
     NotPickupStoreOwnerError,
     NotReservationOwnerError,
     PickupCodeMismatchError,
+    PickupOutsideWindowError,
     ReservationAlreadyCancelledError,
     ReservationAlreadyPickedUpError,
     ReservationConflictError,
@@ -235,14 +236,22 @@ def test_offer_ref_ownership_and_rules(monkeypatch):
     offer.ensure_owned_by(offer.owner_id)
     with pytest.raises(NotPickupStoreOwnerError, match="해당 매장의 상점주만 픽업 완료 처리할 수 있습니다."):
         offer.ensure_owned_by(uuid.uuid4())
-    # 기본값: 자기 매장 예약 허용, 픽업 시간 강제 없음
+    # 기본값: 자기 매장 예약 허용
     offer.ensure_reservable_by(offer.owner_id)
-    offer.ensure_pickup_time(NOW)
     monkeypatch.setattr(rules, "ALLOW_OWNER_SELF_RESERVATION", False)
-    monkeypatch.setattr(rules, "PICKUP_WINDOW_ENFORCED", True)
     with pytest.raises(ValueError):
         offer.ensure_reservable_by(offer.owner_id)
     offer.ensure_reservable_by(uuid.uuid4())
-    with pytest.raises(ValueError, match="픽업 시간이 아닙니다."):
-        offer.ensure_pickup_time(NOW)
-    offer.ensure_pickup_time(NOW + timedelta(hours=2))
+
+
+def test_pickup_window_is_enforced_with_both_ends_inclusive():
+    """픽업 완료는 pickup_start <= now <= pickup_end에서만(확정, 사용자 결정 2026-11-10). 설정으로 끌 수 없다."""
+    offer = offer_ref()
+    tick = timedelta(microseconds=1)
+    for now in (offer.pickup_start, offer.pickup_start + timedelta(minutes=30), offer.pickup_end):
+        offer.ensure_pickup_time(now)  # 정확히 시작, 중간, 정확히 마감: 허용
+    for now in (offer.pickup_start - tick, offer.pickup_end + tick):  # 시작 직전, 마감 직후
+        with pytest.raises(PickupOutsideWindowError, match="픽업 가능 시간이 아닙니다.") as e:
+            offer.ensure_pickup_time(now)
+        assert e.value.error_code == "PICKUP_OUTSIDE_WINDOW" and isinstance(e.value, ValueError)  # 400
+    assert not hasattr(rules, "PICKUP_WINDOW_ENFORCED")  # 임시 스위치 제거됨

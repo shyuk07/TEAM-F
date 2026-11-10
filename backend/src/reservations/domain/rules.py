@@ -5,7 +5,6 @@ from datetime import timedelta
 from reservations.domain.cancel_actor import CancelActor
 
 PAYMENT_TIMEOUT: timedelta | None = None  # Q-2: 결제 제한 시간 없음
-PICKUP_WINDOW_ENFORCED = False  # Q-5: 픽업 시간 밖에서도 처리 가능
 ALLOW_OWNER_SELF_RESERVATION = True  # Q-3: 상점주 자기 매장 예약 허용
 PICKUP_CODE_CASE_SENSITIVE = False  # Q-4
 PICKUP_CODE_LETTERS = 1  # Q-4: 예) A12345
