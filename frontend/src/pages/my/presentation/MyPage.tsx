@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
   LogoutConfirmSheet,
@@ -23,6 +23,18 @@ export function MyPage() {
   const { state } = useAuth();
   const points = usePointHistory(RECENT_POINT_COUNT);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const logoutRef = useRef<HTMLButtonElement>(null);
+  // 시트를 닫으면(취소·Escape·바깥) 「로그아웃」 버튼으로 포커스를 돌린다. 버튼은 .body와 함께 다시 그려지므로 닫힌 뒤 옮긴다.
+  const returnFocusRef = useRef(false);
+  useEffect(() => {
+    if (logoutOpen || !returnFocusRef.current) return;
+    returnFocusRef.current = false;
+    logoutRef.current?.focus();
+  }, [logoutOpen]);
+  const closeLogout = () => {
+    returnFocusRef.current = true;
+    setLogoutOpen(false);
+  };
   if (state.status !== 'authenticated') return null;
   const { user } = state;
 
@@ -33,7 +45,7 @@ export function MyPage() {
         <span className="sp" />
       </div>
       {logoutOpen ? (
-        <LogoutDim onClose={() => setLogoutOpen(false)} />
+        <LogoutDim onClose={closeLogout} />
       ) : (
         <div className="body">
           <div className="box">
@@ -51,7 +63,12 @@ export function MyPage() {
             <Link className="li" to={ROUTES.accountPassword} state={{ from: ROUTES.me }}>
               비밀번호 변경 <span className="m">›</span>
             </Link>
-            <button type="button" className="li" onClick={() => setLogoutOpen(true)}>
+            <button
+              type="button"
+              className="li"
+              ref={logoutRef}
+              onClick={() => setLogoutOpen(true)}
+            >
               로그아웃 <span className="m">›</span>
             </button>
           </div>

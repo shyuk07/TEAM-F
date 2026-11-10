@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { BACK_LABEL, WithdrawForm, useAuth, usePointHistory } from '@/features/auth';
+import { BACK_LABEL, WithdrawForm, useAuth, usePointHistory, useWithdraw } from '@/features/auth';
 import { ROUTES } from '@/shared/lib/routes';
 
 // C7 회원 탈퇴 확인. 잔액만 쓰려고 포인트 1건을 받는다. .app은 CustomerLayout이 그린다(customer-home.md §3.6).
@@ -9,18 +9,31 @@ import { ROUTES } from '@/shared/lib/routes';
 export function WithdrawPage() {
   const { state } = useAuth();
   const points = usePointHistory(1);
+  // 처리 중에는 「←」도 막는다(customer-home.md D-32). 그래서 제출 상태를 page가 만들어 폼에 넘긴다.
+  const withdraw = useWithdraw();
   if (state.status !== 'authenticated') return null;
 
   return (
     <>
       <div className="bar">
-        <Link to={ROUTES.me} aria-label={BACK_LABEL}>
+        <Link
+          to={ROUTES.me}
+          aria-label={BACK_LABEL}
+          aria-disabled={withdraw.pending ? 'true' : undefined}
+          onClick={(e) => {
+            if (withdraw.pending) e.preventDefault();
+          }}
+        >
           ←
         </Link>
         <h1 className="t">회원 탈퇴</h1>
         <span className="sp" />
       </div>
-      <WithdrawForm balance={points.balance ?? state.user.point} cancelTo={ROUTES.me} />
+      <WithdrawForm
+        balance={points.balance ?? state.user.point}
+        cancelTo={ROUTES.me}
+        withdraw={withdraw}
+      />
     </>
   );
 }

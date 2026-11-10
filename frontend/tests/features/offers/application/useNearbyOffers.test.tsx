@@ -103,4 +103,33 @@ describe('useNearbyOffers', () => {
     expect(lastQuery(fakes)).toMatchObject({ sort: 'price', page: 1 });
     expect(result.current.items.map((i) => i.offer.id)).toEqual(['o9']);
   });
+
+  it('2페이지까지 본 뒤 같은 좌표로 위치를 다시 받으면 loading을 거쳐 1페이지만 남고, 다음 loadMore는 page 2', async () => {
+    const fakes = anonymousFakes();
+    const reloaded = deferred<OfferPage>();
+    fakes.offers.findNearby
+      .mockResolvedValueOnce(makeOfferPage(makeNearbyList(20), { total: 45 }))
+      .mockResolvedValueOnce(makeOfferPage(makeNearbyList(20, 21), { page: 2, total: 45 }))
+      .mockReturnValueOnce(reloaded.promise)
+      .mockResolvedValueOnce(makeOfferPage(makeNearbyList(20, 21), { page: 2, total: 45 }));
+    const { result, rerender } = setup({ filter: BASE, location: MANGWON, ready: true }, fakes);
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.items).toHaveLength(40));
+
+    // 위치 재요청: ready false(pending) → 같은 좌표로 ready true
+    rerender({ filter: BASE, location: null, ready: false });
+    rerender({ filter: BASE, location: MANGWON, ready: true });
+    expect(result.current.status).toBe('loading');
+    expect(result.current.items).toEqual([]);
+    expect(result.current.hasMore).toBe(false);
+
+    reloaded.resolve(makeOfferPage(makeNearbyList(20), { total: 45 }));
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    expect(result.current.items).toHaveLength(20);
+    expect(lastQuery(fakes)).toMatchObject({ location: MANGWON, page: 1 });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.items).toHaveLength(40));
+    expect(lastQuery(fakes)).toMatchObject({ page: 2 });
+  });
 });

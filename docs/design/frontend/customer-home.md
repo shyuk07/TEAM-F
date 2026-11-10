@@ -4,6 +4,7 @@
 - 대응 화면: 고객 하단 탭 바(홈·내 예약·마이)·고객 가드, C1 홈·주변 할인(비로그인 가능), C1a 위치·반경, C6 마이, C10 로그아웃 확인(고객 쪽 진입), C7 회원 탈퇴 확인, C11 포인트 내역 전체. 기존 A1·A2·A3·C8·C9·O8의 와이어프레임 누락 보완(§3.7).
 - 범위 밖: C2 할인 상세(catalog 담당), C5·C5a·C5b 내 예약(reservations 담당), C3·C3a·C4 결제(payments 담당). 이번에는 C2·C5 자리 page와 연결 안내(§5)만 둔다.
 - 상태: 설계안 1차. 사용자가 결정을 위임해 D-1~D-31을 권장안으로 확정했다(2026-11-10). 구현을 막는 항목은 없다. "확인 필요"(§9)는 임시 동작으로 구현하고 주석으로 추적한다.
+- 반영 이력: 2026-11-10 리뷰 반영(오케스트레이터 확정, 사용자 위임) — 탈퇴 요청 abort 예외·처리 중 이동 막기(D-32), 홈 목록 요청 세대(D-33), 입점 신청 표시 조건 `anonymous`만(D-18·§3.5), C10 닫을 때 「로그아웃」 포커스 복귀·C7 비밀번호 칸 `aria-invalid`(§3.6), A1 가입 안내 `.dk`·`.cta` 두 벌(§3.7).
 - 이어받는 설계: `auth.md`(1차), `auth-account.md`(2차, §11 "C11·고객 셸을 위한 메모"를 이 문서가 이어받음), `app-shell.md`(경로 상수 D-17, 자리 page D-8·D-15, 탭 handle). 그 문서들의 D·C 번호는 `auth-account.md D-18`처럼 파일명과 함께 가리킨다.
 - 정본: 화면 `../../design-system/screens.md` C1·C1a·C6·C7·C10·C11·E1(+A1·A2·A3·C8·C9·O8), `layout.md`(고객 셸 420px·화면 골격·연결 지도), `wireframe.html` 164~343·477~552줄, `content.md`(숫자·시간 표기), `states.md`(포인트 내역 종류·화면 계산 값·화면 상태 공통), `open-issues.md`(C1a), `components/{TabBar,OfferCard,Chip,BottomSheet,ListRow,EmptyState,Skeleton,Notice,StatusTag,AppBar,Box}/README.md`, `components/bundle.css`(`.tabs`·`.card`·`.price`·`.cd`·`.chip`·`.scroll`·`.dim`·`.sheet`·`.list`·`.li`·`.kv`·`.empty`·`.sk`·`.warn`). API `../../reference/catalog.md` §공통 객체 Offer·§8, `../../reference/auth.md` §3·§4·§5·§12, `api-map.md` C1·C1a·C6·C7·C10·C11.
 - 백엔드 실재 확인(`frontend-orchestration.md` §6): `backend/src/catalog/presentation/router.py:136~158` `GET /v1/offers`(쿼리 `lat`·`lng`·`radius_km`·`category`·`keyword`(최대 100)·`status`(기본 `ON_SALE`)·`sort`(기본 `sales_end`)·`page`(1부터)·`size`), 응답 `schemas.py:308~322` `NearbyOfferItem{offer: OfferResponse, distance, unit}`, `OfferResponse` `schemas.py:126~145`(이미지 필드 없음, `status`에 `SUSPENDED` 포함), 정렬 `catalog/domain/search.py:37~45`(`distance` + 위치 없음 → 400 `distance 정렬은 위치 정보가 필요합니다.`). `backend/src/auth/presentation/router.py:65~73` 로그아웃 204, `:130~137` `POST /v1/users/me/withdraw`(`WithdrawalResponse{id,status,deleted_at,cancelled_reservation_count}`), `:140~153` `GET /v1/users/me/points`(`page` 0부터·`size` 1~100), `schemas.py:43~58` `PointLogListResponse{users_point, logs[{id,amount,point_type,balance_after|null,created_at}], page, size, total_elements}`, `:75~76` `WithdrawRequest.password` 1~128자. URI·필드·상태 코드는 명세와 같다. 차이는 C-12.
@@ -103,13 +104,13 @@
 | `application/points.ts` | 신규 | `loadPoints(deps: { account: AccountGateway; session: SessionStore }, query: { page: number; size: number }, signal?: AbortSignal): Promise<PointPage>` |
 | `application/withdraw.ts` | 신규 | `withdrawAccount(deps: { account: AccountGateway; session: SessionStore }, password: string, signal?: AbortSignal): Promise<void>` |
 | `application/usePointHistory.ts` | 신규 | `type PointHistoryState = { status: 'loading' \| 'success' \| 'empty' \| 'error'; balance: number \| null; logs: PointLog[]; total: number; hasMore: boolean; loadingMore: boolean; loadMoreFailed: boolean; loadMore(): void; retry(): void }`, `usePointHistory(pageSize: number): PointHistoryState` |
-| `application/useWithdraw.ts` | 신규 | `useWithdraw(): { submit(password: string): Promise<boolean>; pending: boolean; error: ErrorInfo \| null }` (`useSubmit` 사용) |
+| `application/useWithdraw.ts` | 신규 | `useWithdraw(): WithdrawController`(`{ submit(password: string): Promise<boolean>; pending: boolean; error: ErrorInfo \| null }`, `useSubmit` 사용, signal 넘기지 않음 D-32) |
 | `application/authContext.ts` | 수정 | `AuthContextValue`에 `withdraw(password: string, signal?: AbortSignal): Promise<void>` 추가(D-24) |
 | `application/useAuthController.ts` | 수정 | `withdraw` 구현 |
 | `infrastructure/httpAccountGateway.ts` | 수정 | `findPoints`, `withdraw` 추가 |
 | `presentation/PointLogList.tsx` | 신규 | `PointLogList({ logs, variant }: { logs: PointLog[]; variant: 'short' \| 'full' })` — `.list` + 행 |
 | `presentation/PointLogSkeleton.tsx` | 신규 | `PointLogSkeleton({ rows }: { rows: number })` |
-| `presentation/WithdrawForm.tsx` | 신규 | `WithdrawForm({ balance, cancelTo }: { balance: number; cancelTo: string })` — 본문 box·비밀번호 칸·`.cta`(취소·탈퇴하기) 전체 |
+| `presentation/WithdrawForm.tsx` | 신규 | `WithdrawForm({ balance, cancelTo, withdraw }: { balance: number; cancelTo: string; withdraw: WithdrawController })` — 본문 box·비밀번호 칸·`.cta`(취소·탈퇴하기) 전체. `withdraw`는 page가 `useWithdraw()`로 만들어 넘김(처리 중 page의 ←도 막으려고, D-32) |
 | `presentation/LogoutConfirmSheet.tsx` | 수정 | 설명 한 줄 추가(D-23). props 그대로 |
 
 `index.ts` 추가: `type PointLog`, `type PointType`, `type PointPage`, `type LoginEntry`, `readLoginEntry`, `loginEntryMessage`, `formatPoint`, `pointExpiryText`, `RECENT_POINT_COUNT`, `POINT_PAGE_SIZE`, `POINTS_EMPTY_MESSAGE`, `POINTS_LOAD_FAILED_MESSAGE`, `RETRY_LABEL`, `usePointHistory`, `useWithdraw`, `PointLogList`, `PointLogSkeleton`, `WithdrawForm`. `wiring.ts`는 그대로(새 토큰 없음).
@@ -211,6 +212,7 @@
 **`useNearbyOffers(filter, location, ready)`**
 - `ready === false`(위치 확인 중)면 요청하지 않고 `status: 'loading'`.
 - `ready`가 되거나 `filter`(sort·radiusKm·keyword)·`location`이 바뀌면 진행 중 요청을 abort하고 `toNearbyQuery(filter, location, 1)`로 첫 페이지를 새로 받는다(목록 초기화). 결과 0건 → `empty`, 그 외 `success`. 실패 → `error`(abort 오류는 무시).
+- 받은 결과는 요청 key(필터·좌표·`retry` 횟수·**요청 세대**)와 함께 두고, key가 지금과 다르면 `loading`으로 본다. 요청 세대는 `ready`가 false → true가 될 때(「◎ 현재 위치 사용」 재요청 포함)마다 올려, 좌표가 같아도 앞 결과(이어 붙인 페이지 포함)를 다시 쓰지 않는다. 다음 「더 보기」는 page 2부터(D-33).
 - `hasMore = items.length < total`. `loadMore()`: `hasMore`이고 진행 중이 아니면 다음 페이지를 받아 **이어 붙인다**. 실패하면 목록은 그대로, `loadMoreFailed = true`. 같은 id가 다시 오면(목록 변동) 뒤에 온 것을 버린다.
 - `retry()`: 첫 페이지 다시.
 
@@ -225,7 +227,7 @@
 - 성공 → `setState({ status: 'anonymous', cause: 'loggedOut' })`(로그아웃과 같은 상태, C7 → C1, D-24).
 - 실패 → 세션이 지워졌으면(`!session.hasSession()`, 401) `setState({ anonymous, cause: 'other' })` 후 throw, 아니면 상태 그대로 throw. `finally`에서 ref 끔.
 
-**`useWithdraw()`**: `useSubmit((password, signal) => withdraw(password, signal))`. `submit` 성공 `true`, 실패 `false`(+`error`).
+**`useWithdraw()`**: `useSubmit((password) => withdraw(password))`. 탈퇴는 되돌릴 수 없어 언마운트 abort signal을 넘기지 않는다(요청은 끝까지 가고, 언마운트 뒤 상태 갱신만 `useSubmit`이 막음). `auth-account.md` D-32의 예외(D-32). `submit` 성공 `true`, 실패 `false`(+`error`).
 
 ### 3.3 infrastructure
 
@@ -273,7 +275,7 @@
     - 목록(`<div aria-busy={loading}>`): `loading` → `OfferCardSkeleton` 3개 / `error` → `<div className="warn" role="alert">{OFFERS_LOAD_FAILED_MESSAGE}</div>` + `<button className="btn sm">다시 시도</button>` / `empty` → `NearbyEmpty action={hasLocation ? nextRadius(filter.radiusKm) : null}` / `success` → `OfferCard` 목록.
     - `hasMore`이면 `<button type="button" className="link">더 보기</button>`(처리 중 「처리 중…」 + `aria-disabled`). `loadMoreFailed`이면 그 위에 `warn` 한 줄.
   - 시트가 열려 있으면 `.body` 대신 `<div className="dim" onClick={바깥이면 닫기}>` 안 `LocationSheet`.
-  - `auth.status !== 'authenticated'`일 때 `.body`(또는 `.dim`) 다음, 탭 바 바로 위에 `<Link className="link" style={{ padding: 'var(--s2)' }} to={ROUTES.ownerSignup}>사장님이신가요? 입점 신청</Link>`(와이어프레임 320줄. 목록 끝이 아니라 고정 위치, `screens.md` C1, D-18).
+  - `auth.status === 'anonymous'`일 때(「로그인」과 같은 조건, 세션 확인 중 `loading`에는 숨김) `.body`(또는 `.dim`) 다음, 탭 바 바로 위에 `<Link className="link" style={{ padding: 'var(--s2)' }} to={ROUTES.ownerSignup}>사장님이신가요? 입점 신청</Link>`(와이어프레임 320줄. 목록 끝이 아니라 고정 위치, `screens.md` C1, D-18).
 - `OfferCard`(와이어프레임 307~318줄): `<Link className="card" to={ROUTES.offerDetail(id)} state={{ from: pathname + search }}>` > `<div className="ph" aria-hidden="true" />`(이미지 없음, C-4) + 정보 열: `.m` storeLine / `.t` title / `.price`(`span.pct` rate, `b` salePrice, `s` originalPrice) / `.m` 「픽업 」+ (품절 아니면 `<b>`) pickup / `.row`: 품절이면 `<span className="tag mute">품절</span>`, `ended`면 `<span className="tag mute">판매 종료</span>`(임시, `states.md` 할인 문구), 그 외 `<span className="cd">{countdown}</span><span className="m">{remaining}</span>`.
 - `NearbyEmpty`(E1 546줄): `<div className="box empty"><div className="ic" /><b>근처에 마감 할인이 없어요</b><span className="m">반경을 넓히거나 저녁 시간에 다시 확인해 보세요.</span>{action !== null ? <button className="btn sm">반경 {action}km로 넓히기</button> : null}</div>`. 버튼 → `radiusKm = action`.
 - `LocationSheet`(와이어프레임 331~339줄): `<div className="sheet" role="dialog" aria-modal="true" aria-labelledby>` > `.t`(17px) 「어디서 찾을까요?」 / `btn` 「◎ 현재 위치 사용」(`locating`이면 「처리 중…」·`aria-disabled`) / `.m` `locationStatusText(hasLocation)` / `.lbl` 「반경」 / `.scroll` 칩 1·3·5·10km(`aria-pressed`, 시트 안 선택값, 처음은 `radiusKm`) / `.m` 「위치를 허용하지 않으면 거리 없이 전체 할인을 보여 줘요.」 / `btn pri` 「적용」 → `onApply(선택값)` 후 닫힘. `useModalFocus`(첫 포커스 「◎ 현재 위치 사용」, Escape·바깥 누름 → 적용 없이 닫힘). 닫으면 위치 칩으로 포커스.
@@ -303,7 +305,7 @@
   - `.row`: `<span className="lbl" style={{ flex: 1 }}>최근 포인트 내역</span>` + `<Link className="link" to={ROUTES.mePoints}>전체 보기</Link>`.
   - 최근 내역: 로딩 `PointLogSkeleton rows=3` / 오류 `warn` + 「다시 시도」 / 빈 `.m` `포인트 내역이 없어요` / 성공 `PointLogList variant="short"`.
   - `<Link className="link" to={ROUTES.meWithdraw}>회원 탈퇴</Link>`(맨 아래 조용한 링크, `ListRow` README).
-- 시트가 열려 있으면 `.body` 대신 `.dim` + `LogoutConfirmSheet onClose={() => setLogoutOpen(false)}`. 바깥 누름·Escape → 닫힘(`useModalFocus`는 page가 `.dim`에 건다). 로그아웃 성공 → 인증 상태 `loggedOut` → `CustomerLayout`이 C1로(§3.4).
+- 시트가 열려 있으면 `.body` 대신 `.dim` + `LogoutConfirmSheet onClose={closeLogout}`. 바깥 누름·Escape → 닫힘(`useModalFocus`는 page가 `.dim`에 건다). 닫으면(취소·Escape·바깥) 다시 그려진 「로그아웃」 버튼으로 포커스를 돌린다(홈 위치 칩과 같은 방식, 버튼이 `.body`와 함께 다시 그려지므로 닫힌 뒤 effect에서 옮김). 로그아웃 성공 → 인증 상태 `loggedOut` → `CustomerLayout`이 C1로(§3.4).
 - C8·C9 ← 는 `state.from = '/me'`라 `resolvePostLoginPath(CUSTOMER, '/me') = '/me'`로 C6에 돌아온다(기존 규칙 그대로).
 
 **C10 `LogoutConfirmSheet` 수정** (와이어프레임 260~263줄): 제목 다음에 `<div className="m">진행 중인 예약은 그대로 남아요. 다시 로그인하면 볼 수 있어요.</div>`. 역할과 관계없이 넣는다(C10은 공용 화면, D-23). `aria-describedby`로 연결.
@@ -326,10 +328,10 @@
 | 401 | 세션 정리 → 가드가 `/login`(`from: /me/points`, entry `customerTab`) |
 
 **C7 `pages/withdraw/presentation/WithdrawPage.tsx`** (와이어프레임 501~515줄)
-- `points = usePointHistory(1)`(잔액만 씀). `.bar`: ← `ROUTES.me` + `<h1 className="t">회원 탈퇴</h1>`.
-- `WithdrawForm balance={points.balance ?? user.point} cancelTo={ROUTES.me}`:
-  - `<form noValidate style={{ display: 'contents' }}>` > `.body`: `.box` > `.t` 「탈퇴하면 이렇게 돼요」 / `.kv` 「진행 중 예약」 + `<b>모두 취소·환불</b>`(임시, C-6) / `.kv` 「남은 포인트」 + `<b className="cd">{pointExpiryText(balance)}</b>` / `.m` 「되돌릴 수 없어요.」. 이어서 `label.lbl` 「현재 비밀번호 *」 + `input.in`(`type="password"`, `autoComplete="current-password"`, `maxLength=128`) + 칸 아래 `err`(password 오류) + 폼 오류 `err`.
-  - `.cta`: `<Link className="btn" to={cancelTo}>취소</Link>` + `<button type="submit" className="btn dark">탈퇴하기</button>`(비밀번호가 `''`이면 `aria-disabled`, 처리 중 「처리 중…」·연타 무시). 고객 셸은 420px라 `.dk` 두 벌은 두지 않는다(D-5).
+- `points = usePointHistory(1)`(잔액만 씀), `withdraw = useWithdraw()`. `.bar`: ← `ROUTES.me` + `<h1 className="t">회원 탈퇴</h1>`. 처리 중(`withdraw.pending`)에는 ←가 `aria-disabled="true"`이고 눌러도 이동하지 않는다(D-32).
+- `WithdrawForm balance={points.balance ?? user.point} cancelTo={ROUTES.me} withdraw={withdraw}`:
+  - `<form noValidate style={{ display: 'contents' }}>` > `.body`: `.box` > `.t` 「탈퇴하면 이렇게 돼요」 / `.kv` 「진행 중 예약」 + `<b>모두 취소·환불</b>`(임시, C-6) / `.kv` 「남은 포인트」 + `<b className="cd">{pointExpiryText(balance)}</b>` / `.m` 「되돌릴 수 없어요.」. 이어서 `label.lbl` 「현재 비밀번호 *」 + `input.in`(`type="password"`, `autoComplete="current-password"`, `maxLength=128`) + 칸 아래 `err`(password 오류) + 폼 오류 `err`. password 오류일 때만 입력 칸에 `aria-invalid="true"`와 `aria-describedby`(칸 아래 `err`의 id).
+  - `.cta`: `<Link className="btn" to={cancelTo}>취소</Link>`(처리 중에는 `aria-disabled="true"`, 눌러도 이동 안 함, D-32) + `<button type="submit" className="btn dark">탈퇴하기</button>`(비밀번호가 `''`이면 `aria-disabled`, 처리 중 「처리 중…」·연타 무시). 고객 셸은 420px라 `.dk` 두 벌은 두지 않는다(D-5).
 - 성공 → 인증 상태 `loggedOut` → 가드가 C1로. 안내 문구 없음(C-15).
 
 | 상태 | 표시 |
@@ -345,6 +347,7 @@
 | 화면 | 보완 | 위치 |
 | --- | --- | --- |
 | A1 | 진입 경로별 안내 한 줄(`wireframe.html:170`): `readLoginEntry(location.state)`가 있으면 `<h1>로그인</h1>` 바로 아래 `<div className="m">{loginEntryMessage(entry)}</div>`. 고객 가드는 `customerTab`, C2는 `reservation`(§5.6), 홈 상단 링크는 없음 | `pages/login/presentation/LoginPage.tsx`(TODO 삭제) |
+| A1 | PC 배치: 가입 안내(「계정이 없나요?」·「회원가입」 btn·「사장님이신가요? 입점 신청」 link)를 `.body` 끝(「비밀번호 재설정」 다음) `.dk`와 `.cta` 두 벌로 둔다(`SignupForm` 등 기존 `.dk` 관례). 두 벌 모두 `style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}`, `.cta`에 인라인 `display`를 두지 않는다 | `pages/login/presentation/LoginPage.tsx` |
 | C10 | 설명 한 줄(`wireframe.html:261`) | `features/auth/presentation/LogoutConfirmSheet.tsx` |
 | C10 | 고객 진입(C6 → C10 → C1, `wireframe.html:268` 메모) | §3.6, §3.4 |
 | C8·C9 | 고객으로 열면 고객 셸 프레임(420px) 안(M-6 해소) | `app/layouts/AccountLayout.tsx` |
@@ -726,7 +729,7 @@ domain 55, application 22, infrastructure 9, presentation·pages·app 48(custome
 
 ## 11. 결정 표
 
-D-1~D-31은 사용자 위임으로 권장안을 확정했다(2026-11-10). 구현을 막는 항목은 없다. 문구 중 "임시"(§3.1)는 확정된 임시값이며 content.md가 정해지면 바꾼다(H-1).
+D-1~D-31은 사용자 위임으로 권장안을 확정했다(2026-11-10). D-32·D-33은 리뷰 반영으로 오케스트레이터가 확정했다(사용자 위임, 2026-11-10). 구현을 막는 항목은 없다. 문구 중 "임시"(§3.1)는 확정된 임시값이며 content.md가 정해지면 바꾼다(H-1).
 
 | D | 항목 | 값 | 상태 | 근거 | 구현을 막는가 |
 | --- | --- | --- | --- | --- | --- |
@@ -747,7 +750,7 @@ D-1~D-31은 사용자 위임으로 권장안을 확정했다(2026-11-10). 구현
 | D-15 | C1a 시트 | 라우트 없음. `.body` 자리에 `.dim` + `LocationSheet`(와이어프레임 구조). 반경은 「적용」 때 반영, 「◎ 현재 위치 사용」은 바로 위치 재요청. Escape·바깥 누름은 적용 없이 닫힘 | 확정(위임, 2026-11-10) | `wireframe.html:330~339`, `BottomSheet` README, C-14 | 아니오 |
 | D-16 | 위치 문구 | 칩 `현재 위치 · Nkm` / `전체 지역`, 시트 `지금: 현재 위치` / `지금: 전체 지역` | 확정(위임, 2026-11-10) | C-2 | 아니오 |
 | D-17 | 빈·오류·로딩 | 로딩 Skeleton 3개, 빈 상태 E1 문구 + 다음 반경 버튼(위치 있고 10km 미만일 때만), 오류는 `.warn` 임시 문구 + 「다시 시도」(서버 문구 노출 안 함) | 확정(위임, 2026-11-10) | `states.md` 화면 상태 공통, E1, C-8 | 아니오 |
-| D-18 | 상단 로그인·입점 신청 | 비로그인일 때만 둘 다 보임. 로그인 링크는 `state.from = 홈 경로+쿼리`(entry 없음 → A1 안내 없음). 입점 신청은 탭 바 바로 위 고정 | 확정(위임, 2026-11-10) | `screens.md` C1·A1. A2는 비로그인 전용(`auth-account.md` D-5) | 아니오 |
+| D-18 | 상단 로그인·입점 신청 | 비로그인(`auth.status === 'anonymous'`)일 때만 둘 다 보임. 세션 확인 중(`loading`)에는 둘 다 숨김(2026-11-10 리뷰 반영). 로그인 링크는 `state.from = 홈 경로+쿼리`(entry 없음 → A1 안내 없음). 입점 신청은 탭 바 바로 위 고정 | 확정(위임, 2026-11-10) | `screens.md` C1·A1. A2는 비로그인 전용(`auth-account.md` D-5) | 아니오 |
 | D-19 | 할인 목록 요청 | `auth:false`, `status` 생략(ON_SALE), `keyword`는 trim 뒤 비면 생략 | 확정(위임, 2026-11-10) | 공개 API, 남은 토큰 영향 차단. C-3 | 아니오 |
 | D-20 | 포인트 API | `AccountGateway.findPoints({page,size})`·`withdraw(password)`. `type` 필터는 쓰지 않음. 훅 하나 `usePointHistory(pageSize)`를 C6(3)·C7(1)·C11(20)이 씀 | 확정(위임, 2026-11-10) | `auth-account.md` §11 메모, 화면에 종류 필터 없음 | 아니오 |
 | D-21 | 포인트 행 표기 | C6 `MM/DD`, C11 `MM/DD HH:mm · 잔액 N P`(잔액 없으면 생략), 금액 `+N P`/`−N P`(U+2212) | 확정(위임, 2026-11-10) | `content.md`, `screens.md` C11, C-5 | 아니오 |
@@ -761,6 +764,8 @@ D-1~D-31은 사용자 위임으로 권장안을 확정했다(2026-11-10). 구현
 | D-29 | pages 이름 | `home`(C1), `my`(C6), `point-history`(C11), `withdraw`(C7) | 확정(위임, 2026-11-10) | `fsd-structure` §5(뜻으로) | 아니오 |
 | D-30 | 진행·분할 | 골격(공용 파일 최종 모양) → Red → Green 0(shared·CustomerFrame·redirect) → 갈래 A·B 병렬(§7) | 확정(위임, 2026-11-10) | 사용자 지정 방식, 쓰기 범위 겹침 0 | 아니오 |
 | D-31 | 이어받는 확정값 | 토큰 `localStorage`, 경로 상수 위치(`app-shell.md` D-17), `location.state` 복귀(`auth.md` D-1), `useSubmit`·AbortSignal(`auth-account.md` D-32), 하위 화면 AppBar(`auth-account.md` D-20), 역할별 도착지 | 확정(이전 결정) | 다시 묻지 않음 | |
+| D-32 | 탈퇴 요청 abort 예외 | C7 탈퇴 POST에는 언마운트 abort signal을 넘기지 않는다(`useWithdraw`가 signal을 버림). 언마운트 뒤 상태 갱신만 `useSubmit`이 막는다. 처리 중에는 「취소」·「←」가 `aria-disabled="true"`이고 눌러도 이동하지 않는다. 다른 폼은 `auth-account.md` D-32 그대로 | 확정(오케스트레이터, 사용자 위임, 2026-11-10) | 되돌릴 수 없는 요청을 화면 이동으로 끊으면 서버 처리 여부를 알 수 없다(리뷰 지적) | 아니오 |
+| D-33 | 홈 목록 요청 세대 | `useNearbyOffers` 결과 key에 요청 세대(ready false → true, 위치 재요청마다 +1)를 넣어 같은 좌표여도 앞 결과를 무효화하고 `loading`을 보인다. 이후 「더 보기」는 page 2부터 | 확정(오케스트레이터, 사용자 위임, 2026-11-10) | 같은 좌표 재요청 때 앞 `Loaded`(이어 붙인 페이지)가 다시 쓰여 페이지가 꼬임(리뷰 지적) | 아니오 |
 
 ## 12. 정책·보안 메모
 

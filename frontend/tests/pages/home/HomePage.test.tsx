@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { routes } from '@/app/router/routes';
+import type { User } from '@/features/auth';
 import type { OfferPage } from '@/features/offers';
 import { ApiError } from '@/shared/api/error';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
@@ -179,6 +180,18 @@ describe('HomePage (C1·C1a)', () => {
     unmount();
 
     renderHome({ fakes: signedInFakes(customerUser) });
+    await card();
+    expect(screen.queryByRole('link', { name: '로그인' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: '사장님이신가요? 입점 신청' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('세션 확인 중(loading)에는 「로그인」도 「사장님이신가요? 입점 신청」도 없다(D-18)', async () => {
+    const fakes = signedInFakes(customerUser);
+    fakes.auth.findMe.mockReturnValue(deferred<User>().promise);
+    renderHome({ fakes });
+    expect(await screen.findByRole('heading', { level: 1, name: '마감직전' })).toBeInTheDocument();
     await card();
     expect(screen.queryByRole('link', { name: '로그인' })).not.toBeInTheDocument();
     expect(
