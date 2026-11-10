@@ -20,9 +20,16 @@ export const ROUTES = {
   ownerProducts: '/owner/products',
   ownerProductNew: '/owner/products/new',
   ownerProduct: (id: string) => `/owner/products/${encodeURIComponent(id)}`,
+  admin: '/admin',
+  adminApprovals: '/admin/approvals',
+  adminUsers: '/admin/users',
+  adminUser: (id: string) => `/admin/users/${encodeURIComponent(id)}`,
+  adminStores: '/admin/stores',
+  adminOffers: '/admin/offers',
 } as const;
 
 export const ROUTE_PATTERNS = {
   offerDetail: '/offers/:offerId',
   ownerProduct: '/owner/products/:productId',
+  adminUser: '/admin/users/:userId',
 } as const;

@@ -53,7 +53,13 @@ describe('resolvePostLoginPath', () => {
     ['CUSTOMER', null, ROUTES.home],
     ['CUSTOMER', '/offers/1', '/offers/1'],
     ['CUSTOMER', '/owner/today', ROUTES.home],
-    ['ADMIN', '/owner/today', ROUTES.home],
+    ['ADMIN', '/owner/today', ROUTES.adminApprovals],
+    ['ADMIN', null, ROUTES.adminApprovals],
+    ['ADMIN', '/admin/users?filter=owner', '/admin/users?filter=owner'],
+    ['ADMIN', '/', ROUTES.adminApprovals],
+    ['ADMIN', '/adminx', ROUTES.adminApprovals],
+    ['CUSTOMER', '/admin/users', ROUTES.home],
+    ['OWNER', '/admin/users', ROUTES.ownerToday],
     ['OWNER', '//evil.com', ROUTES.ownerToday],
   ])('%s + from %j → %s', (role, from, expected) => {
     expect(resolvePostLoginPath(as(role), from)).toBe(expected);

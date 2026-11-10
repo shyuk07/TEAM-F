@@ -143,3 +143,8 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | C7 회원 탈퇴 확인 | `pages/withdraw` | `features/auth`(`WithdrawForm`, `useWithdraw`, `usePointHistory`) | `../docs/design/frontend/customer-home.md` |
 | C2 할인 상세·C5 내 예약 (자리 page, 담당 팀원이 교체) | 없음(`app/router/placeholders.tsx`의 `OfferDetailPlaceholder`·`ReservationsPlaceholder`) | 없음 | `../docs/design/frontend/customer-home.md` §5 |
 | A1 진입 경로별 안내 한 줄 | `pages/login` | `features/auth`(`readLoginEntry`, `loginEntryMessage`) | `../docs/design/frontend/customer-home.md` |
+| 관리자 셸 가드·상단 바 | 없음(`app/layouts/AdminLayout`) | `widgets/admin-nav`, `widgets/owner-nav`(`OwnerAccountButton`), `features/auth` | `../docs/design/frontend/admin.md` |
+| M1 승인 | `pages/admin-approvals` | `features/admin`(`ApprovalsPanel`) | `../docs/design/frontend/admin.md` |
+| M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
+| M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
+| M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |

@@ -1,5 +1,5 @@
 import { ROUTES } from '@/shared/lib/routes';
-import { isOwnerPath, type User } from './user';
+import { isAdminPath, isOwnerPath, type User } from './user';
 
 export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
 
@@ -66,10 +66,12 @@ export function resolvePostLoginPath(user: User, from: string | null): string {
   const safe = from !== null && isSafeInternalPath(from) ? from : null;
   // C8·C9는 역할 무관 화면이라 세션이 끊겨 다시 로그인하면 역할과 관계없이 그 화면으로 돌아간다(auth-account.md D-29).
   if (safe !== null && isAccountPath(safe)) return safe;
-  // TODO: 상점주는 항상 O1로, 관리자는 홈으로 보낸다.
-  //   왜: 상점 유무로 O0·O1을 정하는 stores 영역과 관리자 셸(M1)이 아직 없다 (docs/design/frontend/auth.md C-3, D-6)
-  //   언제: stores 구현 시, admin 구현 시
+  // TODO: 상점주는 항상 O1로 보낸다.
+  //   왜: 상점 유무로 O0·O1을 정하는 stores 영역이 아직 없다 (docs/design/frontend/auth.md C-3, D-6)
+  //   언제: stores 구현 시
   if (user.role === 'OWNER') return safe !== null && isOwnerPath(safe) ? safe : ROUTES.ownerToday;
-  if (user.role === 'CUSTOMER') return safe !== null && !isOwnerPath(safe) ? safe : ROUTES.home;
-  return ROUTES.home;
+  // 관리자는 M1으로, 관리자 화면에서 로그인으로 왔으면 그 화면으로 (docs/design/frontend/admin.md D-10)
+  if (user.role === 'ADMIN')
+    return safe !== null && isAdminPath(safe) ? safe : ROUTES.adminApprovals;
+  return safe !== null && !isOwnerPath(safe) && !isAdminPath(safe) ? safe : ROUTES.home;
 }
