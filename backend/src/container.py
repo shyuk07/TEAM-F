@@ -397,7 +397,7 @@ def create_store_reservation_query(
     store_offers: StoreOffersPort = Depends(create_store_offers_port),
 ) -> StoreReservationQuery:
     """stores PickupPendingPort와 admin 매장 확인을 둘 다 만족하는 읽기 전용 질의 (D-34)."""
-    return StoreReservationQuery(reservations=reservations, store_offers=store_offers)
+    return StoreReservationQuery(reservations=reservations, store_offers=store_offers, clock=_reservations_clock)
 
 
 def create_store_reservation_list_service(

@@ -1145,6 +1145,7 @@ DB 테스트 skip은 통과가 아니다(R16). 이 절의 변경은 테스트 DB
 | D-43 | 기존 취소 행은 백필하지 않고 NULL. 응답 `null` | 취소 사유가 저장돼 있지 않아 사후 추정 불가 | 확정(위임, 2026-11-09) |
 | D-44 | 응답 필드 이름은 `cancelled_by`(기존 `cancelled_at`과 같은 형태). 내 목록 항목과 취소 응답에만 추가, 기존 필드 불변. 점주 목록·생성 응답은 불변 | R15, 호환성 | 확정(위임, 2026-11-09) |
 | D-45 | "픽업 시간 지남"은 저장하지 않고 화면이 `pickup_end`로 계산(DB·API 변경 없음) | 사용자 결정 2026-11-09 | 확정 |
+| D-46 | **미수령(A안)**: 결제 완료(`RESERVED`)이면서 `now > pickup_end`(마감 순간은 아직 픽업 가능)이면 미수령으로 판단한다. 새 상태(NO_SHOW)는 두지 않고 `RESERVED`로 남긴다(도메인 `PickupReservation.is_no_show(pickup_end, now)`). ① 판매 중단 일괄 취소(`cancel_all_for_offer`)와 회원 탈퇴 일괄 취소(`cancel_all_for_user`, 자진·강제)는 미수령을 건너뛴다: 취소·환불·재고 복구·포인트 변동 없음, 취소 건수에서 빠짐 ② `StoreReservationQuery.has_reserved_for_store`/`has_pickup_pending_for_store`는 픽업 마감 전인 `RESERVED`만 센다(`find_offer_ids_with_status`로 결제 완료 예약이 걸린 할인만 추린 뒤 catalog 할인의 `pickup_end`를 확인, 시계는 container 주입). 그래서 미수령은 상점주 폐점·관리자 강제 폐점·상점주 자진·강제 탈퇴를 막지 않는다 ③ 미수령 예약은 바뀌지 않으므로 결제·예약 불일치 검사(RD-38·39·40, 쓰기 시점 검사) 대상이 아니다. `RESERVED`+`PAID`는 기존대로 정상 조합 ④ 고객 취소·환불은 취소 가능 시각이 지나 이미 불가, 픽업은 픽업 시간 밖이라 불가(기존 규칙) ⑤ 목록 표시 방식은 범위 밖(프론트엔드 연동 시 결정, D-45) | 사용자 결정 2026-11-10. 확정 문서 auth REQ-34 ②·REQ-36, admin D12·D13의 '결제 완료 예약'에 미수령 예외를 넣는 데 사용자 동의 → 해당 문서 갱신은 Auth·Admin 담당, stores RQ-3 '픽업 대기 예약' 범위는 Stores 담당과 협의 | 확정 |
 
 정합 이슈
 

@@ -131,6 +131,12 @@ class ResRepo(ReservationRepository):
         rows = [r for r in self.store.all() if r.offer_id in offer_ids]
         return rows, len(rows)
 
+    async def find_offer_ids_with_status(self, offer_ids, status, *, excluding_user_id=None):
+        return {
+            r.offer_id for r in self.store.all()
+            if r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id
+        }
+
     async def exists_by_offers_and_status(self, offer_ids, status, *, excluding_user_id=None):
         return any(
             r.offer_id in offer_ids and r.status == status and r.user_id != excluding_user_id

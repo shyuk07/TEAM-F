@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import timedelta
 
 import pytest
 
@@ -220,11 +221,22 @@ class FakeStoreOffers:
         self.calls.append((store_id, for_update))
         return self.ids
 
+    async def get_pickup_ends(self, offer_ids):
+        return {offer_id: Terms(offer_id, uuid.uuid4()).pickup_end for offer_id in offer_ids}  # NOW+3h
 
-def make_query(offer_ids):
+
+def make_query(offer_ids, now=None):
     log = Log()
     repo, store_offers = FakeRepo(log), FakeStoreOffers(offer_ids)
-    return StoreReservationQuery(repo, store_offers), repo, store_offers, log
+    return StoreReservationQuery(repo, store_offers, AtClock(now or NOW)), repo, store_offers, log
+
+
+class AtClock:
+    def __init__(self, at):
+        self.at = at
+
+    def now(self):
+        return self.at
 
 
 def put(repo, user_id, offer_id, status):
@@ -319,3 +331,51 @@ async def test_admin_adapter_delegates_and_translates_inconsistency(caplog):
             await bad.cancel_active_for_user(user, reason="x")
     assert exc.value.error_code == "DATA_INCONSISTENT"
     assert caplog.records == []  # 번역만, 로그 없음
+
+
+# ── 미수령(픽업 마감 지남) 예약은 '픽업 대기'로 세지 않는다 (A안, 2026-11-10) ──
+@pytest.mark.parametrize(
+    "offset,expected",
+    [(timedelta(hours=3), True), (timedelta(hours=3, microseconds=1), False), (timedelta(hours=10), False)],
+)
+async def test_store_query_ignores_no_show_reserved(offset, expected):
+    """가짜 할인 픽업 마감은 NOW+3h. 마감 순간까지는 픽업 대기, 지나면 미수령이라 폐점·탈퇴를 막지 않는다."""
+    offer = uuid.uuid4()
+    query, repo, _, _ = make_query([offer], now=NOW + offset)
+    put(repo, uuid.uuid4(), offer, S.RESERVED)
+    assert await query.has_reserved_for_store(uuid.uuid4()) is expected
+    assert await query.has_pickup_pending_for_store(uuid.uuid4()) is expected
+
+
+async def test_store_query_counts_live_reserved_even_if_another_is_no_show():
+    live, over = uuid.uuid4(), uuid.uuid4()
+    query, repo, store_offers, _ = make_query([live, over], now=NOW + timedelta(hours=4))
+
+    async def ends(ids):
+        return {live: NOW + timedelta(hours=5), over: NOW + timedelta(hours=3)}
+
+    store_offers.get_pickup_ends = ends
+    put(repo, uuid.uuid4(), live, S.RESERVED)
+    put(repo, uuid.uuid4(), over, S.RESERVED)
+    assert await query.has_reserved_for_store(uuid.uuid4()) is True
+
+
+async def test_store_query_without_clock_fails_closed():
+    offer = uuid.uuid4()
+    repo = FakeRepo(Log())
+    query = StoreReservationQuery(repo, FakeStoreOffers([offer]))
+    put(repo, uuid.uuid4(), offer, S.RESERVED)
+    with pytest.raises(RuntimeError):
+        await query.has_reserved_for_store(uuid.uuid4())
+
+
+async def test_store_query_treats_unknown_pickup_end_as_pending():
+    offer = uuid.uuid4()
+    query, repo, store_offers, _ = make_query([offer], now=NOW + timedelta(days=1))
+
+    async def none(ids):
+        return {}
+
+    store_offers.get_pickup_ends = none
+    put(repo, uuid.uuid4(), offer, S.RESERVED)
+    assert await query.has_reserved_for_store(uuid.uuid4()) is True

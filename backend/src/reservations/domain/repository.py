@@ -66,4 +66,14 @@ class ReservationRepository(ABC):
         빈 목록이면 ([], 0). 행을 잠그지 않는다."""
 
     @abstractmethod
+    async def find_offer_ids_with_status(
+        self,
+        offer_ids: Sequence[uuid.UUID],
+        status: ReservationStatus,
+        *,
+        excluding_user_id: uuid.UUID | None = None,
+    ) -> set[uuid.UUID]:
+        """offer_ids 중 해당 상태 예약이 하나라도 있는 할인 ID 집합. 빈 목록이면 빈 집합. 행을 잠그지 않는다."""
+
+    @abstractmethod
     async def save(self, reservation: PickupReservation) -> PickupReservation: ...
