@@ -13,6 +13,10 @@ from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_S
 from payments.domain.service import Clock, PaymentGateway
 
 
+# 고객 취소·환불 마감 시각(REQ-6)에 걸리지 않는 기본값
+FAR_FUTURE = datetime(2999, 1, 1, tzinfo=UTC)
+
+
 class FakeSession:
     def __init__(self):
         self.commits = 0
@@ -123,6 +127,7 @@ class FakeReservationPort:
         total_price: int | None = 12000,
         status: str = RESERVATION_PAYABLE_STATUS,
         pickup_start: datetime | None = None,
+        cancellable_until: datetime | None = FAR_FUTURE,
     ) -> uuid.UUID:
         reservation_id = uuid.uuid4()
         self.items[reservation_id] = ReservationSnapshot(
@@ -131,6 +136,7 @@ class FakeReservationPort:
             total_price=total_price,
             status=status,
             pickup_start=pickup_start,
+            cancellable_until=cancellable_until,  # 기본은 먼 미래: 시간 제한(REQ-6)에 걸리지 않는 기존 시나리오
         )
         return reservation_id
 

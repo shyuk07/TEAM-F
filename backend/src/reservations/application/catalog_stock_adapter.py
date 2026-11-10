@@ -43,6 +43,7 @@ class OfferTerms:
     sale_price: int
     pickup_start: datetime
     pickup_end: datetime
+    cancellable_until: datetime  # Catalog 취소 정책(D55, C14)으로 계산한 고객 취소·환불 마감 시각
 
 
 class CatalogStockAdapter:
@@ -77,6 +78,8 @@ class CatalogStockAdapter:
             sale_price=offer.sale_price,
             pickup_start=offer.pickup_start,
             pickup_end=offer.pickup_end,
+            # 별도 상수를 두지 않고 Catalog 정책을 그대로 쓴다(C14): pickup_start - CANCEL_LEAD_TIME
+            cancellable_until=offer.cancel_policy().cancellable_until,
         )
         return offer, terms
 

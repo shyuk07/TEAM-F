@@ -53,8 +53,9 @@ async def seed_offer(c, stock=10, email="owner@test.com"):
         f"/v1/products/{r.json()['id']}/offers",
         json={
             "sale_price": 3000, "initial_stock": stock,
+            # 픽업 시작을 3시간 뒤로: 고객 취소·환불 마감(pickup_start - 1시간, REQ-6)이 테스트 중에 지나지 않게 한다
             "sales_end": (now + 2 * H).isoformat(),
-            "pickup_start": (now + H).isoformat(), "pickup_end": (now + 3 * H).isoformat(),
+            "pickup_start": (now + 3 * H).isoformat(), "pickup_end": (now + 4 * H).isoformat(),
         },
         headers=bearer(owner),
     )

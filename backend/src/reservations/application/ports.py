@@ -16,6 +16,7 @@ class OfferTermsInfo(Protocol):
     sale_price: int
     pickup_start: datetime
     pickup_end: datetime
+    cancellable_until: datetime  # 고객 취소·환불 마감 시각(Catalog 정책)
 
 
 class StockPort(Protocol):

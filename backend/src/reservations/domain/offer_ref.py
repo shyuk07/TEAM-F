@@ -19,6 +19,7 @@ class OfferRef:
         sale_price: int,
         pickup_start: datetime,
         pickup_end: datetime,
+        cancellable_until: datetime | None = None,
     ):
         self.offer_id = offer_id
         self.owner_id = owner_id
@@ -28,6 +29,8 @@ class OfferRef:
         self.sale_price = sale_price
         self.pickup_start = pickup_start
         self.pickup_end = pickup_end
+        # 고객 취소·환불 마감 시각. catalog가 계산해 넘긴다(예약 생성 등 마감을 쓰지 않는 경로에서는 없을 수 있다).
+        self.cancellable_until = cancellable_until
 
     @classmethod
     def from_info(cls, info: Any) -> "OfferRef":
@@ -40,6 +43,7 @@ class OfferRef:
             sale_price=info.sale_price,
             pickup_start=info.pickup_start,
             pickup_end=info.pickup_end,
+            cancellable_until=getattr(info, "cancellable_until", None),
         )
 
     def is_owned_by(self, user_id: uuid.UUID | None) -> bool:

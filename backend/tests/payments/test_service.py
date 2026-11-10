@@ -21,6 +21,7 @@ from payments.domain.refund import RefundStatus
 from payments.infrastructure.mock_gateway import MockPaymentGateway
 from payments.domain.rules import RESERVATION_PAID_STATUS, RESERVATION_PAYABLE_STATUS
 from tests.payments.fakes import (
+    FAR_FUTURE,
     FailingGateway,
     FakeAuth,
     FakeGateway,
@@ -571,7 +572,8 @@ async def test_cancelled_reservation_refund_restores_and_revokes_without_commit(
     commits = env.db.commits
 
     await env.service.refund_for_cancelled_reservation(
-        rid, reservation_status=RESERVATION_PAID_STATUS, pickup_start=None, reason="취소"
+        rid, reservation_status=RESERVATION_PAID_STATUS, pickup_start=None, reason="취소",
+        cancellable_until=FAR_FUTURE,
     )
 
     assert env.auth.calls == [

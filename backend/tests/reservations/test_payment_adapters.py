@@ -146,7 +146,10 @@ async def test_refund_adapter_passes_arguments():
     assert payments.calls == [
         (
             t.reservation_id,
-            dict(reservation_status="RESERVED", pickup_start=NOW, reason="중단", waive_penalty=True),
+            dict(
+                reservation_status="RESERVED", pickup_start=NOW, cancellable_until=None,
+                reason="중단", waive_penalty=True,
+            ),
         )
     ]
 

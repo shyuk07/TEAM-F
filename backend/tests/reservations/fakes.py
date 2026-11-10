@@ -27,6 +27,7 @@ class Terms:
     sale_price: int = 3000
     pickup_start: datetime = NOW + timedelta(hours=1)
     pickup_end: datetime = NOW + timedelta(hours=3)
+    cancellable_until: datetime = NOW  # Catalog 정책과 같게 pickup_start - 1시간(경계 포함이라 NOW에 취소 가능)
 
 
 class Log:

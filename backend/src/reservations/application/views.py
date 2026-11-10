@@ -24,6 +24,8 @@ class RefundTarget:
     total_price: int
     pickup_start: datetime
     status: str
+    # 고객 취소의 환불 마감 시각. 일괄 취소(위약금 면제)는 시간 제한이 없어 쓰지 않는다.
+    cancellable_until: datetime | None = None
 
 
 @dataclass(frozen=True)

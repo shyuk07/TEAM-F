@@ -91,6 +91,7 @@ class ReservationApplicationService:
             total_price=view.reservation.total_price,
             pickup_start=view.offer.pickup_start,
             status=str(ReservationStatus.RESERVED),
+            cancellable_until=view.offer.cancellable_until,
         )
         # 데이터 불일치(RD-38·RD-39)는 전부 롤백하고 ERROR 로그를 정확히 1건 남긴다. 기록 지점은 이 서비스 한 곳이다
         # (어댑터는 번역만, 라우터는 응답 변환만 한다).

@@ -14,11 +14,13 @@ from payments.domain.exceptions import (
     InconsistencyKind,
     PaymentConflictError,
     PaymentStateInconsistentError,
+    RefundDeadlinePassedError,
 )
 from payments.domain.reservation_snapshot import ReservationSnapshot
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.views import RefundTarget
 from reservations.domain.exceptions import (
+    CancellationDeadlinePassedError,
     DataInconsistentError,
     InconsistencyDetail,
     RefundConflictError,
@@ -44,6 +46,7 @@ class PaymentReservationAdapter:
             total_price=reservation.total_price,
             status=str(reservation.status),
             pickup_start=view.offer.pickup_start,  # 픽업 시작은 할인(offer) 정보에서
+            cancellable_until=view.offer.cancellable_until,  # 환불 마감(Catalog 정책)
         )
 
     async def mark_paid(self, reservation_id: uuid.UUID, *, commit: bool = False) -> None:
@@ -77,11 +80,14 @@ class PaymentRefundAdapter:
                 target.reservation_id,
                 reservation_status=target.status,
                 pickup_start=target.pickup_start,
+                cancellable_until=target.cancellable_until,
                 reason=reason,
                 waive_penalty=waive_penalty,
             )
         except PaymentStateInconsistentError as error:  # RD-34: 결제 예외 -> 예약 예외
             raise self._translate(error, target.reservation_id) from error
+        except RefundDeadlinePassedError as error:  # 결제 예외 -> 예약 예외(같은 error_code)
+            raise CancellationDeadlinePassedError() from error
         except PaymentConflictError as error:
             raise RefundConflictError() from error
 

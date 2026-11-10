@@ -71,6 +71,15 @@ class InvalidPointAmountError(ValueError):
         super().__init__(message)
 
 
+class RefundDeadlinePassedError(ValueError):
+    """400 CANCELLATION_DEADLINE_PASSED (결제 완료 예약의 고객 취소·환불은 취소 가능 시각까지, REQ-6)"""
+
+    error_code = "CANCELLATION_DEADLINE_PASSED"
+
+    def __init__(self, message: str = "취소 가능 시각이 지나 취소·환불할 수 없습니다."):
+        super().__init__(message)
+
+
 class PaymentNotRefundableError(ValueError):
     """400 PAYMENT_NOT_REFUNDABLE"""
 
