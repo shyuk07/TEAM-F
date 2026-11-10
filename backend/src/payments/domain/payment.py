@@ -212,7 +212,7 @@ class Payment:
             payment_id=self.id,
             refund_amount=self.amount - penalty_amount,
             penalty_amount=penalty_amount,
-            reason=reason,
+            reason=reason.strip() if isinstance(reason, str) else reason,  # 앞뒤 공백을 뺀 값을 저장(REQ-34)
             status=RefundStatus.COMPLETED,
             created_at=completed_at,
             completed_at=completed_at,

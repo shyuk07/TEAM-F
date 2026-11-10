@@ -35,9 +35,11 @@ class Refund:
         for name, value in (("환불 금액", refund_amount), ("위약금", penalty_amount)):
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError(f"{name}은 0원 이상의 정수여야 합니다.")
+        # 길이는 앞뒤 공백(유니코드 공백 포함, str.strip 기준)을 뺀 값으로 센다(payments REQ-34, 사용자 결정 2026-11-10).
+        # 새 환불은 Payment.refund가 앞뒤 공백을 뺀 값을 넘기므로 저장값은 항상 200자 이하다(VARCHAR(200)).
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("환불 사유는 비워 둘 수 없습니다.")
-        if len(reason) > REFUND_REASON_MAX_LENGTH:
+        if len(reason.strip()) > REFUND_REASON_MAX_LENGTH:
             raise ValueError(f"환불 사유는 {REFUND_REASON_MAX_LENGTH}자 이하여야 합니다.")
         _ensure_aware("created_at", created_at)
         _ensure_aware("completed_at", completed_at)

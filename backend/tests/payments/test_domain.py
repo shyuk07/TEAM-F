@@ -200,6 +200,44 @@ def test_refund_reason_200_chars_ok():
     assert make_payment(PaymentStatus.PAID).refund(0, "가" * 200)
 
 
+# ── REQ-34(사용자 결정 2026-11-10): 앞뒤 공백을 뺀 길이로 1~200자, 저장은 앞뒤 공백을 뺀 값 ──
+@pytest.mark.parametrize(
+    "reason,stored",
+    [
+        ("가" * 200, "가" * 200),  # 정확히 200자
+        ("  " + "가" * 200 + "  ", "가" * 200),  # 원문 204자지만 앞뒤 공백을 빼면 200자
+        ("\u3000\n\t" + "가" * 200 + "\t\n\u3000", "가" * 200),  # 전각 공백·줄바꿈·탭도 앞뒤 공백
+        ("가 " * 99 + "가", "가 " * 99 + "가"),  # 단어 사이 공백은 글자로 센다(199자)
+        ("  사유  ", "사유"),
+    ],
+)
+def test_refund_reason_counts_and_stores_trimmed(reason, stored):
+    refund = make_payment(PaymentStatus.PAID).refund(0, reason)
+    assert refund.reason == stored and len(refund.reason) <= 200
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "가" * 201,  # 201자
+        "  " + "가" * 201 + "  ",  # 앞뒤 공백을 빼도 201자
+        "가 " * 100 + "가",  # 단어 사이 공백 포함 201자
+        " ", "\u3000", "\n\t ",  # 공백만
+    ],
+)
+def test_refund_reason_over_200_or_blank_rejected_without_state_change(reason):
+    p = make_payment(PaymentStatus.PAID)
+    with pytest.raises(ValueError):
+        p.refund(0, reason)
+    assert p.status == PaymentStatus.PAID
+
+
+def test_zero_width_space_is_not_whitespace():
+    """폭이 없는 문자(U+200B)는 공백이 아니므로 글자로 센다."""
+    refund = make_payment(PaymentStatus.PAID).refund(0, "\u200b")
+    assert refund.reason == "\u200b"
+
+
 def test_refund_requires_completed_at_and_aware_time():
     pid = uuid.uuid4()
     with pytest.raises(ValueError):

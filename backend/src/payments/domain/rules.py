@@ -3,7 +3,9 @@
 from payments.domain.cancellation_policy import CancellationPolicy, FullRefundPolicy
 
 # 환불 사유 최대 길이 (API 명세, refunds.reason VARCHAR(200))
-REFUND_REASON_MAX_LENGTH = 200
+REFUND_REASON_MAX_LENGTH = 200  # 앞뒤 공백을 뺀 길이 기준(REQ-34)
+# 요청 본문 원문의 최대 길이(남용 방지용 임시값). 실제 판정은 앞뒤 공백을 뺀 200자로 도메인이 한다.
+REFUND_REASON_RAW_MAX_LENGTH = 1000
 
 # 미정(D-9): 예약 담당 확정 시 변경 (아래 세 값은 임시값)
 RESERVATION_PAYABLE_STATUS = "PENDING_PAYMENT"  # 결제 대기
