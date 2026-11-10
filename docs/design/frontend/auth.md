@@ -2,7 +2,7 @@
 
 - 대상: `features/auth`(영역), `entities/session`, `pages/login`, `widgets/owner-nav`의 계정 메뉴(O8)·로그아웃 확인(C10), `app`의 가드·조립
 - 대응 화면: A1 로그인(정식), O8 계정 메뉴(로그아웃 한 줄), C10 로그아웃 확인. 범위 밖: A2 회원가입, A3 비밀번호 재설정, C6~C9·C11, 고객 셸, 관리자(M1~)
-- 상태: 설계안 2차. 사용자 확정: D-1, D-2, D-4(임시 처리로 확정), D-14. 그 밖의 설계자 값(D-3, D-5~D-10)은 "임시"이며 구현을 막지 않는다. 구현을 막는 남은 항목은 없다(§11). app-shell.md Q-2는 D-1 확정으로 해소된다.
+- 상태: 설계안 3차(구현 반영). 사용자 확정: D-1, D-2, D-4(임시 처리로 확정), D-14. 그 밖의 설계자 값(D-3, D-5~D-10)은 "임시"이며 구현을 막지 않는다. 구현을 막는 남은 항목은 없다(§11). app-shell.md Q-2는 D-1 확정으로 해소된다.
 - 정본: `../../reference/auth.md` §2·§3·§4, `../../design-system/screens.md` A1·C10·O8, `layout.md` 69~72줄, `content.md` 5~12줄, `components/{Input,Button,BottomSheet}/README.md`, `frontend/.claude/skills/{fsd-structure,layer-architecture,api-client,react-implementation,tdd-workflow,code-annotations}`
 - 백엔드 실재 확인(`frontend-orchestration.md` §6): `backend/src/auth/presentation/router.py:34`(`/v1` 접두사), `:58` 로그인, `:65` 로그아웃(정지 회원 허용), `:101` `GET /v1/users/me`, `schemas.py`(`TokenResponse`, `UserResponse`), `dependencies.py:39`·`:106`(`/users/me`는 정지 회원 403), `error_handlers.py:33~38`(401·429 처리). 로그인 요청·응답, `error_code`는 명세와 같다. 다른 점은 C-2.
 - 기존 코드 현황: `app/container.ts`는 빈 배열, `OwnerLayout` 가드는 항상 통과, `/login`은 `LoginPlaceholder`, `OwnerAccountButton`은 동작 없음, `shared/api`·`shared/lib/di` 완료, features·entities·pages 없음
@@ -53,6 +53,7 @@
 | `application/login.ts` | `login(deps: { auth: AuthGateway; session: SessionStore }, input: { email: string; password: string }): Promise<User>` |
 | `application/logout.ts` | `logout(deps: { auth: AuthGateway; session: SessionStore }): Promise<void>` |
 | `application/restoreSession.ts` | `restoreSession(deps, signal: AbortSignal): Promise<AuthState \| null>` (취소되면 `null`) |
+| `application/errorInfo.ts` | `readErrorInfo(e: unknown): { status: number; errorCode: string; message: string }` — **내부 파일, 공개 API 아님**. application·presentation은 F5 때문에 infrastructure·`shared/api`의 `ApiError`를 import할 수 없어 오류를 구조(`status`·`errorCode`·`message`)로 읽는다. 회귀 테스트 `tests/features/auth/application/errorInfo.test.ts`를 추가한다 |
 | `application/authContext.ts` | `type AuthContextValue = { state: AuthState; login(email: string, password: string): Promise<User>; logout(): Promise<void>; reload(): void }`, `AuthContext`, `useAuth(): AuthContextValue`(Provider 밖이면 throw) |
 | `application/useAuthController.ts` | `useAuthController(): AuthContextValue`(상태 전이 전체) |
 
@@ -117,13 +118,13 @@
 | --- | --- |
 | `!session.hasSession()` | `{status:'anonymous', cause:'other'}`, `findMe` 호출 안 함 |
 | `findMe` 성공 | `{status:'authenticated', user}` |
-| `ApiError` 401(`UNAUTHORIZED`·`TOKEN_REVOKED`) | `session.clear()` 후 `{anonymous, 'other'}` |
-| `ApiError` 403 | `session.clear()` 후 `{anonymous, 'other'}` (정지 계정. D-4 임시) |
+| 오류의 `status`가 401 또는 403 (401: `UNAUTHORIZED`·`TOKEN_REVOKED`, 403: 정지 계정, D-4 임시) | `session.clear()` 후 `{anonymous, 'other'}` |
 | `signal.aborted` | `null` (호출한 쪽이 상태를 바꾸지 않음) |
 | 그 외(`NETWORK_ERROR`, 5xx, `UNKNOWN`) | `{status:'error', errorCode, message}`, 세션은 지우지 않음(일시 장애로 로그아웃시키지 않음) |
 
 **`useAuthController()`** (모든 상태 전이는 여기만)
 - 초기 상태: `session.hasSession()`이면 `{loading}`, 아니면 `{anonymous, 'other'}`(동기 계산).
+- 세션이 없는 첫 마운트에서는 `restoreSession`을 부르지 않는다(초기 상태가 이미 `anonymous`이므로 상태 전이로 인한 가드 깜빡임을 막는다). 다른 탭 로그인은 `subscribe(true)` → `reload()`로 처리한다.
 - 마운트·`reload()`: `AbortController`를 만들어 `restoreSession`을 부르고 `null`이 아닐 때만 상태를 바꾼다. 정리 함수에서 `abort()`(F10).
 - `login(email, pw)`: `login` 유스케이스 호출, 성공하면 `{authenticated}`로 바꾸고 `User` 반환. 실패하면 상태를 바꾸지 않고 throw.
 - `logout()`: ref 플래그를 켜고 `logout` 유스케이스 호출 → `{anonymous, 'loggedOut'}`로 바꾸고 플래그를 끈다. 플래그가 켜진 동안 `subscribe` 콜백은 무시한다(`clear()`가 일으키는 `'other'` 중간 상태가 가드의 `from` 저장을 일으키지 않게).
@@ -170,6 +171,7 @@
 - 닫기: `Esc`, 딤 영역 클릭. 닫으면 포커스를 「계정」 버튼으로 돌린다. 열면 첫 버튼으로 포커스를 옮긴다.
 - 「로그아웃」 → `LogoutConfirmSheet`(`menu: 'logout'`).
 - **`LogoutConfirmSheet`(C10)**: `role="alertdialog"`. 질문 「로그아웃할까요?」(`content.md` 5·12줄), 버튼 「로그아웃」(`btn dark`)·「취소」(`btn`). 처리 중에는 「처리 중…」 + `aria-disabled`, 중복 클릭 무시. 확인하면 `useAuth().logout()` 뒤 `onClose()`. 이동은 하지 않는다(상태가 `anonymous`가 되면 가드가 `/login`으로 보낸다, §4). 「취소」는 서버를 부르지 않고 닫는다.
+- 구현 세부: 딤(`.dim`)은 `OwnerAccountButton`이 메뉴 시트와 확인 시트를 번갈아 감싸는 한 겹이다(시트마다 딤을 만들지 않음). 확인 시트가 열리면 첫 포커스는 「취소」다. 시트가 열린 동안 포커스는 시트 안에 머문다. `OwnerAccountMenu`는 `onLogout` prop을 받는다(「로그아웃」 행을 누르면 호출, 확인 시트 전환은 `OwnerAccountButton`이 함).
 - 와이어프레임의 부연 문구(「진행 중인 예약은 그대로 남아요…」)는 고객 기준이라 넣지 않는다(Q-7).
 - 이 시트는 `LogoutConfirmSheet`가 `features/auth`에 있어 이후 고객 셸(C10, C1로 이동)도 같은 시트를 쓴다.
 
@@ -215,6 +217,7 @@
 | `features/auth/domain/redirect.ts` | 타입. 함수 4개 비움 |
 | `features/auth/domain/loginInput.ts`, `loginMessage.ts` | 상수 2개는 실제 값(`INVALID_CREDENTIALS_MESSAGE`, `LOGIN_FALLBACK_MESSAGE`). 함수 비움 |
 | `features/auth/application/ports.ts`, `tokens.ts` | §2.2 그대로 |
+| `features/auth/application/errorInfo.ts` | 내부 파일(공개 API 아님). `readErrorInfo`는 실제 구현. 회귀 테스트 `tests/features/auth/application/errorInfo.test.ts` |
 | `features/auth/application/authContext.ts` | `AuthContext = createContext<AuthContextValue \| null>(null)` 실제. `useAuth` 비움 |
 | `features/auth/wiring.ts`, `index.ts` | §2.2·§2.3 그대로 |
 | `app/container.ts` | `...wireAuth()` 한 줄 추가(빈 배열 → 한 줄). 기존 TODO 주석은 이 단계에서 지운다 |
@@ -408,6 +411,7 @@ domain 52(redirect 28, authState 9, loginInput 5, loginMessage 5, user 5), appli
 ## 10. 정책·보안 메모 (구현 시 지킬 점)
 
 - 토큰은 React 상태·Context 값·로그·URL에 넣지 않는다(F17). `AuthState`에는 `User`만 있다.
+- 복귀 경로 검증(`isSafeInternalPath`)은 제어문자와 `\`가 들어 있는 경로도 거부한다.
 - `readFrom`이 안전한 내부 경로만 통과시킨다. 사용자 입력으로 `href`·`navigate`를 만들지 않는다.
 - 로그인 요청은 `auth:false`(이전 토큰이 남아 있어도 헤더를 붙이지 않음).
 - 서버 `message`는 `loginErrorMessage`를 거쳐 JSX 텍스트로만 출력한다(`dangerouslySetInnerHTML` 금지).

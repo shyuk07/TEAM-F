@@ -10,7 +10,14 @@ export type AccessDecision =
   'loading' | 'allow' | 'login' | 'login-without-from' | 'home' | 'error';
 
 export function decideAccess(state: AuthState, required: Role): AccessDecision {
-  void state;
-  void required;
-  throw new Error('not implemented: decideAccess');
+  switch (state.status) {
+    case 'loading':
+      return 'loading';
+    case 'error':
+      return 'error';
+    case 'anonymous':
+      return state.cause === 'loggedOut' ? 'login-without-from' : 'login';
+    case 'authenticated':
+      return state.user.role === required ? 'allow' : 'home';
+  }
 }

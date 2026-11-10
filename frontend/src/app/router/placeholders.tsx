@@ -21,16 +21,6 @@ function OwnerPlaceholder({ title, children }: { title: string; children?: React
   );
 }
 
-export function LoginPlaceholder() {
-  return (
-    <div className="app">
-      <div className="body">
-        <h1>A1 로그인</h1>
-      </div>
-    </div>
-  );
-}
-
 export function OwnerTodayPlaceholder() {
   return <OwnerPlaceholder title="O1 오늘" />;
 }

@@ -13,12 +13,16 @@ export type User = {
   createdAt: Date;
 };
 
+const ROLE_LABELS: Record<Role, string> = {
+  OWNER: '상점주',
+  CUSTOMER: '고객',
+  ADMIN: '관리자',
+};
+
 export function roleLabel(role: Role): string {
-  void role;
-  throw new Error('not implemented: roleLabel');
+  return ROLE_LABELS[role];
 }
 
 export function isOwnerPath(path: string): boolean {
-  void path;
-  throw new Error('not implemented: isOwnerPath');
+  return path === '/owner' || path.startsWith('/owner/');
 }

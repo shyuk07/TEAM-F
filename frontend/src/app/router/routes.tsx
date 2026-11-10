@@ -1,10 +1,10 @@
 import { Navigate, type RouteObject } from 'react-router';
 import { ROUTES, ROUTE_PATTERNS } from '@/shared/lib/routes';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { LoginPage } from '@/pages/login';
 import { TAB_BAR_HANDLE } from './handle';
 import {
   HomePlaceholder,
-  LoginPlaceholder,
   OwnerOfferNewPlaceholder,
   OwnerOffersPlaceholder,
   OwnerProductEditPlaceholder,
@@ -15,10 +15,7 @@ import {
 
 export const routes: RouteObject[] = [
   { path: ROUTES.home, element: <HomePlaceholder /> },
-  // TODO: 로그인 후 원래 화면으로 돌아가는 방식을 정한다.
-  //   왜: from state·쿼리 중 어느 쪽인지 미정 (docs/design/frontend/app-shell.md Q-2)
-  //   언제: auth 구현 시
-  { path: ROUTES.login, element: <LoginPlaceholder /> },
+  { path: ROUTES.login, element: <LoginPage /> },
   { path: ROUTES.owner, element: <Navigate to={ROUTES.ownerToday} replace /> },
   {
     element: <OwnerLayout />,

@@ -159,3 +159,13 @@ describe('OwnerLayout 인증 가드', () => {
     expect(router.state.location.state).toEqual({ from: '/owner/today' });
   });
 });
+
+describe('OwnerLayout error 대체 문구', () => {
+  it('message가 빈 오류면 alert에 대체 문구가 보인다', async () => {
+    const fakes = signedInFakes();
+    fakes.auth.findMe.mockRejectedValueOnce(new ApiError(500, 'INTERNAL_ERROR', ''));
+    renderGuard(fakes);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('불러오지 못했어요. 잠시 후 다시 시도해 주세요.');
+  });
+});

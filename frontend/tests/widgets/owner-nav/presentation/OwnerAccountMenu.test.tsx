@@ -143,3 +143,18 @@ describe('OwnerAccountMenu (O8·C10)', () => {
     expect(fakes.session.clear).toHaveBeenCalled();
   });
 });
+
+describe('OwnerAccountMenu 포커스 트랩', () => {
+  it('로그아웃 확인 시트에서 마지막 요소 Tab은 첫 요소로, 첫 요소 Shift+Tab은 마지막으로 간다', async () => {
+    const { user } = await renderMenu();
+    const sheet = await openLogoutConfirm(user);
+    const buttons = within(sheet).getAllByRole('button');
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    last.focus();
+    await user.tab();
+    expect(first).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(last).toHaveFocus();
+  });
+});

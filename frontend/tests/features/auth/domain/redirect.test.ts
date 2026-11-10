@@ -66,3 +66,16 @@ describe('loginRedirectState', () => {
     expect(loginRedirectState('loggedOut', '/owner/today')).toBeUndefined();
   });
 });
+
+describe('isSafeInternalPath 제어문자·역슬래시', () => {
+  it.each(['/\t/evil.com', '/\n/evil.com', '/\\evil.com', '/a\u0000b', '/a\u007fb'])(
+    '%j는 거부한다',
+    (path) => {
+      expect(isSafeInternalPath(path)).toBe(false);
+    },
+  );
+
+  it('정상 경로는 통과한다', () => {
+    expect(isSafeInternalPath('/owner/offers?page=2')).toBe(true);
+  });
+});
