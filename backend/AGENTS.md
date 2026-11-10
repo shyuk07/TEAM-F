@@ -5,8 +5,8 @@
 1. AGENTS.md
 2. README.md
 3. .claude/skills/layer-architecture/SKILL.md
-4. docs/operations/orchestration.md
-5. docs/reference/README.md
+4. ../docs/operations/orchestration.md
+5. ../docs/reference/README.md
 
 ## 문서 맵
 
@@ -15,15 +15,15 @@
 | 관심사 | 위치 |
 |--------|------|
 | 프로젝트 개요·스택·로컬 실행 | `README.md` |
-| 오케스트레이션·에이전트 중계·쓰기 소유권 | `docs/operations/orchestration.md` |
-| API 명세 (공통 에러 형식·권한·전체 목록) | `docs/reference/README.md` |
-| 모듈별 API 명세 | `docs/reference/<모듈>.md` |
+| 오케스트레이션·에이전트 중계·쓰기 소유권 | `../docs/operations/orchestration.md` |
+| API 명세 (공통 에러 형식·권한·전체 목록) | `../docs/reference/README.md` |
+| 모듈별 API 명세 | `../docs/reference/<모듈>.md` |
 
 ### 구현 규칙 (스킬)
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
-| 도메인 요구 조건 문서 작성(초안 → 사용자 기입·재검토 → 확정) | `.claude/skills/domain-requirements/SKILL.md` | 모듈·기능의 비즈니스 규칙을 설계 전에 정리할 때. 문서는 `docs/requirements/<모듈>.md`에 저장 |
+| 도메인 요구 조건 문서 작성(초안 → 사용자 기입·재검토 → 확정) | `.claude/skills/domain-requirements/SKILL.md` | 모듈·기능의 비즈니스 규칙을 설계 전에 정리할 때. 문서는 `../docs/requirements/<모듈>.md`에 저장 |
 | 백엔드 불변 규칙(R1~R16)·코드 완료 게이트 | `.claude/skills/backend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
 | 4계층 책임·DDD 원칙·DI(container) 구조 | `.claude/skills/layer-architecture/SKILL.md` | 모듈 설계, 추상화·주입, 모듈 간 의존 판단, container.py 수정 시 |
 | DB 스키마·관계·SQLAlchemy 매핑 | `.claude/skills/db-schema/SKILL.md`, `schema.sql` | 테이블·컬럼·FK·조인·시드를 다룰 때 |
@@ -39,7 +39,7 @@
 
 | 역할 | 위치 |
 |------|------|
-| 설계 (`docs/design/`만 씀) | `.claude/agents/layer-architect.md` |
+| 설계 (`../docs/design/`만 씀) | `.claude/agents/layer-architect.md` |
 | 구현 (맡은 모듈만 씀) | `.claude/agents/layer-implementer.md` |
 | 계층 규칙 점검 (읽기 전용) | `.claude/agents/layer-checker.md` |
 | 변경 코드 정확성 리뷰 (읽기 전용) | `.claude/agents/layer-reviewer.md` |
@@ -49,8 +49,8 @@
 
 | 관심사 | 위치 |
 |--------|------|
-| 모듈 도메인 요구 조건 (REQ-번호, 상태: 초안·검토 중·확정) | `docs/requirements/<모듈>.md` |
-| 모듈 설계안 (결정 표 D-번호, 정합 이슈 C-번호) | `docs/design/<모듈>.md` |
+| 모듈 도메인 요구 조건 (REQ-번호, 상태: 초안·검토 중·확정) | `../docs/requirements/<모듈>.md` |
+| 모듈 설계안 (결정 표 D-번호, 정합 이슈 C-번호) | `../docs/design/<모듈>.md` |
 
 ## 작업 원칙
 
@@ -65,9 +65,9 @@
 - **근거로 말한다.** 주장과 완료 보고에는 실행한 명령과 결과, 또는 `파일:위치`를 붙인다. 실행하지 않은 것을 통과로 말하지 않는다.
 - **만든 사람과 확인하는 사람을 나눈다.** 자기 산출물을 스스로 합격 판정하지 않는다.
 - **검사를 약하게 만들지 않는다.** 통과를 위해 규칙·테스트·검사를 끄거나 건너뛰지 않는다. 실패는 실패로 보고한다.
-- **전달은 손실 없이 한다.** 에이전트 사이 정보는 요약하지 않고 파일 경로와 ID로 넘긴다(`docs/operations/orchestration.md`).
+- **전달은 손실 없이 한다.** 에이전트 사이 정보는 요약하지 않고 파일 경로와 ID로 넘긴다(`../docs/operations/orchestration.md`).
 - **되돌리기 어려운 일은 사용자가 정한다.** git 쓰기, 외부 게시, 삭제, 설정 변경은 사용자 요청이 있을 때만 한다. 시크릿은 커밋하지 않는다.
-- **운영 문서에는 운영만 쓴다.** `AGENTS.md`와 `docs/operations/`에는 현재 진행 상황이나 특정 기능 이야기를 넣지 않는다.
+- **운영 문서에는 운영만 쓴다.** `AGENTS.md`와 `../docs/operations/`에는 현재 진행 상황이나 특정 기능 이야기를 넣지 않는다.
 
 ## 완료 조건
 

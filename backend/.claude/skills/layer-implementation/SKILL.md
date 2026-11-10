@@ -15,7 +15,7 @@ description: 마감 직전 프로젝트의 기능 모듈(auth, stores, catalog, 
 - 새 폴더를 만들면 `__init__.py`를 함께 만듭니다.
 - 구현 순서: domain → infrastructure(models → repositories) → application → presentation(schemas → router) → `main.py` 등록 → 테스트
 - ID는 `uuid.UUID`, 시간은 timezone이 있는 `datetime`입니다. 테이블, 컬럼, FK, 매핑은 `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`)을 기준으로 합니다.
-- 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`docs/reference/README.md`). 이 형식은 `src/error_handlers.py`의 전역 핸들러가 만듭니다. **router에서 try/except로 `HTTPException`을 만들지 않습니다(R6).**
+- 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`../docs/reference/README.md`). 이 형식은 `src/error_handlers.py`의 전역 핸들러가 만듭니다. **router에서 try/except로 `HTTPException`을 만들지 않습니다(R6).**
 - 공용 코드는 `src/common/`(4계층 불필요) 또는 `src` 루트 단일 파일(`database.py`, `error_handlers.py`처럼)에 둡니다. 기능 모듈 안에 다른 모듈용 공용 코드를 두지 않습니다.
 - 아래 코드는 `catalog`의 마감 할인(`discount_offers`) 예시입니다. 시간 컬럼(`sales_end`, `pickup_start` 등)은 줄였으니 실제 `models.py`는 `db-schema` 6절을 그대로 따릅니다.
 - 테스트 작성법은 같은 폴더의 [`testing.md`](testing.md)를 봅니다.
@@ -299,7 +299,7 @@ class DiscountOfferResponse(BaseModel):
     remaining_stock: int = Field(..., description="남은 재고")
     status: str = Field(..., description="SCHEDULED / ON_SALE / SOLD_OUT / CLOSED")
 ```
-응답 스키마에 비밀번호 해시 같은 민감 정보를 넣지 않습니다. 필드 이름은 API 명세(`docs/reference/<모듈>.md`)를 따릅니다.
+응답 스키마에 비밀번호 해시 같은 민감 정보를 넣지 않습니다. 필드 이름은 API 명세(`../docs/reference/<모듈>.md`)를 따릅니다.
 
 ## 6. presentation/router.py — 엔드포인트
 router는 서비스만 호출합니다(레포지토리·모델 직접 사용 금지). 예외는 잡지 않고 그대로 올려 전역 핸들러에 맡깁니다. URI는 `/v1`로 시작합니다.

@@ -62,7 +62,7 @@ Copy-Item .env.example .env
 uv run python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-관리자 계정이 필요하면 `.env`에 `ADMIN_EMAIL`과 `ADMIN_PASSWORD`를 함께 설정합니다(선택). 서버 시작 시 관리자가 없으면 만들어집니다. 자세한 규칙은 `docs/reference/auth.md`의 "관리자 계정 생성"을 봅니다.
+관리자 계정이 필요하면 `.env`에 `ADMIN_EMAIL`과 `ADMIN_PASSWORD`를 함께 설정합니다(선택). 서버 시작 시 관리자가 없으면 만들어집니다. 자세한 규칙은 `../docs/reference/auth.md`의 "관리자 계정 생성"을 봅니다.
 
 비밀번호 재설정 코드를 실제 메일로 받으려면 `.env`에 `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`(선택 `SMTP_PORT`, 기본 587)을 모두 채우고 서버를 시작합니다. 비워 두면 코드는 서버 로그(`auth.password_reset`)에만 남습니다. 일부만 채우면 서버가 시작하지 않습니다. Gmail 등은 앱 비밀번호가 필요합니다.
 
@@ -119,12 +119,12 @@ http://127.0.0.1:8001/health/db
 실제 도메인 기능과 API는 담당별로 구현할 예정입니다.
 ## API 명세서
 
-`docs/reference/`에 모듈별 API 명세가 있습니다. 전체 목록과 공통 규칙은 [docs/reference/README.md](docs/reference/README.md)를 봅니다.
+`../docs/reference/`에 모듈별 API 명세가 있습니다. 전체 목록과 공통 규칙은 [../docs/reference/README.md](../docs/reference/README.md)를 봅니다.
 
 
 ## Postman으로 테스트
 
-`docs/postman/last-call-auth.postman_collection.json`을 Postman에서 **Import**합니다. 서버를 8001 포트로 띄운 뒤 위에서부터 순서대로 실행하거나 **Run collection**으로 한 번에 실행합니다. 회원가입이 매번 새 이메일을 만들고, 로그인이 토큰을 `accessToken` 변수에 저장해 이후 요청에 자동으로 붙입니다. 주소가 다르면 컬렉션 변수 `baseUrl`을 바꿉니다.
+`../docs/postman/last-call-auth.postman_collection.json`을 Postman에서 **Import**합니다. 서버를 8001 포트로 띄운 뒤 위에서부터 순서대로 실행하거나 **Run collection**으로 한 번에 실행합니다. 회원가입이 매번 새 이메일을 만들고, 로그인이 토큰을 `accessToken` 변수에 저장해 이후 요청에 자동으로 붙입니다. 주소가 다르면 컬렉션 변수 `baseUrl`을 바꿉니다.
 
 ## Claude Code 개발 도구
 
@@ -134,7 +134,7 @@ http://127.0.0.1:8001/health/db
 
 | 이름 | 용도 |
 | --- | --- |
-| `layer-architect` | 모듈의 도메인 규칙, 테이블, 레포지토리, 서비스, API 명세 설계. 설계안을 `docs/design/<모듈>.md`에 저장 (코드 수정 안 함) |
+| `layer-architect` | 모듈의 도메인 규칙, 테이블, 레포지토리, 서비스, API 명세 설계. 설계안을 `../docs/design/<모듈>.md`에 저장 (코드 수정 안 함) |
 | `layer-implementer` | 모듈 하나의 4계층 코드 구현과 검사 |
 | `layer-checker` | 프로젝트 전체 4계층 규칙 점검 (읽기 전용) |
 | `layer-reviewer` | 변경 코드의 정확성 리뷰: 동시성·원자성·불변식·명세 일치·테스트 단언 (읽기 전용) |

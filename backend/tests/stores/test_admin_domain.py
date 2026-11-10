@@ -1,4 +1,4 @@
-"""관리자 정지·강제 폐점 도메인 규칙 (docs/design/admin.md 3.2)."""
+"""관리자 정지·강제 폐점 도메인 규칙 (../docs/design/admin.md 3.2)."""
 
 import uuid
 from datetime import datetime, timedelta, timezone

@@ -56,7 +56,7 @@ curl -s http://localhost:$PORT/ && curl -s http://localhost:$PORT/health/db
 실패하면 `$LOG`의 마지막 부분을 확인합니다. `ModuleNotFoundError`는 `__init__.py` 누락이나 `--app-dir src` 누락이, `RuntimeError: JWT_SECRET_KEY...`는 `.env` 설정이 흔한 원인입니다.
 
 ## 4. 확인 시나리오 (교안 시연 순서)
-각 요청의 상태 코드와 응답 본문을 기록합니다. 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`docs/reference/README.md`).
+각 요청의 상태 코드와 응답 본문을 기록합니다. 에러 응답은 공통 형식 `{"success": false, "error_code": "...", "message": "..."}`입니다(`../docs/reference/README.md`).
 
 1. **문서:** `GET /docs` 200, `GET /openapi.json`에 등록한 경로가 모두 있는지
 2. **정상 처리:** 대상 기능의 정상 요청 → 200/201

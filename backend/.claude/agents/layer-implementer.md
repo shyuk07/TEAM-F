@@ -18,7 +18,7 @@ skills:
 1. `layer-implementation` 스킬의 규칙과 코드 패턴을 따릅니다. 테스트는 같은 폴더의 `testing.md`를 따릅니다. 이미 구현된 auth 모듈(`src/auth/**`, `src/error_handlers.py`, `tests/auth/**`)이 정답 예시입니다.
 2. `src/database.py`, `src/main.py`, `src/error_handlers.py`, 맡은 모듈의 기존 파일, 참조할 다른 모듈의 domain·application 파일을 읽습니다.
 3. `db-schema` 스킬(`.claude/skills/db-schema/SKILL.md`, `schema.sql`)에서 맡은 모듈의 테이블을 확인합니다. `models.py`의 테이블명·컬럼·타입·FK와 도메인 클래스의 속성은 이 스키마를 따르고, ID는 `uuid.UUID`, 시간은 timezone이 있는 `datetime`으로 씁니다. 스키마의 "팀 확인이 필요한 항목"에 걸리는 컬럼은 임의로 정하지 말고 보고서에 적습니다.
-4. `docs/reference/<모듈>.md`(API 명세서)의 URI, 요청·응답 필드, 상태 코드, 에러 메시지를 `schemas.py`와 `router.py`에 그대로 반영합니다. 명세와 다르게 구현해야 하면 보고서에 이유를 적습니다.
+4. `../docs/reference/<모듈>.md`(API 명세서)의 URI, 요청·응답 필드, 상태 코드, 에러 메시지를 `schemas.py`와 `router.py`에 그대로 반영합니다. 명세와 다르게 구현해야 하면 보고서에 이유를 적습니다.
 5. 맡은 모듈 밖의 파일은 아래 범위만 수정하고, 나머지는 요청에 명시된 경우에만 수정합니다. 수정한 내용과 필요한 내용은 모두 보고서에 적습니다.
    - 수정 가능: `src/main.py`에 맡은 모듈의 `models` import 한 줄과 `include_router` 한 줄, `tests/<모듈>/` 아래 테스트 파일
    - 요청이 있을 때만: `src/error_handlers.py`(409 등 새 핸들러), `src/database.py`, `src/common/`, 다른 모듈 코드, `tests/conftest.py`

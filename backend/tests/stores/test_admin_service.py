@@ -1,4 +1,4 @@
-"""관리자용 stores application 메서드 (docs/design/admin.md 5.3)."""
+"""관리자용 stores application 메서드 (../docs/design/admin.md 5.3)."""
 
 import uuid
 

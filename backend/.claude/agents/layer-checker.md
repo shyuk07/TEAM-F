@@ -29,7 +29,7 @@ skills:
    - **레포지토리 변환:** `find_*` 메서드가 `*Model`이 아닌 도메인 객체를 반환하는가(반환 타입이 `*Model`이면 자동 검사가 잡음. 어노테이션이 없으면 `[반환타입]` 경고가 나오니 본문을 읽어 확인). `save()`가 도메인 객체를 받는가.
    - **서비스 책임:** 서비스에 비즈니스 if-else 검증이 있지 않은가(도메인으로 옮겨야 함). 조회 → 도메인 메서드 → `save()` → `commit()` 흐름인가. `HTTPException`을 쓰지 않는가. `AsyncSession`(sqlalchemy)을 받아 레포지토리를 만들고 `commit()`하는 것은 허용하지만, 서비스에서 `select()` 같은 쿼리를 직접 쓰면 위반입니다.
    - **예외 → HTTP 변환:** 라우터 **또는** 전역 예외 핸들러(`src/error_handlers.py`의 `register_exception_handlers`, `main.py`에서 호출) 중 한 곳에서 `ValueError` → 400, `PermissionError` → 403, `LookupError` → 404, 인증 실패 → 401, 중복 → 409로 바꾸는가. 전역 핸들러가 처리하는 예외를 라우터에서 다시 `try/except`로 감싸 다른 형식으로 내보내지 않는가. 새 도메인 예외를 만들었다면 핸들러에 등록됐는지, 등록하지 않으면 500이 되는지 확인합니다.
-   - **에러 응답 형식:** 모든 에러 응답이 `{"success": false, "error_code": "...", "message": "..."}` 형식인가(`docs/reference/README.md`의 "에러 응답"). 라우터에서 `HTTPException`을 쓰면 `StarletteHTTPException` 핸들러를 거쳐 같은 형식이 되는지 확인합니다. `error_code`가 문서의 값(`VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED` 등)과 맞는가.
+   - **에러 응답 형식:** 모든 에러 응답이 `{"success": false, "error_code": "...", "message": "..."}` 형식인가(`../docs/reference/README.md`의 "에러 응답"). 라우터에서 `HTTPException`을 쓰면 `StarletteHTTPException` 핸들러를 거쳐 같은 형식이 되는지 확인합니다. `error_code`가 문서의 값(`VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED` 등)과 맞는가.
    - **401 응답:** 401을 내는 모든 경로(전역 핸들러, `HTTPException(401)`)에 `WWW-Authenticate: Bearer` 헤더가 붙는가.
    - **인증 의존성:** `presentation/dependencies.py`(예: `get_current_user`, `require_roles`)가 토큰 해석·검증을 서비스에 맡기고 레포지토리나 모델을 직접 쓰지 않는가. 권한 판단이 도메인 메서드(예: `user.require_role()`)에 있는가. 보호가 필요한 라우터가 이 의존성을 쓰는가.
    - **라우터 책임:** `response_model`을 지정했는가. 레포지토리나 모델을 직접 쓰지 않는가.

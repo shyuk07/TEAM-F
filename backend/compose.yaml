@@ -1,3 +1,6 @@
+# 모노레포 이전(backend/) 전의 프로젝트 이름을 유지해 기존 DB 볼륨(team-f-backend_postgres_data)을 계속 쓴다
+name: team-f-backend
+
 services:
   postgres:
     image: postgres:17

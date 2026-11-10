@@ -15,7 +15,7 @@ CREATE TABLE users (
     users_point      INTEGER      NOT NULL DEFAULT 0 CHECK (users_point >= 0),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     business_number  TEXT,                                 -- 매장 운영자만 사용
-    -- 계정 상태 (docs/design/admin.md §2.1 S1~S5, D3·D4). 기존 행은 DEFAULT로 APPROVED
+    -- 계정 상태 (../docs/design/admin.md §2.1 S1~S5, D3·D4). 기존 행은 DEFAULT로 APPROVED
     status           VARCHAR(20)  NOT NULL DEFAULT 'APPROVED',
     approved_at      TIMESTAMPTZ,                          -- 상점주 승인 시각 (stores.approval_at과 별개, D6)
     rejected_reason  VARCHAR(500),
@@ -75,7 +75,7 @@ CREATE TABLE stores (
     suspended_at     TIMESTAMPTZ,
     closed_reason    VARCHAR(500),
     CONSTRAINT uq_stores_owner_id UNIQUE (owner_id),
-    -- 동일한 상점명과 주소의 상점 금지 (docs/design/stores.md D33). 폐점·정지 상점 포함
+    -- 동일한 상점명과 주소의 상점 금지 (../docs/design/stores.md D33). 폐점·정지 상점 포함
     CONSTRAINT uq_stores_name_address UNIQUE (name, pickup_address)
 );
 

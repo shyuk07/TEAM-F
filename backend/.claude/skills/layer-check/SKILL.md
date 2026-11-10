@@ -42,7 +42,7 @@ python3 .claude/skills/layer-check/check_layers.py 다른/src    # 복사한 트
 - `[레포반환]`: infrastructure의 `repositories.py`에서 `find_*` 메서드의 반환 타입 어노테이션에 `*Model`이 들어 있으면 위반입니다. (`UserModel | None`, `list[UserModel]`, 문자열 어노테이션 포함)
 
 ## 경고 (종료 코드에 영향 없음)
-- `[넓은예외]`: `@app.exception_handler(...)`나 `app.add_exception_handler(...)`가 내장 `ValueError`, `LookupError`, `PermissionError`, `Exception`을 그대로 잡습니다. 라이브러리 내부에서 난 같은 예외도 400·403·404로 바뀌어 원인이 가려질 수 있습니다. 현재 `error_handlers.py`는 API 명세(`docs/reference/README.md`의 상태 코드 표)대로 의도한 것이므로 경고로만 남깁니다. 고친다면 프로젝트 전용 예외 클래스(예: `DomainError(ValueError)`)를 두고 그것만 잡습니다.
+- `[넓은예외]`: `@app.exception_handler(...)`나 `app.add_exception_handler(...)`가 내장 `ValueError`, `LookupError`, `PermissionError`, `Exception`을 그대로 잡습니다. 라이브러리 내부에서 난 같은 예외도 400·403·404로 바뀌어 원인이 가려질 수 있습니다. 현재 `error_handlers.py`는 API 명세(`../docs/reference/README.md`의 상태 코드 표)대로 의도한 것이므로 경고로만 남깁니다. 고친다면 프로젝트 전용 예외 클래스(예: `DomainError(ValueError)`)를 두고 그것만 잡습니다.
 - `[반환타입]`: `find_*` 메서드에 반환 타입 어노테이션이 없어 `[레포반환]`을 판단할 수 없습니다.
 
 ## 결과 처리

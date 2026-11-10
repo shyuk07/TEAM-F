@@ -27,7 +27,7 @@ description: 마감 직전 프로젝트의 백엔드 코드가 어떤 작업에�
 | ID | 규칙 | 검사 | 상세 |
 | --- | --- | --- | --- |
 | R6 | domain·application·router에서 `HTTPException`을 만들지 않는다. 모듈 전용 도메인 예외(`<모듈>/domain/exceptions.py`)를 내고, HTTP 변환은 전역 핸들러(`src/error_handlers.py`)가 한다. `LookupError`·`PermissionError`를 그대로 raise하지 않는다. | 자동(`[HTTP예외]`) + 정독 | `layer-implementation` 예외 절 |
-| R7 | 모든 에러 응답은 `{"success": false, "error_code", "message"}` 형식이고, 401에는 `WWW-Authenticate: Bearer` 헤더가 붙는다. router에서 예외를 잡아 다른 형식으로 바꾸지 않는다. | 정독 + 실행 | `docs/reference/README.md` 에러 응답 |
+| R7 | 모든 에러 응답은 `{"success": false, "error_code", "message"}` 형식이고, 401에는 `WWW-Authenticate: Bearer` 헤더가 붙는다. router에서 예외를 잡아 다른 형식으로 바꾸지 않는다. | 정독 + 실행 | `../docs/reference/README.md` 에러 응답 |
 
 ## 3. 추상화와 조립
 
@@ -50,7 +50,7 @@ description: 마감 직전 프로젝트의 백엔드 코드가 어떤 작업에�
 | ID | 규칙 | 검사 | 상세 |
 | --- | --- | --- | --- |
 | R14 | `models.py`의 테이블·컬럼·타입·NULL·FK는 `db-schema`의 `schema.sql`과 같다. ID는 `uuid.UUID`, 시간은 timezone이 있는 `datetime`이다. 스키마를 바꾸면 `schema.sql`과 `db-schema/SKILL.md`를 함께 고친다. | 정독 | `db-schema` §6 |
-| R15 | URI·요청/응답 필드명·상태 코드·에러 메시지는 `docs/reference/<모듈>.md`를 따른다. 다르게 구현하면 이유를 보고한다. 응답에 비밀번호 해시 같은 민감 정보를 넣지 않는다. | 정독 + 실행 | `docs/reference/` |
+| R15 | URI·요청/응답 필드명·상태 코드·에러 메시지는 `../docs/reference/<모듈>.md`를 따른다. 다르게 구현하면 이유를 보고한다. 응답에 비밀번호 해시 같은 민감 정보를 넣지 않는다. | 정독 + 실행 | `../docs/reference/` |
 
 ## 6. 저장소 위생과 테스트
 

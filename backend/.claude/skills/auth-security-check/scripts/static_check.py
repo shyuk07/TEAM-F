@@ -2,7 +2,7 @@
 
     cd src && uv run python ../.claude/skills/auth-security-check/scripts/static_check.py
 
-- .env가 git에 커밋되지 않았고 .gitignore에 있는지
+- .env가 git에 커밋되지 않았고 .gitignore(저장소 어디든)로 무시되는지
 - .env.example의 JWT_SECRET_KEY를 설정 검증(get_auth_settings)이 거부하는지
 - CORSMiddleware에서 allow_origins="*"와 allow_credentials=True를 같이 쓰지 않는지
 - jwt.decode 호출마다 algorithms=를 명시했는지
@@ -52,8 +52,9 @@ def main() -> None:
     r.section(".env와 시크릿")
     tracked = subprocess.run(["git", "ls-files", ".env"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     r.check(tracked == "", ".env가 git에 커밋되지 않음 (git ls-files .env 비어 있음)", tracked)
-    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines() if (ROOT / ".gitignore").exists() else []
-    r.check(any(line.strip() in (".env", "/.env", ".env*") for line in gitignore), ".gitignore에 .env 포함")
+    # 모노레포라 .gitignore가 저장소 루트에 있을 수 있으므로 파일을 직접 읽지 않고 git에 무시 여부를 묻는다
+    ignored = subprocess.run(["git", "check-ignore", "-q", ".env"], cwd=ROOT).returncode == 0
+    r.check(ignored, ".gitignore에 .env 포함 (git check-ignore .env)")
 
     example = ROOT / ".env.example"
     sample = next((line.split("=", 1)[1].strip() for line in example.read_text(encoding="utf-8").splitlines()

@@ -35,8 +35,8 @@ presentation ──▶ application ──▶ domain ◀── infrastructure
 ## 3. 도메인 설계 원칙
 
 ### 3.1 유비쿼터스 언어
-- 코드·문서·대화에서 같은 용어를 쓴다. 정본은 `docs/reference/<모듈>.md`(API 명세)와 `db-schema` 스킬의 테이블·컬럼명이다.
-- 새 용어는 설계안(`docs/design/<모듈>.md`)에 정의하고 명세와 맞춘다.
+- 코드·문서·대화에서 같은 용어를 쓴다. 정본은 `../docs/reference/<모듈>.md`(API 명세)와 `db-schema` 스킬의 테이블·컬럼명이다.
+- 새 용어는 설계안(`../docs/design/<모듈>.md`)에 정의하고 명세와 맞춘다.
 
 ### 3.2 도메인 모델
 - 도메인 규칙은 엔티티의 메서드와 생성 팩토리(`create`)에 둔다. 서비스에 비즈니스 if-else를 두지 않는다.

@@ -22,7 +22,7 @@ skills:
 발주서에서 아래를 받습니다. 없으면 리뷰를 시작하지 않고 무엇이 없는지 보고합니다.
 - 리뷰 대상: diff 범위(예: `git diff HEAD`, `git diff origin/main...HEAD`)와 경로
 - 변경 의도: 무엇을 바꾸려 했는지
-- 정본: 설계안(`docs/design/<모듈>.md`의 절·D-번호), 명세(`docs/reference/<모듈>.md`의 절)
+- 정본: 설계안(`../docs/design/<모듈>.md`의 절·D-번호), 명세(`../docs/reference/<모듈>.md`의 절)
 
 ## 리뷰 순서
 1. diff 전체를 읽고, 바뀐 함수가 호출하는 코드와 호출되는 코드까지 따라 읽습니다.

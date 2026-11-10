@@ -5,7 +5,7 @@ description: 마감 직전 프로젝트의 PostgreSQL 테이블 11개(users, poi
 
 # PostgreSQL 스키마와 관계도
 
-API 요청·응답 형식은 `docs/reference/`(API 명세서)를 봅니다. 이 문서는 DB 구조를 다룹니다.
+API 요청·응답 형식은 `../docs/reference/`(API 명세서)를 봅니다. 이 문서는 DB 구조를 다룹니다.
 
 ## 사용 대상
 | 사용자 | 언제 | 무엇을 |
@@ -181,8 +181,8 @@ erDiagram
 | 자식 테이블.컬럼 | 부모 테이블 | 관계 | NULL | 비고 |
 | --- | --- | --- | --- | --- |
 | `point_log.user_id` | `users` | 1 : N | 불가 | 포인트 적립·사용 내역 |
-| `point_log.created_by` | `users` | 0..1 : N | 가능 | 관리자 지급(`GRANT`)의 처리 관리자. 시스템 이벤트는 NULL (`docs/design/admin.md` S9) |
-| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별). 별도로 `UNIQUE (name, pickup_address)` `uq_stores_name_address`: 동일한 상점명·주소의 상점 금지, 폐점·정지 상점 포함 (`docs/design/stores.md` D33) |
+| `point_log.created_by` | `users` | 0..1 : N | 가능 | 관리자 지급(`GRANT`)의 처리 관리자. 시스템 이벤트는 NULL (`../docs/design/admin.md` S9) |
+| `stores.owner_id` | `users` | 1 : 0..1 | 불가 | 상점주 1인 1상점 (API 명세). `UNIQUE`, 제약 이름 `uq_stores_owner_id` (레포지토리가 이 이름으로 중복 개설을 판별). 별도로 `UNIQUE (name, pickup_address)` `uq_stores_name_address`: 동일한 상점명·주소의 상점 금지, 폐점·정지 상점 포함 (`../docs/design/stores.md` D33) |
 | `products.store_id` | `stores` | 1 : N | 불가 | |
 | `discount_offers.product_id` | `products` | 1 : N | 불가 | 같은 상품을 날마다 다시 할인 등록 |
 | `stock_log.offer_id` | `discount_offers` | 1 : N | 불가 | 재고 차감·복구 기록 |
@@ -225,11 +225,11 @@ erDiagram
 ## 5. 팀 확인이 필요한 항목
 1. **중복 가격 컬럼:** `discount_offers.price`와 `sale_price`, `pickup_reservations.price`와 `unit_price`/`total_price`의 차이. 같은 의미라면 `price`를 빼는 것을 권장합니다.
 2. **`refunds.reason`과 `refund_reason`(JSONB)의 구분.**
-3. **남은 상태 값:** API 명세(`docs/reference/README.md`의 상태 값 표)로 `discount_offers.status`와 `point_log.point_type`은 확정됐습니다. `users.role`의 상점주 값, `pickup_reservations.status`(`RESERVED`의 의미), `payments.status`의 실패 값, `refunds.status`의 나머지 값이 남았습니다. 정해지면 도메인 클래스에 상수와 전이 규칙을 두고, DB에 `CHECK (status IN (...))`를 더합니다.
-4. **(해결됨)** `products.name`·`original_price`, `discount_offers.sales_start`는 NOT NULL로 확정했고 `stock_log.reason`을 추가했습니다(`docs/design/catalog.md` S1·S2·S4).
+3. **남은 상태 값:** API 명세(`../docs/reference/README.md`의 상태 값 표)로 `discount_offers.status`와 `point_log.point_type`은 확정됐습니다. `users.role`의 상점주 값, `pickup_reservations.status`(`RESERVED`의 의미), `payments.status`의 실패 값, `refunds.status`의 나머지 값이 남았습니다. 정해지면 도메인 클래스에 상수와 전이 규칙을 두고, DB에 `CHECK (status IN (...))`를 더합니다.
+4. **(해결됨)** `products.name`·`original_price`, `discount_offers.sales_start`는 NOT NULL로 확정했고 `stock_log.reason`을 추가했습니다(`../docs/design/catalog.md` S1·S2·S4).
 5. **`pickup_code` 고유 범위:** 전체에서 고유인지, 매장·날짜 안에서만 고유인지.
 6. **매장 재개점:** API 명세상 폐점은 `closed_at` 기록(소프트 삭제)이고 재개점이 가능하지만, 재개점 API와 이력 보관 방식이 정해지지 않았습니다. FK는 기본값(참조 중이면 삭제 불가)입니다.
-7. **(해결됨)** 상점주 승인 상태: `users.status`(`PENDING`/`APPROVED`/`REJECTED`/`SUSPENDED`/`WITHDRAWN`)와 승인·거부·정지·탈퇴 시각·사유 컬럼을 추가했습니다. 관리자 정지용으로 `stores`·`discount_offers`에 `suspended_*`, `stores.closed_reason`, `point_log`에 `reason`·`balance_after`·`created_by`도 추가했습니다(`docs/design/admin.md` §2 S1~S11, D3). `create_all`은 이미 있는 테이블에 컬럼을 더하지 않으므로, 기존 개발 DB는 다시 만들거나 같은 문서 §2.4의 `ALTER`를 실행합니다.
+7. **(해결됨)** 상점주 승인 상태: `users.status`(`PENDING`/`APPROVED`/`REJECTED`/`SUSPENDED`/`WITHDRAWN`)와 승인·거부·정지·탈퇴 시각·사유 컬럼을 추가했습니다. 관리자 정지용으로 `stores`·`discount_offers`에 `suspended_*`, `stores.closed_reason`, `point_log`에 `reason`·`balance_after`·`created_by`도 추가했습니다(`../docs/design/admin.md` §2 S1~S11, D3). `create_all`은 이미 있는 테이블에 컬럼을 더하지 않으므로, 기존 개발 DB는 다시 만들거나 같은 문서 §2.4의 `ALTER`를 실행합니다.
 
 ## 6. SQLAlchemy 매핑 규칙
 ```python
