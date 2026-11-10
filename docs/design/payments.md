@@ -960,7 +960,7 @@ payments는 **같은 방식**으로 자기 쪽 포트를 정의하고(`Reservati
 | presentation | `dependencies.py`(`provide_payment_service`), `router.py`, `schemas.py` | 수정 |
 | tests | `tests/payments/{fakes,test_domain,test_service,test_payments_api}.py` 수정, `test_wiring.py`·`test_api_db.py` 신규 | 수정·신규 |
 
-**모듈 밖 (소유권 규칙, `docs/operations/orchestration.md` §4)**
+**모듈 밖 (소유권 규칙, `docs/operations/backend-orchestration.md` §4)**
 
 | 파일 | 변경 | 누가 승인·수정 |
 | --- | --- | --- |
