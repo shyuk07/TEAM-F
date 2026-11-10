@@ -164,7 +164,8 @@ def probe_client(client):
 async def test_suspended_owner_token_blocked_except_allow_dependency(client):
     t = await token_for(client, "o@test.com", "OWNER")
     await suspend(client, "o@test.com")
-    assert (await client.get("/v1/users/me", headers=bearer(t))).status_code == 403
+    assert (await client.get("/v1/users/me", headers=bearer(t))).status_code == 200  # B-2: 내 정보 조회만 허용
+    assert (await client.patch("/v1/users/me", headers=bearer(t), json={"name": "x"})).status_code == 403
     async with probe_client(client) as p:
         assert (await p.get("/allowed", headers=bearer(t))).status_code == 200
         assert (await p.get("/approved", headers=bearer(t))).status_code == 403  # 정지 차단
@@ -328,3 +329,30 @@ async def test_for_update_refreshes_stale_identity_map(client):
         await run_service(client, lambda svc: svc.withdraw_user(uid, "탈퇴", now=now))  # 다른 세션
         with pytest.raises(UserWithdrawnError):
             await svc_a.suspend_user(uid, "사유", None, now=now)
+
+
+# ── 내 정보 조회와 정지 (요구조건 B-2) ──
+async def test_me_suspended_owner_200_with_suspended_status(client):
+    t = await token_for(client, "o@test.com", "OWNER")
+    await suspend(client, "o@test.com")
+    r = await client.get("/v1/users/me", headers=bearer(t))
+    assert r.status_code == 200 and r.json()["status"] == "SUSPENDED"
+
+
+async def test_me_suspended_customer_403(client):
+    t = await token_for(client, "c@test.com")
+    await suspend(client, "c@test.com")
+    r = await client.get("/v1/users/me", headers=bearer(t))
+    assert r.status_code == 403 and r.json()["message"] == "정지된 계정입니다."
+
+
+async def test_me_withdrawn_owner_401_and_normal_users_200(client):
+    t = await token_for(client, "o@test.com", "OWNER")
+    c = await token_for(client, "c@test.com")
+    assert (await client.get("/v1/users/me", headers=bearer(c))).status_code == 200
+    assert (await client.get("/v1/users/me", headers=bearer(t))).status_code == 200
+    assert (await client.get("/v1/users/me")).status_code == 401
+    uid = await user_id_of(client, "o@test.com")
+    await suspend(client, "o@test.com")
+    await run_service(client, lambda s: s.withdraw_user(uid, "r", now=datetime.now(timezone.utc)))
+    assert (await client.get("/v1/users/me", headers=bearer(t))).status_code == 401
