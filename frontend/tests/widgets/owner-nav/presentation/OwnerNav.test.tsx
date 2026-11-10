@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 import { ROUTES } from '@/shared/lib/routes';
 import { OwnerAccountButton, OwnerTabBar, OwnerTopNav } from '@/widgets/owner-nav';
+import { renderWithAuth } from '../../../support/renderWithAuth';
 
 function renderAt(path: string, ui: React.ReactNode) {
   return render(<MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>);
@@ -59,12 +60,11 @@ describe('OwnerTopNav 하위 화면', () => {
 
 describe('OwnerAccountButton', () => {
   it('접근 이름이 「계정」인 button이고 클릭해도 URL이 바뀌지 않는다', async () => {
-    renderAt(
-      '/owner/store',
-      <>
+    renderWithAuth(
+      <MemoryRouter initialEntries={['/owner/store']}>
         <OwnerAccountButton />
         <Pathname />
-      </>,
+      </MemoryRouter>,
     );
     const button = screen.getByRole('button', { name: '계정' });
     await userEvent.click(button);

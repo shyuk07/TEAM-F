@@ -4,6 +4,10 @@ import { createContainer } from '@/app/container';
 import { DepsProvider } from '@/shared/lib/DepsProvider';
 
 describe('App', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('루트 경로에서 자리 표시 화면을 보여 준다', () => {
     render(
       <DepsProvider container={createContainer()}>

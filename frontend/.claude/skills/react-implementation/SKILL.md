@@ -148,6 +148,7 @@ export function useReserveOffer() {
 **위치 (정본):** 단위·통합 테스트는 `src`에 두지 않고 `frontend/tests/` 아래 **`src`와 같은 경로**에 둡니다. `src/features/products/domain/price.ts`의 테스트는 `tests/features/products/domain/price.test.ts`입니다.
 - 가짜 구현체(`*.fake.ts`)는 `tests/<계층>/<slice>/fakes/`에 둡니다. 운영 코드(`src`)에서 import하지 않습니다.
 - 공통 setup은 `tests/setup.ts` 하나입니다(`vite.config.ts`의 `test.setupFiles`).
+- 여러 slice 테스트가 함께 쓰는 렌더 보조 도구(예: 인증된 가짜 컨테이너로 감싸는 `renderWithAuth`)는 `tests/support/`에 둡니다. 한 slice만 쓰는 것은 그 slice 경로에 둡니다. 함수와 컴포넌트는 파일을 나눕니다(`react-refresh/only-export-components`).
 - 테스트에서 대상 코드는 `@/` 별칭으로 import합니다. slice 내부 경로(`@/features/products/domain/price`)도 테스트에서는 허용합니다.
 - E2E는 `e2e/`(`qa-verification` §4)이며 이 폴더와 섞지 않습니다.
 
