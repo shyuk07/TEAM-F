@@ -191,6 +191,44 @@ describe('PasswordResetPage (A3)', () => {
     expect(await screen.findByLabelText('6자리 코드')).toHaveValue('');
   });
 
+  it('코드 요청 대기 중에는 이메일 칸이 readOnly라 고칠 수 없고, 응답 뒤 보낸 이메일로 2단계가 열린다', async () => {
+    const fakes = anonymousFakes();
+    const request = deferred<void>();
+    fakes.account.requestPasswordReset.mockReturnValueOnce(request.promise);
+    renderReset({ fakes });
+    const user = await ready();
+    await user.type(emailInput(), 'a@b.c');
+    await user.click(sendButton());
+    await screen.findByRole('button', { name: '처리 중…' });
+    expect(emailInput()).toHaveAttribute('readonly');
+    await user.type(emailInput(), 'x');
+    expect(emailInput()).toHaveValue('a@b.c');
+    request.resolve();
+    expect(await screen.findByLabelText('6자리 코드')).toBeInTheDocument();
+    expect(emailInput()).not.toHaveAttribute('readonly');
+    expect(emailInput()).toHaveValue('a@b.c');
+  });
+
+  it('「코드 다시 받기」 대기 중에도 이메일 칸이 readOnly라 2단계가 닫히지 않고, 응답 뒤 다시 고칠 수 있다', async () => {
+    const fakes = anonymousFakes();
+    renderReset({ fakes });
+    const user = await ready();
+    await sendCode(user);
+    const resend = deferred<void>();
+    fakes.account.requestPasswordReset.mockReturnValueOnce(resend.promise);
+    await user.click(screen.getByRole('button', { name: '코드 다시 받기' }));
+    await screen.findByRole('button', { name: '처리 중…' });
+    expect(emailInput()).toHaveAttribute('readonly');
+    await user.type(emailInput(), 'x');
+    expect(emailInput()).toHaveValue('a@b.c');
+    expect(screen.getByText('2단계 · 새 비밀번호')).toBeInTheDocument();
+    resend.resolve();
+    await screen.findByRole('button', { name: '코드 보내기' });
+    expect(emailInput()).not.toHaveAttribute('readonly');
+    expect(screen.getByLabelText('6자리 코드')).toBeInTheDocument();
+    expect(fakes.account.requestPasswordReset.mock.calls[1]?.[0]).toBe('a@b.c');
+  });
+
   it('코드 요청이 NETWORK_ERROR면 1단계 상자 안에 그 문구가 보이고 2단계는 없다', async () => {
     const fakes = anonymousFakes();
     fakes.account.requestPasswordReset.mockRejectedValue(

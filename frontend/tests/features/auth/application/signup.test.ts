@@ -63,6 +63,13 @@ describe('signupAndLogin', () => {
     await expect(signupAndLogin(deps, form)).rejects.toBe(err);
   });
 
+  it('넘긴 signal을 account.signup에 그대로 전달한다', async () => {
+    const { account, deps } = setup();
+    const signal = new AbortController().signal;
+    await signupAndLogin(deps, form, signal);
+    expect(account.signup.mock.calls[0]?.[1]).toBe(signal);
+  });
+
   it('상점주 폼이면 role OWNER로 가입한다', async () => {
     const { account, deps } = setup(ownerUser);
     await signupAndLogin(deps, { ...form, role: 'OWNER' });

@@ -9,6 +9,7 @@ import {
   profilePatch,
   type ProfileForm as ProfileFormValue,
 } from '../domain/profileInput';
+import { PROFILE_TEXT_MAX_LENGTH } from '../domain/signupInput';
 
 const EMPTY_FORM: ProfileFormValue = { name: '', phone: '' };
 
@@ -70,7 +71,7 @@ export function ProfileForm() {
               id={nameId}
               className="in"
               autoComplete="name"
-              maxLength={100}
+              maxLength={PROFILE_TEXT_MAX_LENGTH}
               value={form.name}
               onChange={(e) => change({ name: e.target.value })}
             />
@@ -84,7 +85,7 @@ export function ProfileForm() {
           className="in"
           type="tel"
           autoComplete="tel"
-          maxLength={100}
+          maxLength={PROFILE_TEXT_MAX_LENGTH}
           value={form.phone}
           onChange={(e) => change({ phone: e.target.value })}
         />

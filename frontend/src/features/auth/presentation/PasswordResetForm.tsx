@@ -25,6 +25,7 @@ export function PasswordResetForm({ onDone }: { onDone(): void }) {
   const ruleMessage = passwordRuleMessage(checkPassword(newPassword));
 
   // 코드를 보낸 뒤 이메일을 고치면 2단계를 닫고 코드를 비운다(다른 이메일의 코드로 확인하는 실수 방지, auth-account.md D-24).
+  // 요청 대기 중에는 이메일 칸이 readOnly라 여기로 오지 않는다(늦게 온 204가 다른 이메일로 2단계를 여는 것 방지, D-24).
   function onEmailChange(value: string) {
     setEmail(value);
     if (codeSent) {
@@ -68,6 +69,7 @@ export function PasswordResetForm({ onDone }: { onDone(): void }) {
             type="email"
             autoComplete="username"
             maxLength={EMAIL_MAX_LENGTH}
+            readOnly={reset.requestPending}
             value={email}
             onChange={(e) => onEmailChange(e.target.value)}
           />

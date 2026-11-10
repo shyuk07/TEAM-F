@@ -91,7 +91,7 @@
 
 ### 2.7 공개 API
 
-`features/auth/index.ts`에 추가: `type AccountGateway`, `AccountGatewayToken`, `type SignupRole`, `readSignupRole`, `readLoginNotice`, `type LoginNotice`, `PASSWORD_RESET_DONE_NOTICE`, `SIGNUP_LOGIN_FAILED_NOTICE`, `SignupForm`, `PasswordResetForm`, `ProfileForm`, `PasswordChangeForm`. (구현체·DTO·유스케이스·`useSubmit`·`SignupRolePicker`는 내보내지 않음.)
+`features/auth/index.ts`에 추가: `type AccountGateway`, `AccountGatewayToken`, `type SignupRole`, `readSignupRole`, `readLoginNotice`, `type LoginNotice`, `PASSWORD_RESET_DONE_NOTICE`, `SIGNUP_LOGIN_FAILED_NOTICE`, `loginNoticeMessage`(A1이 `notice`를 문구로 바꿀 때), `BACK_LABEL`(pages AppBar ← 링크의 접근 이름. 다른 영역도 필요해지면 `shared`로 옮긴다), `SignupForm`, `PasswordResetForm`, `ProfileForm`, `PasswordChangeForm`. (구현체·DTO·유스케이스·`useSubmit`·`SignupRolePicker`는 내보내지 않음.)
 
 pages 공개 API: `pages/signup/index.ts` → `SignupPage`, `pages/password-reset/index.ts` → `PasswordResetPage`, `pages/account-profile/index.ts` → `ProfilePage`, `pages/account-password/index.ts` → `PasswordChangePage`. `widgets/owner-nav/index.ts`는 그대로.
 
@@ -230,6 +230,7 @@ pages 공개 API: `pages/signup/index.ts` → `SignupPage`, `pages/password-rese
   - `sentEmail !== null`일 때만: 라벨 「2단계 · 새 비밀번호」, `.box` 안: 「6자리 코드」(`className="in code"`, `inputMode="numeric"`, `autoComplete="one-time-code"`, `maxLength=6`), 「새 비밀번호 (8자 이상)」(`type="password"`, `autoComplete="new-password"`, 아래 `passwordRuleMessage`), 확인 오류 `err`(`resetConfirmErrorMessage`), `<button type="button" className="link">코드 다시 받기</button>`.
   - 주 버튼 「비밀번호 바꾸기」(`.dk` + `.cta`, submit): `canConfirmReset` 아니면 비활성.
   - 이메일 칸을 바꾸면 `invalidate()`: 2단계가 닫히고 코드 칸을 비운다(D-24).
+  - 코드 요청 대기 중(「코드 보내기」·「코드 다시 받기」 모두, `requestPending`)에는 이메일 칸을 `readOnly`로 둔다. 늦게 온 204가 고친 이메일로 2단계를 열거나 닫힌 2단계를 다시 여는 경쟁을 막는다(D-24).
   - 확인 성공(`confirm` → `true`) → `onDone()`.
 
 | 상태 | 표시 |
@@ -617,7 +618,7 @@ D-1~D-30은 사용자 위임으로 추천안대로 확정됐다(2026-11-10). 구
 | D-21 | RolePicker 위치·접근성 | `features/auth/presentation/SignupRolePicker`(공개 안 함), `radiogroup` + `role="radio"` 버튼, 문구·아이콘은 와이어프레임 | 확정(위임, 2026-11-10) | 업무(역할)를 아는 부품이라 `shared/ui`가 아님(`design-system-usage` §3), A2 전용 | 아니오 |
 | D-22 | 상호 라벨 | A2 상점주 「상호(상점명으로 쓰임) *」, C8 상점주 「상호 (변경 불가)」 읽기 전용, 와이어프레임의 「상호 변경은 고객센터에 문의해 주세요.」는 넣지 않음 | 확정(위임, 2026-11-10) | `screens.md` A2, `Input` README 필수·변경 불가 규칙, C-5·C-6 | 아니오(Q-6, Q-12) |
 | D-23 | O8 메뉴 | 「내 정보 (전화번호)」(→ C8), 「비밀번호 변경」(→ C9), 「로그아웃」 순서. 행은 `Link` + `state.from`. 상점주만 안내 한 줄. PC는 계속 시트 | 확정(위임, 2026-11-10) | `wireframe.html:283~286`, `layout.md`(O8 → C8·C9·C10). `auth.md` D-3 대체 | 아니오 |
-| D-24 | A3 단계·이메일 | 첫 요청 성공 뒤 2단계 표시, 이메일을 고치면 2단계를 닫고 코드를 비움, 확인·다시 받기는 보낸 이메일로, 60초 안내 없음 | 확정(위임, 2026-11-10) | `screens.md` A3 "1단계를 보내면 2단계가 열림". 다른 이메일의 코드로 확인하는 실수 방지 | 아니오(Q-10) |
+| D-24 | A3 단계·이메일 | 첫 요청 성공 뒤 2단계 표시, 이메일을 고치면 2단계를 닫고 코드를 비움, 요청 대기 중에는 이메일 칸 readOnly(늦은 응답 경쟁 방지), 확인·다시 받기는 보낸 이메일로, 60초 안내 없음 | 확정(위임, 2026-11-10) | `screens.md` A3 "1단계를 보내면 2단계가 열림". 다른 이메일의 코드로 확인하는 실수 방지 | 아니오(Q-10) |
 | D-25 | 가입 성공·로그인 실패 | `/login`으로 `replace`, `state = { from, notice: 'signupLoginFailed' }`, A1에 임시 문구 「가입했어요. 로그인해 주세요.」 | 확정(위임, 2026-11-10) | 계정은 생겼으므로 A2에 머물면 다시 가입하다 409가 남 | 아니오(Q-8) |
 | D-26 | entities | 새로 만들지 않음. `User`·`AccountGateway`는 `features/auth`. C3(결제 포인트)·C11 설계 때 `entities/user`(잔액·포인트 내역 포트) 내림을 검토 | 확정(위임, 2026-11-10) | `fsd-structure` §4 "미리 entities를 만들지 않습니다", `auth.md` D-5 | 아니오(Q-14) |
 | D-27 | C8 진입 시 재조회 | 하지 않음(`useAuth`의 사용자 사용) | 확정(위임, 2026-11-10) | 가드가 앱 시작·재로그인 때 `/users/me`로 확인함. 저장 응답이 최신 값을 줌 | 아니오 |

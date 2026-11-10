@@ -21,6 +21,13 @@ describe('requestPasswordReset', () => {
     expect(account.requestPasswordReset.mock.calls[0]?.[0]).toBe('a@b.c');
   });
 
+  it('넘긴 signal을 account.requestPasswordReset에 그대로 전달한다', async () => {
+    const { account, deps } = setup();
+    const signal = new AbortController().signal;
+    await requestPasswordReset(deps, 'a@b.c', signal);
+    expect(account.requestPasswordReset.mock.calls[0]?.[1]).toBe(signal);
+  });
+
   it('요청 실패를 그대로 전파한다', async () => {
     const { account, deps } = setup();
     const err = new ApiError(0, 'NETWORK_ERROR', '네트워크 문구');
@@ -59,6 +66,13 @@ describe('confirmPasswordReset', () => {
     );
     await expect(confirmPasswordReset(deps, input)).rejects.toBeInstanceOf(ApiError);
     expect(session.clear).not.toHaveBeenCalled();
+  });
+
+  it('넘긴 signal을 account.confirmPasswordReset에 그대로 전달한다', async () => {
+    const { account, deps } = setup();
+    const signal = new AbortController().signal;
+    await confirmPasswordReset(deps, input, signal);
+    expect(account.confirmPasswordReset.mock.calls[0]?.[1]).toBe(signal);
   });
 
   it('게이트웨이 호출과 clear는 각 1회다', async () => {

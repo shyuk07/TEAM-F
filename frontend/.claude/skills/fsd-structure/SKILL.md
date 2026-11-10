@@ -130,9 +130,9 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | A1 로그인 | `pages/login` | `features/auth`, `entities/session` | `../docs/design/frontend/auth.md` |
 | O8 계정 메뉴, C10 로그아웃 확인 (상점주 셸) | 없음(라우트 없는 오버레이. `widgets/owner-nav`의 `OwnerAccountButton` 안) | `widgets/owner-nav`, `features/auth`(`LogoutConfirmSheet`), `entities/session` | `../docs/design/frontend/auth.md` |
 | 상점주 셸 가드 | 없음(`app/layouts/OwnerLayout`) | `features/auth`(`useAuth`, `decideAccess`) | `../docs/design/frontend/auth.md` |
-| A2 회원가입 (설계, 미구현) | `pages/signup` | `features/auth`(`SignupForm`) | `../docs/design/frontend/auth-account.md` |
-| A3 비밀번호 재설정 (설계, 미구현) | `pages/password-reset` | `features/auth`(`PasswordResetForm`), `entities/session` | `../docs/design/frontend/auth-account.md` |
-| C8 프로필 변경 (설계, 미구현) | `pages/account-profile` | `features/auth`(`ProfileForm`, `useAuth`) | `../docs/design/frontend/auth-account.md` |
-| C9 비밀번호 변경 (설계, 미구현) | `pages/account-password` | `features/auth`(`PasswordChangeForm`) | `../docs/design/frontend/auth-account.md` |
-| C8·C9 로그인 필요 가드 (설계, 미구현) | 없음(`app/layouts/AccountLayout`) | `features/auth`(`useAuth`, `decideAccess(…, 'ANY')`) | `../docs/design/frontend/auth-account.md` |
-| O8 계정 메뉴의 C8·C9 행 (설계, 미구현) | 없음(`widgets/owner-nav`의 `OwnerAccountMenu`) | `widgets/owner-nav`, `features/auth` | `../docs/design/frontend/auth-account.md` |
+| A2 회원가입 | `pages/signup` | `features/auth`(`SignupForm`) | `../docs/design/frontend/auth-account.md` |
+| A3 비밀번호 재설정 | `pages/password-reset` | `features/auth`(`PasswordResetForm`), `entities/session` | `../docs/design/frontend/auth-account.md` |
+| C8 프로필 변경 | `pages/account-profile` | `features/auth`(`ProfileForm`, `useAuth`) | `../docs/design/frontend/auth-account.md` |
+| C9 비밀번호 변경 | `pages/account-password` | `features/auth`(`PasswordChangeForm`) | `../docs/design/frontend/auth-account.md` |
+| C8·C9 로그인 필요 가드 | 없음(`app/layouts/AccountLayout`) | `features/auth`(`useAuth`, `decideAccess(…, 'ANY')`) | `../docs/design/frontend/auth-account.md` |
+| O8 계정 메뉴의 C8·C9 행 | 없음(`widgets/owner-nav`의 `OwnerAccountMenu`) | `widgets/owner-nav`, `features/auth` | `../docs/design/frontend/auth-account.md` |

@@ -18,6 +18,13 @@ describe('updateProfile', () => {
     expect(user).toEqual({ ...customerUser, phone: '010-2' });
   });
 
+  it('넘긴 signal을 account.updateProfile에 그대로 전달한다', async () => {
+    const { account, deps } = setup();
+    const signal = new AbortController().signal;
+    await updateProfile(deps, { phone: '010-2' }, signal);
+    expect(account.updateProfile.mock.calls[0]?.[1]).toBe(signal);
+  });
+
   it('401 TOKEN_REVOKED면 session.clear() 후 같은 오류로 reject한다', async () => {
     const { account, session, deps } = setup();
     const err = new ApiError(401, 'TOKEN_REVOKED', '폐기된 토큰입니다.');

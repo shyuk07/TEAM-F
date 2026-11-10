@@ -23,6 +23,13 @@ describe('changePassword', () => {
     expect(session.clear).not.toHaveBeenCalled();
   });
 
+  it('넘긴 signal을 account.changePassword에 그대로 전달한다', async () => {
+    const { account, deps } = setup();
+    const signal = new AbortController().signal;
+    await changePassword(deps, form, signal);
+    expect(account.changePassword.mock.calls[0]?.[1]).toBe(signal);
+  });
+
   it('401이면 session.clear() 후 같은 오류로 reject한다', async () => {
     const { account, session, deps } = setup();
     const err = new ApiError(401, 'TOKEN_REVOKED', '폐기된 토큰입니다.');

@@ -67,12 +67,20 @@ describe('useSubmit', () => {
   it('언마운트 뒤 resolve돼도 상태 갱신 경고가 없다', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const d = deferred<string>();
-    const { result, unmount, run } = setup(() => d.promise);
+    let received: AbortSignal | undefined;
+    const run = vi.fn((input: string, signal: AbortSignal) => {
+      void input;
+      received = signal;
+      return d.promise;
+    });
+    const { result, unmount } = renderHook(() => useSubmit(run));
     act(() => {
       void result.current.submit('a');
     });
     expect(run).toHaveBeenCalledTimes(1);
+    expect(received?.aborted).toBe(false);
     unmount();
+    expect(received?.aborted).toBe(true);
     await act(async () => {
       d.resolve('결과');
     });
