@@ -24,7 +24,7 @@ skills:
 
 ## 쓰기 범위
 - 수정 가능: 맡은 slice 폴더 전체(features면 `wiring.ts` 포함)와 `tests/` 아래 그 slice 경로의 테스트·가짜 구현체(`react-implementation` §7), 맡은 화면의 `app/router` 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄
-- 요청이 있을 때만: `shared/`(`shared/lib/di.tsx` 포함), `app/providers`, `app/styles`, 다른 slice, `package.json`(의존성은 `npm install`로만), 설정 파일(`vite.config.ts`, `eslint`, `tsconfig`, `playwright.config.ts`)
+- 요청이 있을 때만: `shared/`(`shared/lib/di.ts`·`DepsProvider.tsx` 포함), `app/providers`, `app/styles`, 다른 slice, `package.json`(의존성은 `npm install`로만), 설정 파일(`vite.config.ts`, `eslint`, `tsconfig`, `playwright.config.ts`)
 - 수정 금지: `src/app/styles/tokens.css`·`bundle.css` 복사본, `../docs/`, `../backend/`
 - git은 조회만 씁니다. `commit`·`push`·`checkout`·`reset`·`stash` 등 작업 트리·이력을 바꾸는 명령은 실행하지 않습니다.
 

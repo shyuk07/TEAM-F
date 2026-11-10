@@ -31,7 +31,7 @@ import { readToken } from './tokenStorage'
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal; auth?: boolean }
 
-export async function request<T>(path: string, opts: Options = {}): Promise<T> {
+export async function request<T = never>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   const token = opts.auth === false ? null : readToken()
@@ -47,7 +47,7 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
     })
   } catch (e) {
     if (opts.signal?.aborted) throw e
-    throw new ApiError(0, 'NETWORK_ERROR', '네트워크에 연결할 수 없습니다.')
+    throw new ApiError(0, 'NETWORK_ERROR', '네트워크에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.')
   }
   if (!res.ok) throw await toApiError(res)
   return (res.status === 204 ? undefined : await res.json()) as T
@@ -58,8 +58,9 @@ export const apiPost = <T>(path: string, body?: unknown, signal?: AbortSignal) =
   request<T>(path, { method: 'POST', body, signal })
 ```
 - `path`는 항상 `/v1/...`로 시작합니다.
+- 타입 인자 기본값은 `never`입니다. 응답을 쓰는 호출은 `request<Foo>`처럼 응답 타입을 반드시 적습니다(적지 않으면 결과를 쓸 수 없음).
 - 로그인·회원가입처럼 토큰을 붙이면 안 되는 요청은 `auth: false`로 보냅니다.
-- `NETWORK_ERROR`는 프론트 전용 코드입니다. 문구는 `../docs/design-system/content.md`에 맞는 것이 있으면 그것으로 바꿉니다.
+- `NETWORK_ERROR`는 프론트 전용 코드입니다. 문구는 **임시**(해요체, 사용자 결정)이며 `../docs/design-system/content.md`에 정해지면 그것으로 바꿉니다.
 
 ## 2.1 토큰 보관 (F17)
 

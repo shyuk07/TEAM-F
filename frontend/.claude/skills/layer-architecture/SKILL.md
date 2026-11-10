@@ -125,11 +125,13 @@ D-번호·C-번호는 설계안 파일 안에서 1부터 매기고, 한 번 매�
 | `wire_dependencies()` | `app/container.ts`의 `createContainer()` |
 | `Depends(provide_*)` | `useDep(토큰)` |
 
-### 6.1 DI 도구 — `shared/lib/di.tsx` (업무를 모름, 하나만 둠)
+### 6.1 DI 도구 — `shared/lib/di.ts` + `shared/lib/DepsProvider.tsx` (업무를 모름, 한 벌만 둠)
 
-```tsx
-// shared/lib/di.tsx
-import { createContext, useContext, type ReactNode } from 'react'
+컴포넌트(`DepsProvider`)는 따로 `DepsProvider.tsx`에 둡니다. 한 파일이 컴포넌트와 함수를 함께 내보내면 Fast Refresh가 깨지고 ESLint `react-refresh/only-export-components`에 걸립니다. 규칙을 끄지 않고 파일을 나눕니다.
+
+```ts
+// shared/lib/di.ts
+import { createContext, useContext } from 'react'
 
 export type Token<T> = { readonly key: symbol; readonly name: string; readonly _type?: T }
 export function createToken<T>(name: string): Token<T> {
@@ -155,11 +157,7 @@ export class Container {
   }
 }
 
-const DepsContext = createContext<Container | null>(null)
-
-export function DepsProvider({ container, children }: { container: Container; children: ReactNode }) {
-  return <DepsContext.Provider value={container}>{children}</DepsContext.Provider>
-}
+export const DepsContext = createContext<Container | null>(null)
 
 export function useDep<T>(token: Token<T>): T {
   const container = useContext(DepsContext)
@@ -167,6 +165,17 @@ export function useDep<T>(token: Token<T>): T {
   return container.get(token)
 }
 ```
+
+```tsx
+// shared/lib/DepsProvider.tsx
+import type { ReactNode } from 'react'
+import { DepsContext, type Container } from './di'
+
+export function DepsProvider({ container, children }: { container: Container; children: ReactNode }) {
+  return <DepsContext.Provider value={container}>{children}</DepsContext.Provider>
+}
+```
+- 가져오는 곳: 토큰·`bind`·`Container`·`useDep`은 `@/shared/lib/di`, `DepsProvider`는 `@/shared/lib/DepsProvider`.
 - `shared`는 업무를 모르므로 어떤 포트·토큰도 import하지 않습니다. slice별 타입은 토큰의 제네릭(`Token<OfferRepository>`)이 들고 다닙니다.
 - **토큰 하나는 정확히 한 영역이 등록합니다.** 두 번 등록하면 앱 시작 때 "의존성 중복 등록" 오류가 납니다.
 - 컨테이너는 앱 시작 때 한 번 만들고 바꾸지 않습니다. 렌더 중에 만들지 않습니다.
@@ -336,7 +345,7 @@ export function createContainer(): Container {
   ])
 }
 
-// main.tsx
+// main.tsx  (DepsProvider는 '@/shared/lib/DepsProvider'에서 import)
 const container = createContainer()
 createRoot(document.getElementById('root')!).render(
   <DepsProvider container={container}><App /></DepsProvider>,

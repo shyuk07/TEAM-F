@@ -95,7 +95,7 @@
 | 화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` §7 |
 | 의존성 조립 (영역별 wiring을 모으는 유일한 곳) | `src/app/container.ts` |
 | 영역별 구현체 ↔ 토큰 연결 (소유한 entities 포트 포함) | `src/features/<영역>/wiring.ts` |
-| DI 도구 (토큰·Container·`useDep`) | `src/shared/lib/di.tsx` |
+| DI 도구 (토큰·Container·`useDep`, `DepsProvider`) | `src/shared/lib/di.ts`, `src/shared/lib/DepsProvider.tsx` |
 | 디자인 시스템 CSS 복사본 (직접 수정 금지) | `src/app/styles/tokens.css`, `src/app/styles/bundle.css` |
 | E2E 테스트 | `e2e/<흐름>.spec.ts` |
 

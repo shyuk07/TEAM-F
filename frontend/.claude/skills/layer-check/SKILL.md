@@ -25,7 +25,7 @@ node .claude/skills/layer-check/check_layers.mjs
 | `[wiring위치]` | F18 | `app` 밖에서 다른 slice의 `wiring`을 import, 같은 slice 안에서 `wiring`을 import |
 | `[구조]` | F3, F4, F18 | `src` 안의 테스트·가짜 구현체 파일(`*.test.ts(x)`·`*.spec.ts(x)`·`*.fake.ts(x)`), 계층 바로 아래 파일, slice 루트의 `index.ts`·`wiring.ts` 외 파일, features 밖(entities·widgets·pages)의 `wiring.ts`, entities 안의 `infrastructure/`, 영역 목록(`FEATURE_DOMAINS`)에 없는 features slice, slice 안 4계층 외 폴더(`ui`, `model` 등), `app`·`shared` 안 4계층 폴더, FSD 계층 밖 폴더 |
 | `[의존방향]` | F5, F8, F18 | slice 안 금지 방향(application → infrastructure, presentation → infrastructure, domain → 다른 계층), infrastructure → application을 `import type` 없이 가져옴, presentation·application의 `shared/api` import |
-| `[외부의존]` | F6, F18 | domain의 `react`·`react-router` import, `window`·`document`·`localStorage`·`import.meta.env` 사용, `shared/lib` 외 shared import, domain의 `shared/lib/di` import |
+| `[외부의존]` | F6, F18 | domain의 `react`·`react-router` import, `window`·`document`·`localStorage`·`import.meta.env` 사용, `shared/lib` 외 shared import, domain의 `shared/lib/di`·`shared/lib/DepsProvider` import |
 | `[fetch위치]` | F8 | `shared/api` 밖의 `fetch(` 호출 |
 | `[하드코딩색]` | F12 | `.ts`·`.tsx`·`.css`의 hex·`rgb()`·`hsl()` 색 값 (`app/styles/tokens.css`, `bundle.css` 복사본은 제외) |
 

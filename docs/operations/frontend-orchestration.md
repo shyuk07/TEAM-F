@@ -80,7 +80,7 @@
 | `src/features/<영역>/wiring.ts` | 그 영역을 맡은 `fe-developer` (영역 7개는 `fsd-structure` §1.1) |
 | `src/entities/<개체>/**` | 그 개체를 소유한 영역(`fsd-structure` §1.1)의 `fe-developer`. 다른 영역이 바꿔야 하면 오케스트레이터가 소유 영역 담당에게 발주 |
 | `src/app/container.ts` | 각 developer는 자기 영역의 `wire*()` 한 줄씩. 토큰 중복 등록 조정은 오케스트레이터 |
-| `src/shared/lib/di.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
+| `src/shared/lib/di.ts`, `src/shared/lib/DepsProvider.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
 | `tests/<계층>/<slice>/**` (테스트·가짜 구현체, `react-implementation` §7) | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
 | `src/app/router/**` | 각 developer는 자기 라우트 한 줄씩. 순서·레이아웃 조정은 오케스트레이터가 발주 |
 | `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html`, `tests/setup.ts` | 발주서에 명시한 `fe-developer`만 |
