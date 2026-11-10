@@ -192,7 +192,7 @@ class AuthApplicationService:
         return LoginResult(token=token, status=user.effective_status(now).value)
 
     async def authenticate(
-        self, token: str, *, allow_suspended: bool = False
+        self, token: str, *, allow_suspended: bool = False, allow_suspended_owner: bool = False
     ) -> AuthenticatedPrincipal:
         claims = self.tokens.decode(token)
         if await self.blacklist.exists(claims.jti):
@@ -200,7 +200,11 @@ class AuthApplicationService:
         user = await self.users.find_by_id(claims.user_id)
         if user is None:
             raise AuthenticationError("유효하지 않은 토큰입니다.")
-        user.ensure_can_authenticate(self.clock.now(), allow_suspended=allow_suspended)
+        user.ensure_can_authenticate(
+            self.clock.now(),
+            allow_suspended=allow_suspended,
+            allow_suspended_owner=allow_suspended_owner,
+        )
         user.ensure_token_current(claims.token_version, claims.jti)  # 비밀번호 변경·재설정 뒤 이전 토큰 무효
         return AuthenticatedPrincipal(user=user, claims=claims)
 

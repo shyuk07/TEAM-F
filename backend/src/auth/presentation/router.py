@@ -11,6 +11,7 @@ from auth.presentation.dependencies import (
     AdminUser,
     CurrentPrincipal,
     CurrentUser,
+    CurrentUserAllowSuspendedOwner,
     PrincipalAllowSuspended,
     provide_auth_service,
     provide_password_reset_service,
@@ -99,7 +100,7 @@ async def confirm_password_reset(body: PasswordResetConfirmRequest, service: Res
 
 
 @router.get("/users/me", response_model=UserResponse, tags=["회원"], summary="내 정보 조회")
-async def read_me(user: CurrentUser):
+async def read_me(user: CurrentUserAllowSuspendedOwner):
     return user
 
 
