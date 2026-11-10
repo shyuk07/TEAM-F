@@ -179,7 +179,7 @@ function checkImport(rel, loc, lineNo, spec, typeOnly) {
     report('[의존방향]', rel, lineNo, `${loc.inner} → shared/api. 서버 호출은 infrastructure만 한다 (F5, F8)`)
   if (loc.inner === 'domain' && t.layer === 'shared' && t.parts[1] !== 'lib')
     report('[외부의존]', rel, lineNo, `domain → shared/${t.parts[1]}. domain은 shared/lib의 순수 함수만 쓴다 (F6)`)
-  if (loc.inner === 'domain' && t.layer === 'shared' && t.parts[1] === 'lib' && /^di(\.tsx?)?$/.test(t.parts[2] ?? ''))
+  if (loc.inner === 'domain' && t.layer === 'shared' && t.parts[1] === 'lib' && /^(di|DepsProvider)(\.tsx?)?$/.test(t.parts[2] ?? ''))
     report('[외부의존]', rel, lineNo, 'domain이 DI 도구를 가져옴. 토큰은 application/tokens.ts에 둔다 (F18)')
 }
 
@@ -189,6 +189,7 @@ function checkFile(abs) {
   const isTest = TEST_FILE.test(rel)
   const isCss = rel.endsWith('.css')
   checkStructure(rel, loc)
+  if (isTest) report('[구조]', rel, 1, '테스트·가짜 구현체는 src에 두지 않는다. tests/ 아래 src와 같은 경로에 둔다 (react-implementation §7)')
 
   const code = stripComments(readFileSync(abs, 'utf8'))
   code.split('\n').forEach((line, i) => {

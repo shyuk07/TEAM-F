@@ -31,7 +31,7 @@ import { readToken } from './tokenStorage'
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal; auth?: boolean }
 
-export async function request<T>(path: string, opts: Options = {}): Promise<T> {
+export async function request<T = never>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   const token = opts.auth === false ? null : readToken()
@@ -47,7 +47,7 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
     })
   } catch (e) {
     if (opts.signal?.aborted) throw e
-    throw new ApiError(0, 'NETWORK_ERROR', '네트워크에 연결할 수 없습니다.')
+    throw new ApiError(0, 'NETWORK_ERROR', '네트워크에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.')
   }
   if (!res.ok) throw await toApiError(res)
   return (res.status === 204 ? undefined : await res.json()) as T
@@ -58,8 +58,9 @@ export const apiPost = <T>(path: string, body?: unknown, signal?: AbortSignal) =
   request<T>(path, { method: 'POST', body, signal })
 ```
 - `path`는 항상 `/v1/...`로 시작합니다.
+- 타입 인자 기본값은 `never`입니다. 응답을 쓰는 호출은 `request<Foo>`처럼 응답 타입을 반드시 적습니다(적지 않으면 결과를 쓸 수 없음).
 - 로그인·회원가입처럼 토큰을 붙이면 안 되는 요청은 `auth: false`로 보냅니다.
-- `NETWORK_ERROR`는 프론트 전용 코드입니다. 문구는 `../docs/design-system/content.md`에 맞는 것이 있으면 그것으로 바꿉니다.
+- `NETWORK_ERROR`는 프론트 전용 코드입니다. 문구는 **임시**(해요체, 사용자 결정)이며 `../docs/design-system/content.md`에 정해지면 그것으로 바꿉니다.
 
 ## 2.1 토큰 보관 (F17)
 
@@ -94,7 +95,7 @@ export function onTokenChange(cb: (token: string | null) => void): () => void {
 | 시점 | 동작 | 위치 |
 | --- | --- | --- |
 | 로그인 성공 (`POST /v1/auth/login`) | `session.save(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/auth`의 로그인 유스케이스 |
-| 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `app/providers`의 인증 Context |
+| 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `features/auth`의 인증 Context(`AuthProvider`, `App.tsx`에서 마운트) |
 | 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/auth`의 로그아웃 유스케이스 |
 | `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `session.clear()` → 로그인 화면(A1) | 인증 Context (§3) |
 | 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | `features/auth`의 유스케이스 |
@@ -136,7 +137,7 @@ export async function toApiError(res: Response): Promise<ApiError> {
 ```
 - 화면 분기는 `errorCode`로 합니다. `message` 문자열 비교로 분기하지 않습니다.
 - 명세상 auth 외 모듈은 에러 형식이 아직 통일되지 않았을 수 있습니다(`../docs/reference/README.md` "확인 필요"). 형식이 다르면 `UNKNOWN`으로 떨어지므로, 발견하면 보고서에 적습니다.
-- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`session.clear()` → 로그인 화면 A1, §2.1). 처리 위치는 `app/providers`의 인증 Context입니다.
+- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`session.clear()` → 로그인 화면 A1, §2.1). 처리 위치는 `features/auth`의 인증 Context(`AuthProvider`)입니다. widgets·pages가 현재 사용자를 읽어야 하므로 app이 아니라 features에 둡니다(F1).
 - `429 ACCOUNT_LOCKED`는 `Retry-After` 헤더가 있으니 필요한 화면에서 읽습니다.
 
 ## 4. slice infrastructure (F9, F18)

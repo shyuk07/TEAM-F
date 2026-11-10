@@ -48,7 +48,7 @@ node .claude/skills/design-system-usage/scripts/sync_styles.mjs check   # 같은
 - 화면 제목, 버튼, 안내, 오류 문구는 `screens.md`의 해당 화면 문구를 **그대로** 씁니다. 말을 다듬지 않습니다.
 - 숫자·금액·시간 표기는 `content.md`를 따르고, domain 함수로 만듭니다(예: `formatWon`, `formatMinutesLeft`).
 - 상태 enum → 한국어 문구는 `states.md` 표를 domain의 상수 표로 옮겨 씁니다. 고객·상점주 화면에는 한국어만, 관리자 화면에만 상태 코드를 함께 씁니다.
-- `open-issues.md`에 있는 항목은 거기 적힌 임시 동작으로 구현하고, 코드에 `// open-issues: <항목>` 주석을 남깁니다.
+- `open-issues.md`에 있는 항목은 거기 적힌 임시 동작으로 구현하고, 코드에 `// open-issues: <항목>` 주석을 남깁니다(형식은 `code-annotations` §1~§2).
 
 ## 5. 화면 구현 전 확인 목록
 1. 화면 ID와 `screens.md` 명세(컴포넌트, 문구, 동작 메모)

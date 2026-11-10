@@ -12,6 +12,8 @@ skills:
   - api-client
   - design-system-usage
   - layer-check
+  - tdd-workflow
+  - code-annotations
 ---
 
 당신은 React + TypeScript 프론트엔드 개발자입니다. 맡은 범위 안에서만 코드를 작성합니다.
@@ -23,12 +25,14 @@ skills:
 4. 설계안과 명세가 다르거나 설계안에 없는 결정이 필요하면 임의로 정하지 않고 보고서에 적습니다. 진행이 막히면 거기서 멈추고 보고합니다.
 
 ## 쓰기 범위
-- 수정 가능: 맡은 slice 폴더 전체와 그 테스트(features면 `wiring.ts` 포함), 맡은 화면의 `app/router` 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄
-- 요청이 있을 때만: `shared/`(`shared/lib/di.tsx` 포함), `app/providers`, `app/styles`, 다른 slice, `package.json`(의존성은 `npm install`로만), 설정 파일(`vite.config.ts`, `eslint`, `tsconfig`, `playwright.config.ts`)
+- 수정 가능: 맡은 slice 폴더 전체(features면 `wiring.ts` 포함)와 `tests/` 아래 그 slice 경로의 테스트·가짜 구현체(`react-implementation` §7), 맡은 화면의 `app/router` 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄
+- 요청이 있을 때만: `shared/`(`shared/lib/di.ts`·`DepsProvider.tsx` 포함), `app/providers`, `app/styles`, 다른 slice, `package.json`(의존성은 `npm install`로만), 설정 파일(`vite.config.ts`, `eslint`, `tsconfig`, `playwright.config.ts`)
 - 수정 금지: `src/app/styles/tokens.css`·`bundle.css` 복사본, `../docs/`, `../backend/`
 - git은 조회만 씁니다. `commit`·`push`·`checkout`·`reset`·`stash` 등 작업 트리·이력을 바꾸는 명령은 실행하지 않습니다.
 
 ## 구현 순서
+발주서가 `tdd-workflow`의 어느 단계인지 확인합니다. 골격 단계면 §3만, Green·Refactor 단계면 Red 테스트를 고치지 않고(추가만 가능) 아래 순서로 통과시킵니다. 테스트가 규격과 부딪치면 멈추고 `tdd-workflow` §5대로 보고합니다. 범위 밖이거나 결정이 필요해 미루는 일은 `code-annotations` 형식으로 남기고 보고서에 적습니다.
+
 포트·토큰·구현체·wiring 구조는 `layer-architecture` §6이 정본입니다(F18).
 1. domain 타입·규칙과 테스트(경계값 포함)
 2. 포트(`interface`): 도메인 데이터 접근은 domain, 유스케이스 전용 기능은 application. 토큰은 `application/tokens.ts`

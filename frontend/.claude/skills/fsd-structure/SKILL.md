@@ -127,3 +127,6 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | 화면 | pages slice | 쓰는 features(영역) / widgets / entities | 설계안 |
 | --- | --- | --- | --- |
 | (예) C2 할인 상세 | `pages/offer-detail` | `features/offers`, `features/reservations`, `entities/offer` | `../docs/design/frontend/offers.md`, `reservations.md` |
+| A1 로그인 | `pages/login` | `features/auth`, `entities/session` | `../docs/design/frontend/auth.md` |
+| O8 계정 메뉴, C10 로그아웃 확인 (상점주 셸) | 없음(라우트 없는 오버레이. `widgets/owner-nav`의 `OwnerAccountButton` 안) | `widgets/owner-nav`, `features/auth`(`LogoutConfirmSheet`), `entities/session` | `../docs/design/frontend/auth.md` |
+| 상점주 셸 가드 | 없음(`app/layouts/OwnerLayout`) | `features/auth`(`useAuth`, `decideAccess`) | `../docs/design/frontend/auth.md` |

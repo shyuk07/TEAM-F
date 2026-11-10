@@ -1,6 +1,6 @@
 ---
 name: frontend-invariants
-description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F18)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
+description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F19)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트·작업 주석 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
 ---
 
 # 프론트엔드 불변 규칙
@@ -8,7 +8,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 이 문서는 **규칙의 정본**입니다. 다른 스킬과 에이전트 명세는 규칙 문장을 다시 쓰지 않고 `F번호`로 가리킵니다.
 - 규칙을 바꿀 때는 이 문서만 고칩니다.
 - FSD 배치: `fsd-structure` / slice 안 4계층: `layer-architecture` / 코드 패턴: `react-implementation` / API: `api-client` / 디자인: `design-system-usage` / 자동 검사: `layer-check`
-- 발주서에는 "F1~F18 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
+- 발주서에는 "F1~F19 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
 
 검사 방법 표기: **자동**(`check_layers.mjs`가 잡음, 괄호 안은 출력 태그) / **도구**(ESLint·Prettier·tsc·Vitest·Playwright) / **정독**(`fe-architect`·`fe-reviewer`가 코드를 읽어 판정) / **실행**(`fe-qa`가 실행해 판정)
 
@@ -54,6 +54,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 | --- | --- | --- | --- |
 | F15 | `.env*.local`·시크릿을 커밋하지 않는다. `VITE_` 값은 빌드 결과에 노출되므로 비밀 값을 넣지 않는다. 의존성은 `npm install`로만 추가하고 `package-lock.json`을 함께 커밋한다. | 정독 + 실행 | `pre-merge-check` §1 |
 | F16 | 검사를 통과시키려고 규칙을 끄지 않는다. `any`, `@ts-ignore`, `eslint-disable`, `it.skip`, `it.only`, `test.fixme`를 새로 넣지 않는다. 지우거나 느슨하게 만든 단언은 이유를 보고한다. | 도구 + 정독 | `fe-code-review` §2 |
+| F19 | 지금 고치지 않는 일은 `FIXME`(정해진 시점까지 반드시 고칠 것) 또는 `TODO`(개선·결정 대기)로 남기고, 요약·`왜:`·`언제:`를 함께 쓴다. `HACK`·`XXX` 태그는 쓰지 않는다. 정본 `open-issues.md` 임시 동작은 `// open-issues:`로 남긴다. | 자동(`annotations.mjs check`) + 정독 | `code-annotations` §1~§3 |
 
 ## 6. 코드 작업 공통 완료 게이트
 
@@ -68,7 +69,9 @@ npm run format:check                                 # Prettier 차이 0
 npm run typecheck                                    # tsc 0 error
 npm run test                                         # Vitest failed 0, skip 0
 npm run build                                        # 성공
+node .claude/skills/code-annotations/scripts/annotations.mjs check   # 주석 형식 위반 0건 (F19)
 ```
+- 기능 코드는 `tdd-workflow` 순서로 만듭니다. 이 게이트는 그 각 단계의 완료 조건에 쓰입니다.
 - 화면 흐름을 바꿨으면 `npm run test:e2e`(Playwright)도 실행합니다(`qa-verification` §4).
 - 정독 규칙(F7, F9~F11, F13, F14, F17, F18의 정독 부분)은 수정자가 아닌 `fe-architect`(구조)·`fe-reviewer`(정확성)가 판정합니다.
 - `package.json`에 위 스크립트 이름이 없으면 게이트를 통과로 치지 않고 "스크립트 없음"으로 보고합니다. 스크립트 정의는 `qa-verification` §1이 정본입니다.
