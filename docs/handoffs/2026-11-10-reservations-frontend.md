@@ -2,7 +2,7 @@
 
 - 작성일: 2026-11-10 (Asia/Seoul)
 - 작업 폴더: `C:\Users\qodba\last-call-fe-res`
-- 상태: 현재 작업트리의 최종 검증 완료. 사용자가 2026-11-10 커밋·푸시·PR 본문 준비를 승인했다.
+- 상태: 최종 검증 완료. 사용자 승인 후 구현 커밋을 feature 브랜치에 푸시했고 PR 제목·본문을 준비했다.
 - 새 기능은 시작하지 않았다. 기존 Claude 구현을 보존하고 발견된 결함만 수정했다.
 
 ## 검증 종료 당시 Git 상태와 검증 범위
@@ -135,11 +135,13 @@ HTTP smoke의 초기 실행은 Windows cp949, Git Bash 임시 경로, CRLF stdou
 - 백엔드 목록의 서로 다른 할인마다 get_terms를 호출하는 N+1 성능 주의: 최대 100건에서 추가 조회 약 300회 가능. 필수 수정으로 판정되지 않아 유지.
 - 최신 main 15개 커밋 통합·통합 결과 검증은 수행하지 않았다.
 
-## 승인 후 다음 단계
+## 게시 결과와 다음 단계
 
-1. 사용자 커밋·푸시·PR 본문 준비 승인 확인 완료 (2026-11-10).
-2. 최신 원격 상태와 최종 diff·시크릿·산출물 제외를 다시 확인한다. main 동기화가 필요하면 범위를 확인하고 통합 후 영향 범위 검증을 수행한다.
-3. 현재 feature 브랜치에 커밋하고 **feature 브랜치를 명시해** 푸시한다. upstream이 origin/main이므로 무심코 main에 푸시하지 않는다.
-4. 구현 범위·중요 결함 수정·위 검증 결과·기존 제한을 담은 PR 본문을 준비한다. PR 생성은 별도 요청 범위를 따른다.
-
-PR 제목·본문 초안: [PR 본문](2026-11-10-reservations-frontend-pr.md). 게시 후 커밋 SHA·원격 feature ref는 git log와 최종 응답에서 확인한다.
+- 사용자 승인: 2026-11-10, 커밋·푸시·PR 본문 준비.
+- 구현 커밋: [c28a0ee](https://github.com/shyuk07/TEAM-F/commit/c28a0ee141f38b148ea2dac0fdc468428e4b269e).
+- 원격 feature 브랜치: [feat/reservations-frontend](https://github.com/shyuk07/TEAM-F/tree/feat/reservations-frontend).
+- 구현 커밋 푸시 후 원격 SHA와 일치를 확인했고 upstream을 `origin/feat/reservations-frontend`로 설정했다.
+- PR 제목·본문 초안: [PR 본문](2026-11-10-reservations-frontend-pr.md).
+- PR 생성은 요청되지 않아 수행하지 않았다. [PR 작성 화면](https://github.com/shyuk07/TEAM-F/compare/main...feat/reservations-frontend?expand=1)에서 준비한 본문을 사용할 수 있다.
+- 문서의 게시 결과를 갱신하는 후속 문서 커밋이 추가될 수 있다. 최종 브랜치 SHA는 git log와 원격 ref로 확인한다.
+- 최신 main 통합·충돌 해결·통합 결과 검증은 별도 후속 범위다. 이번 검증 수치를 통합 결과의 통과로 해석하지 않는다.

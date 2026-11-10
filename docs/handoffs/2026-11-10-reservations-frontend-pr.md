@@ -37,4 +37,4 @@ E2E 46개는 실서버 예약·결제 4개, 기존 모킹 36개, 새 모달·화
 - 예약 목록의 할인별 추가 조회 성능 개선은 후속 과제로 남깁니다.
 - DB 스키마·의존성·프로젝트 설정·디자인 CSS 복사본 변경은 없습니다.
 
-자세한 변경·실행 명령·로그 위치·남은 결정은 [Claude 인수인계](2026-11-10-reservations-frontend.md)에 정리했습니다.
+자세한 변경·실행 명령·로그 위치·남은 결정은 [Claude 인수인계](https://github.com/shyuk07/TEAM-F/blob/feat/reservations-frontend/docs/handoffs/2026-11-10-reservations-frontend.md)에 정리했습니다.
