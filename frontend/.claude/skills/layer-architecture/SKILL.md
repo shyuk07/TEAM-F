@@ -324,6 +324,8 @@ export function wireOffers(): Binding[] {
 
 ### 6.7 앱 조립 — `app/container.ts`
 
+아래는 7개 영역이 모두 생긴 뒤의 모습입니다. **처음에는 `new Container([])`로 시작하고, 영역의 `wiring.ts`를 만들 때 그 영역의 import와 `...wire<영역>()` 한 줄을 추가합니다.** 아직 없는 영역을 import하면 타입 검사가 깨집니다. 줄을 추가할 때 `tests/app/container.test.ts`의 토큰 목록도 같은 커밋에서 늘립니다.
+
 ```ts
 // app/container.ts
 import { Container } from '@/shared/lib/di'
