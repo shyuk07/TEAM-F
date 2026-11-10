@@ -16,6 +16,8 @@ import { PasswordResetPage } from '@/pages/password-reset';
 import { PointHistoryPage } from '@/pages/point-history';
 import { SignupPage } from '@/pages/signup';
 import { WithdrawPage } from '@/pages/withdraw';
+import { OwnerStartPage } from '@/pages/owner-start';
+import { StoreClosePage } from '@/pages/store-close';
 import { TAB_BAR_HANDLE } from './handle';
 import {
   OfferDetailPlaceholder,
@@ -71,6 +73,8 @@ export const routes: RouteObject[] = [
       { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOfferNew, element: <OwnerOfferNewPlaceholder /> },
       { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerStart, element: <OwnerStartPage /> },
+      { path: ROUTES.ownerStoreClose, element: <StoreClosePage /> },
       { path: ROUTES.ownerProductNew, element: <OwnerProductNewPlaceholder /> },
       { path: ROUTE_PATTERNS.ownerProduct, element: <OwnerProductEditPlaceholder /> },
     ],
