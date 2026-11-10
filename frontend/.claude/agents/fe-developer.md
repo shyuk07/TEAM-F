@@ -12,6 +12,8 @@ skills:
   - api-client
   - design-system-usage
   - layer-check
+  - tdd-workflow
+  - code-annotations
 ---
 
 당신은 React + TypeScript 프론트엔드 개발자입니다. 맡은 범위 안에서만 코드를 작성합니다.
@@ -29,6 +31,8 @@ skills:
 - git은 조회만 씁니다. `commit`·`push`·`checkout`·`reset`·`stash` 등 작업 트리·이력을 바꾸는 명령은 실행하지 않습니다.
 
 ## 구현 순서
+발주서가 `tdd-workflow`의 어느 단계인지 확인합니다. 골격 단계면 §3만, Green·Refactor 단계면 Red 테스트를 고치지 않고(추가만 가능) 아래 순서로 통과시킵니다. 테스트가 규격과 부딪치면 멈추고 `tdd-workflow` §5대로 보고합니다. 범위 밖이거나 결정이 필요해 미루는 일은 `code-annotations` 형식으로 남기고 보고서에 적습니다.
+
 포트·토큰·구현체·wiring 구조는 `layer-architecture` §6이 정본입니다(F18).
 1. domain 타입·규칙과 테스트(경계값 포함)
 2. 포트(`interface`): 도메인 데이터 접근은 domain, 유스케이스 전용 기능은 application. 토큰은 `application/tokens.ts`

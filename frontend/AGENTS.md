@@ -65,7 +65,7 @@
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
-| 불변 규칙(F1~F18)·코드 완료 게이트 | `.claude/skills/frontend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
+| 불변 규칙(F1~F19)·코드 완료 게이트 | `.claude/skills/frontend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
 | FSD 계층·업무 영역 7개(features)·영역 ↔ 백엔드·명세·화면 대응·공개 API·화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` | 새 화면·기능의 영역과 위치를 정할 때, slice를 만들거나 옮길 때 |
 | slice 안 4계층 책임·의존 방향·설계안 항목 | `.claude/skills/layer-architecture/SKILL.md` §1~§5 | slice 안에 코드를 나눌 때, 설계안을 쓸 때 |
 | 추상화(포트)·구현체·의존성 주입(토큰·wiring·container) | `.claude/skills/layer-architecture/SKILL.md` §6 | 포트·구현체·wiring을 만들 때, 가짜 구현체로 테스트할 때 |
@@ -74,7 +74,9 @@
 | API 클라이언트·에러·DTO 변환·명세 대조 | `.claude/skills/api-client/SKILL.md` | API 호출 코드를 쓸 때, 명세를 확인할 때 |
 | 디자인 시스템 사용·CSS 복사본 동기화·문구 | `.claude/skills/design-system-usage/SKILL.md`, `scripts/sync_styles.mjs` | 화면·UI를 구현할 때, 디자인 문서가 바뀌었을 때 |
 | Vite 서버 실행·SPA fallback·proxy 확인 | `.claude/skills/vite-run/SKILL.md`, `scripts/run_vite.mjs` | 실제 화면을 볼 때, E2E 전 |
-| 검증 스크립트·판정 기준·E2E·Red 테스트 | `.claude/skills/qa-verification/SKILL.md` | 검증할 때, 테스트를 먼저 쓸 때 |
+| TDD 작업 순서(설계 테스트 목록 → 골격 → Red → Green → Refactor → 점검)·Red 판정·테스트 변경 절차 | `.claude/skills/tdd-workflow/SKILL.md` | 기능 구현을 발주할 때, 테스트를 먼저 쓸 때, 구현 중 테스트와 규격이 부딪칠 때 |
+| 검증 스크립트·판정 기준·E2E | `.claude/skills/qa-verification/SKILL.md` | 검증할 때 |
+| 작업 주석(TODO·FIXME·open-issues) 형식·시점·검색 | `.claude/skills/code-annotations/SKILL.md`, `scripts/annotations.mjs` | 고치지 않는 일을 코드에 남길 때, 작업 범위를 정할 때, 머지·배포 전 |
 | 정확성 리뷰 관점·판정 | `.claude/skills/fe-code-review/SKILL.md` | 변경 코드를 리뷰할 때 |
 | 머지 전 점검 순서 | `.claude/skills/pre-merge-check/SKILL.md` | PR·머지 직전 |
 

@@ -1,6 +1,6 @@
 ---
 name: qa-verification
-description: 마감 직전 프론트엔드의 품질 검증 절차와 PASS/FAIL 판정 기준입니다. package.json 검증 스크립트 정의(lint, format:check, typecheck, test, test:e2e, build), ESLint 0 error·0 warning, Prettier 차이 0, tsc 0 error, Vitest failed 0·skip 0, Playwright E2E 시나리오 작성·실행, 빌드 산출물 확인, 화면 상태(로딩·빈·에러) 확인, 디자인 시스템 복사본 동기화 확인을 다룹니다. 구현 결과를 검증할 때, "QA 해줘", "테스트 돌려줘", "E2E 확인"을 요청받았을 때, 실패하는 테스트(Red)를 먼저 작성할 때 사용합니다.
+description: 마감 직전 프론트엔드의 품질 검증 절차와 PASS/FAIL 판정 기준입니다. package.json 검증 스크립트 정의(lint, format:check, typecheck, test, test:e2e, build), ESLint 0 error·0 warning, Prettier 차이 0, tsc 0 error, Vitest failed 0·skip 0, Playwright E2E 시나리오 작성·실행, 빌드 산출물 확인, 화면 상태(로딩·빈·에러) 확인, 디자인 시스템 복사본 동기화 확인을 다룹니다. 구현 결과를 검증할 때, "QA 해줘", "테스트 돌려줘", "E2E 확인"을 요청받았을 때, 실패하는 테스트(Red)를 먼저 작성할 때(순서는 tdd-workflow) 사용합니다.
 ---
 
 # QA 검증
@@ -70,10 +70,7 @@ node .claude/skills/design-system-usage/scripts/sync_styles.mjs check
   5. 새로고침·직접 주소 입력(SPA fallback): `/` 외 라우트에서 `page.reload()` 후 같은 화면
 
 ## 5. TDD Red 작성
-설계안을 받아 테스트를 먼저 쓸 때는:
-1. 설계안(`../docs/design/frontend/<slice>.md`)의 domain 규칙·경계값, 훅의 상태 전이, 화면 상태별 표시를 테스트로 옮깁니다.
-2. 실행해서 **모두 실패하는지** 확인하고 실패 이유(구현 없음)를 적습니다. 다른 이유로 실패하면(문법, import 경로) 고친 뒤 다시 확인합니다.
-3. 구현 중 테스트를 고쳐야 하면 이유를 보고서에 적습니다(단언 약화 금지, F16).
+TDD 단계·담당·Red 판정 기준의 정본은 `tdd-workflow`입니다(§1 단계, §4 Red 판정, §5 테스트 변경 절차). Red는 골격이 있는 상태에서 테스트를 써서 **케이스 단위로** 실패하는지 확인합니다.
 
 ## 6. 보고 형식
 | 단계 | 결과 | 비고 |

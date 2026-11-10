@@ -25,6 +25,15 @@ node .claude/skills/layer-check/check_layers.mjs
 ## 3. 정적 검사와 테스트
 `qa-verification` §2 순서대로 실행합니다(`npm ci` → lint → format:check → typecheck → test → build). 판정은 `qa-verification` §3을 따릅니다.
 
+## 3.1 작업 주석
+```powershell
+node .claude/skills/code-annotations/scripts/annotations.mjs check
+node .claude/skills/code-annotations/scripts/annotations.mjs list
+```
+- `check`는 형식 위반 0건이어야 합니다(F19).
+- `list` 결과를 보고에 붙입니다. `언제:`가 이번 변경의 작업을 가리키는 `FIXME`가 남아 있으면 머지 불가입니다(`code-annotations` §4).
+- 배포 전이면 `list --tag FIXME`가 0건이어야 합니다.
+
 ## 4. 디자인 시스템 복사본
 ```powershell
 node .claude/skills/design-system-usage/scripts/sync_styles.mjs check
@@ -62,6 +71,7 @@ git remote set-head origin -a
 | lint / format / typecheck | | |
 | test | | passed·failed·skipped |
 | build | | |
+| 작업 주석 | | 형식 위반 수, FIXME·TODO 수, 이번 작업이 시점인 FIXME |
 | 디자인 복사본 | | |
 | 실제 동작·E2E | | check 결과, E2E passed·failed, 백엔드 실행 여부 |
 | 코드 리뷰 | | APPROVE / REQUEST_CHANGES |
