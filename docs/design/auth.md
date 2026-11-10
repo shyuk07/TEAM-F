@@ -1803,7 +1803,7 @@ MAIL_FROM=
 - 이번에 추가하는 ID: 결정 `D-목록배치`~`D-목록읽기전용`(§18.2), 차단 확인 `B-43`~`B-45`(§18.0), 정합 이슈 `C-39`~`C-42`(§18.8).
 - 기준: `backend-invariants` R1~R16, `layer-architecture` §3.4·§5, 실제 코드 `src/auth/domain/repository/user_repository.py`, `src/auth/infrastructure/{repositories,models}.py`, `src/auth/application/service.py`(`list_points`, `PointHistoryPage`), `src/admin/application/ports.py`.
 
-### 17.0 차단 이슈 (실행·정독 결과)
+### 18.0 차단 이슈 (실행·정독 결과)
 
 | # | 확인 | 결과 | 판정 |
 | --- | --- | --- | --- |
@@ -1813,7 +1813,7 @@ MAIL_FROM=
 
 `uv run python`·`.venv\Scripts\python.exe`는 이 환경의 Application Control 정책에 막혀 실행되지 않았다(`os error 4551`). 그래서 `import main`·`check_layers.py`·DB 테스트는 이 설계 작성 중 실행하지 못했다. 구현자는 `backend-invariants` §7 게이트를 직접 실행한다. 새 패키지·환경변수는 필요 없다(`pyproject.toml`·`.env.example` 변경 없음).
 
-### 17.1 요구와 코드 대조
+### 18.1 요구와 코드 대조
 
 | 요구 (admin.md §13) | 현재 코드 | 차이 |
 | --- | --- | --- |
@@ -1821,7 +1821,7 @@ MAIL_FROM=
 | 응답 `status`가 필터와 일치 | `User.effective_status(now)`는 있지만(`user.py:278`) 로그인 응답에서만 쓰임. 관리자 응답(EP 1~4, 조회)은 저장 `status` | 목록 항목은 실효 상태를 담는 DTO가 필요(D-목록요약) |
 | 페이지는 1부터, `total` | `list_points`가 같은 형식(`PointHistoryPage`) | 같은 모양의 `UserPage` |
 
-### 17.2 결정 표 (auth 내부 결정. 사용자 대면 결정은 admin.md §13.10)
+### 18.2 결정 표 (auth 내부 결정. 사용자 대면 결정은 admin.md §13.10)
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
@@ -1833,7 +1833,7 @@ MAIL_FROM=
 | D-목록예외 | 잘못된 role·status·email → 새 `InvalidUserFilterError(_CodedValueError)`(`error_code`는 부모 기본 `VALIDATION_ERROR` 그대로 → 400). 페이지 오류는 기존 `InvalidPageError`(400 `INVALID_PAGE`) 재사용. `error_handlers.py` 변경 없음 | R6, 테스트에서 예외 클래스로 구분 | **확정**(사용자, 2026-11-09) |
 | D-목록읽기전용 | 읽기 전용: `commit()` 없음, `with_for_update` 없음. 개수와 목록은 별도 SELECT라 순간적 불일치를 허용한다(같은 방식: `list_points`). 가입이 계속 일어나도 정렬이 가입 시각 오름차순이라 이미 본 페이지의 행은 밀리지 않는다 | R5, admin.md 4.3의 EP 8과 같은 판단 | **확정**(사용자, 2026-11-09) |
 
-### 17.3 도메인 (`src/auth/domain/`)
+### 18.3 도메인 (`src/auth/domain/`)
 
 **새 파일 `user_list_query.py`** — 순수 파이썬(R1): `dataclasses`, `typing`, 같은 도메인의 `Role`·`UserStatus`·예외만 import.
 
@@ -1858,7 +1858,7 @@ MAIL_FROM=
 
 `User` 엔티티는 바뀌지 않는다. `effective_status(now)`를 그대로 쓴다.
 
-### 17.4 인프라 (`src/auth/infrastructure/`)
+### 18.4 인프라 (`src/auth/infrastructure/`)
 
 테이블·컬럼·제약 변경 **없음**(`schema.sql`·`models.py` 불변, R14). 인덱스 추가도 이번엔 하지 않는다: `users`에는 `email UNIQUE` 인덱스 외 보조 인덱스가 없고, `ILIKE '%…%'`는 어차피 B-tree를 못 쓴다. 회원 수가 늘어 정렬·상태 필터가 느려지면 후속으로 `(status, created_at, id)` 인덱스를 제안한다(admin.md §13.11).
 
@@ -1928,7 +1928,7 @@ async def count_all(self, query, now):
 
 **동시성:** 읽기 전용이라 `with_for_update()` 불필요(D-목록읽기전용). 쓰기 경합은 없다. 같은 요청 세션을 쓰는 다른 호출과 identity map이 공유되지만 `populate_existing`은 필요 없다(EP는 목록만 읽고 쓰지 않는다).
 
-### 17.5 응용 (`src/auth/application/service.py`)
+### 18.5 응용 (`src/auth/application/service.py`)
 
 **새 DTO (같은 파일 상단, `PointHistoryPage` 옆):**
 
@@ -1985,7 +1985,7 @@ async def list_users(
 - 반환 필드명은 admin 응답 스키마가 `from_attributes`로 읽는다: `UserPage.items/page/size/total`, 항목 `id/email/name/role/status/created_at`.
 - 매개변수 이름 `status`는 이 파일에 같은 이름의 import가 없어 충돌하지 않는다(admin router는 충돌하므로 alias를 쓴다, admin.md §13.5).
 
-### 17.6 테스트 계획 (auth)
+### 18.6 테스트 계획 (auth)
 
 DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 
@@ -1994,7 +1994,7 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 - **레포지토리 (DB, `tests/auth/test_user_list_repository_db.py`)**: 시드 `CUSTOMER`·`OWNER`(PENDING/APPROVED/REJECTED/SUSPENDED 무기한·기간 중·기간 지남·정확히 만료 시각)·`ADMIN`·`WITHDRAWN`을 `created_at`을 명시해 삽입. ① 정렬: `created_at` 오름차순, 같은 시각이면 `id` 오름차순 ② `role` 필터 ③ `status` 필터(각 값) ④ 이메일 부분 일치, 대소문자 무시(`Owner`로 검색해 소문자 이메일 일치) ⑤ **와일드카드**: `%`로 검색하면 `%`가 들어간 이메일만 일치(전체 일치 아님), `_`가 임의 한 글자와 일치하지 않음, `a/b`·`\` 포함 검색이 오류 없이 글자 그대로 동작 ⑥ 필터 조합(role+status+email) ⑦ 페이지: 2페이지 경계, 마지막 페이지 일부, 마지막 다음 페이지 → 빈 목록, `count_all`은 `page`·`size`와 무관 ⑧ **일관성 테스트(C-42)**: 위 시드 전체에 대해 모든 `UserStatus` 값마다 `find_all(status=s)`의 ID 집합 == 전체 회원 중 `user.effective_status(now) == s`인 집합(경계: `suspended_until == now`는 `APPROVED`, `now` 1초 후 만료 직전은 `SUSPENDED`) ⑨ `WITHDRAWN`이 필터 없이도 포함되고 `status=WITHDRAWN`으로 거를 수 있음 ⑩ 반환이 `User` 도메인 객체(R4).
 - **구조**: `FakeUsers`(2곳)에 `find_all`·`count_all`을 추가한 뒤 기존 테스트가 그대로 통과(C-39). `UserRepository` 추상 메서드 집합에 두 이름이 있는지 확인.
 
-### 17.7 구현 순서와 파일 목록 (auth, 먼저 끝낸다)
+### 18.7 구현 순서와 파일 목록 (auth, 먼저 끝낸다)
 
 순서: ① `domain/exceptions.py`(`InvalidUserFilterError`) → ② `domain/user_list_query.py` → ③ `domain/repository/user_repository.py`(추상 2개) → ④ `infrastructure/repositories.py`(구현) → ⑤ `application/service.py`(DTO·`list_users`) → ⑥ 테스트(가짜 2개 갱신 포함). 그 뒤 admin.md §13의 구현을 시작한다.
 
@@ -2010,7 +2010,7 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 
 `presentation/`(라우터·스키마·의존성)·`container.py`·`main.py`는 **바꾸지 않는다**(EP는 admin). `schema.sql`·`models.py` 변경 없음.
 
-### 17.8 정합 이슈 (C-39~C-42)
+### 18.8 정합 이슈 (C-39~C-42)
 
 | ID | 위치 | 내용 | 제안 / 상태 |
 | --- | --- | --- | --- |
@@ -2019,6 +2019,6 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 | C-41 | `docs/reference/auth.md` 6번(관리자 회원 조회), `docs/design/auth.md` D-관리자조회(철회 이력) | 단건 조회(auth)와 목록(admin)이 다른 모듈에 있다. 목록 항목의 `status`는 실효 상태이고 단건 `UserResponse.status`는 저장값이다(admin C22) | admin.md §13 C22에서 다룬다. auth 쪽 변경 없음 |
 | C-42 | `_status_clause`(SQL) ↔ `User.effective_status`(도메인) | 같은 규칙이 두 곳에 있다. 한쪽만 고치면 필터와 응답이 어긋난다 | §18.6 ⑧ 일관성 테스트로 고정. 규칙을 바꾸는 사람이 두 곳을 함께 고친다는 주석을 `_status_clause`에 남긴다 |
 
-### 17.9 질문 목록
+### 18.9 질문 목록
 
 사용자 대면 질문(실효 상태, 이메일 이스케이프, 빈 값 처리 등)은 admin.md §13.10·§13.12에 모았다. auth 내부에서 추가로 확인할 것은 없다(위 임시 결정은 구현 중 바꾸기 쉽다: 상수는 `user_list_query.py` 한 곳, SQL 규칙은 `_status_clause` 한 곳, DTO 필드는 `UserSummary` 한 곳).
