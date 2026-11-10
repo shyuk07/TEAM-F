@@ -71,3 +71,40 @@ describe('routes', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/owner/today'));
   });
 });
+
+describe('routes: 계정 화면 (auth-account §4)', () => {
+  it('/signup은 비로그인이면 「회원가입」을 보여 준다', async () => {
+    renderAt('/signup', anonymousFakes());
+    expect(await screen.findByRole('heading', { name: '회원가입' })).toBeInTheDocument();
+  });
+
+  it('/password-reset은 비로그인이면 「비밀번호 재설정」을 보여 준다', async () => {
+    renderAt('/password-reset', anonymousFakes());
+    expect(await screen.findByRole('heading', { name: '비밀번호 재설정' })).toBeInTheDocument();
+  });
+
+  it('/account/profile은 비로그인이면 /login으로 이동한다', async () => {
+    const router = renderAt('/account/profile', anonymousFakes());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+  });
+
+  it('/account/profile은 OWNER에게 「프로필 변경」을 보여 준다', async () => {
+    renderAt('/account/profile', signedInFakes());
+    expect(await screen.findByRole('heading', { name: '프로필 변경' })).toBeInTheDocument();
+  });
+
+  it('/account/password는 CUSTOMER에게 「비밀번호 변경」을 보여 준다', async () => {
+    renderAt('/account/password', signedInFakes(customerUser));
+    expect(await screen.findByRole('heading', { name: '비밀번호 변경' })).toBeInTheDocument();
+  });
+
+  it('/account는 /account/profile로 이동한다', async () => {
+    const router = renderAt('/account', signedInFakes());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/account/profile'));
+  });
+
+  it('/signup은 이미 로그인한 OWNER를 /owner/today로 보낸다', async () => {
+    const router = renderAt('/signup', signedInFakes());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/owner/today'));
+  });
+});

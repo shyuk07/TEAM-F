@@ -1,7 +1,9 @@
 import { ROUTES } from '@/shared/lib/routes';
 import { isAdminPath, isOwnerPath, type User } from './user';
 
-export type LoginLocationState = { from: string };
+export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
+
+export type LoginLocationState = { from?: string; notice?: LoginNotice };
 
 function hasControlChar(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
@@ -28,6 +30,18 @@ export function readFrom(state: unknown): string | null {
   return typeof from === 'string' && isSafeInternalPath(from) ? from : null;
 }
 
+const LOGIN_NOTICES: readonly LoginNotice[] = ['passwordReset', 'signupLoginFailed'];
+
+export function readLoginNotice(state: unknown): LoginNotice | null {
+  if (typeof state !== 'object' || state === null) return null;
+  const notice = (state as { notice?: unknown }).notice;
+  return LOGIN_NOTICES.find((n) => n === notice) ?? null;
+}
+
+export function isAccountPath(path: string): boolean {
+  return path === ROUTES.account || path.startsWith(`${ROUTES.account}/`);
+}
+
 export function loginRedirectState(
   cause: 'loggedOut' | 'other',
   currentPath: string,
@@ -37,6 +51,8 @@ export function loginRedirectState(
 
 export function resolvePostLoginPath(user: User, from: string | null): string {
   const safe = from !== null && isSafeInternalPath(from) ? from : null;
+  // C8·C9는 역할 무관 화면이라 세션이 끊겨 다시 로그인하면 역할과 관계없이 그 화면으로 돌아간다(auth-account.md D-29).
+  if (safe !== null && isAccountPath(safe)) return safe;
   // TODO: 상점주는 항상 O1로 보낸다.
   //   왜: 상점 유무로 O0·O1을 정하는 stores 영역이 아직 없다 (docs/design/frontend/auth.md C-3, D-6)
   //   언제: stores 구현 시

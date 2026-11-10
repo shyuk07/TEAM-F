@@ -24,3 +24,17 @@ describe('decideAccess(state, "OWNER")', () => {
     expect(decideAccess(state, 'OWNER')).toBe(expected);
   });
 });
+
+describe('decideAccess(state, "ANY")', () => {
+  it.each<[string, string, AuthState]>([
+    ['loading', 'loading', { status: 'loading' }],
+    ['anonymous other', 'login', { status: 'anonymous', cause: 'other' }],
+    ['anonymous loggedOut', 'login-without-from', { status: 'anonymous', cause: 'loggedOut' }],
+    ['error', 'error', { status: 'error', errorCode: 'NETWORK_ERROR', message: 'm' }],
+    ['OWNER authenticated', 'allow', { status: 'authenticated', user: ownerUser }],
+    ['CUSTOMER authenticated', 'allow', { status: 'authenticated', user: customerUser }],
+    ['ADMIN authenticated', 'allow', { status: 'authenticated', user: adminUser }],
+  ])('%s → %s', (_name, expected, state) => {
+    expect(decideAccess(state, 'ANY')).toBe(expected);
+  });
+});

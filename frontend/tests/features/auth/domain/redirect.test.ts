@@ -1,10 +1,12 @@
 import {
+  isAccountPath,
   isSafeInternalPath,
   loginRedirectState,
   readFrom,
+  readLoginNotice,
   resolvePostLoginPath,
 } from '@/features/auth/domain/redirect';
-import type { Role } from '@/features/auth/domain/user';
+import type { Role, User } from '@/features/auth/domain/user';
 import { ROUTES } from '@/shared/lib/routes';
 import { adminUser, customerUser, ownerUser } from '../fakes/users';
 
@@ -83,5 +85,43 @@ describe('isSafeInternalPath 제어문자·역슬래시', () => {
 
   it('정상 경로는 통과한다', () => {
     expect(isSafeInternalPath('/owner/offers?page=2')).toBe(true);
+  });
+});
+
+describe('readLoginNotice', () => {
+  it.each<[string, unknown, string | null]>([
+    ['passwordReset', { notice: 'passwordReset' }, 'passwordReset'],
+    ['signupLoginFailed', { notice: 'signupLoginFailed' }, 'signupLoginFailed'],
+    ['알 수 없는 notice', { notice: 'x' }, null],
+    ['null', null, null],
+    ['notice 없음', { from: '/' }, null],
+  ])('%s → %j', (_name, state, expected) => {
+    expect(readLoginNotice(state)).toBe(expected);
+  });
+});
+
+describe('isAccountPath', () => {
+  it.each<[string, boolean]>([
+    ['/account/profile', true],
+    ['/account', true],
+    ['/accountx', false],
+  ])('%s → %s', (path, expected) => {
+    expect(isAccountPath(path)).toBe(expected);
+  });
+});
+
+describe('resolvePostLoginPath: /account/* 복귀(역할 무관)', () => {
+  it.each<[string, string, User]>([
+    ['OWNER', '/account/password', ownerUser],
+    ['CUSTOMER', '/account/profile', customerUser],
+    ['ADMIN', '/account/profile', adminUser],
+  ])('%s + from %s → 그대로', (_name, from, user) => {
+    expect(resolvePostLoginPath(user, from)).toBe(from);
+  });
+});
+
+describe('readFrom: notice가 함께 있어도', () => {
+  it('from만 읽는다', () => {
+    expect(readFrom({ from: '/owner/offers', notice: 'passwordReset' })).toBe('/owner/offers');
   });
 });

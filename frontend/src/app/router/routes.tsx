@@ -1,11 +1,16 @@
 import { Navigate, type RouteObject } from 'react-router';
 import { ROUTES, ROUTE_PATTERNS } from '@/shared/lib/routes';
+import { AccountLayout } from '@/app/layouts/AccountLayout';
 import { AdminLayout } from '@/app/layouts/AdminLayout';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { PasswordChangePage } from '@/pages/account-password';
+import { ProfilePage } from '@/pages/account-profile';
 import { AdminApprovalsPage } from '@/pages/admin-approvals';
 import { AdminOffersPage, AdminStoresPage } from '@/pages/admin-moderation';
 import { AdminUsersPage } from '@/pages/admin-users';
 import { LoginPage } from '@/pages/login';
+import { PasswordResetPage } from '@/pages/password-reset';
+import { SignupPage } from '@/pages/signup';
 import { TAB_BAR_HANDLE } from './handle';
 import {
   HomePlaceholder,
@@ -20,6 +25,16 @@ import {
 export const routes: RouteObject[] = [
   { path: ROUTES.home, element: <HomePlaceholder /> },
   { path: ROUTES.login, element: <LoginPage /> },
+  { path: ROUTES.signup, element: <SignupPage /> },
+  { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
+  { path: ROUTES.account, element: <Navigate to={ROUTES.accountProfile} replace /> },
+  {
+    element: <AccountLayout />,
+    children: [
+      { path: ROUTES.accountProfile, element: <ProfilePage /> },
+      { path: ROUTES.accountPassword, element: <PasswordChangePage /> },
+    ],
+  },
   { path: ROUTES.owner, element: <Navigate to={ROUTES.ownerToday} replace /> },
   {
     element: <OwnerLayout />,
