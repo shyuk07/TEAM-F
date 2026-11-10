@@ -28,7 +28,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 | F5 | 의존 방향: presentation → application·domain, application → domain, infrastructure → domain·application(`import type`만). application과 presentation은 infrastructure를 import하지 않는다. domain은 slice 안 다른 계층을 import하지 않는다. | 자동(`[의존방향]`) | `layer-architecture` §2 |
 | F6 | domain은 순수 TypeScript다. `react`, `react-dom`, `react-router`, `fetch`, `window`, `document`, `localStorage`, `import.meta.env`를 쓰지 않는다. | 자동(`[외부의존]`) | `layer-architecture` §3 |
 | F7 | 검증·상태 판단·계산·표기 변환(금액, 남은 시간, 상태 문구)은 domain 함수에 둔다. 컴포넌트와 훅에 비즈니스 if-else를 두지 않는다. | 정독 | `layer-architecture` §3 |
-| F18 | 계층은 추상(포트)으로만 연결한다. 도메인 데이터 접근은 domain 포트, 유스케이스 전용 기술 기능은 application 포트(`interface`)로 선언하고, 구현체는 infrastructure에 `implements`로 둔다. 토큰은 `application/tokens.ts`에 두고 훅은 `useDep(토큰)`으로 받는다. 구현체를 만드는 곳은 slice의 `wiring.ts`뿐이고, `wiring.ts`를 가져오는 곳은 `app/container.ts`뿐이다. `index.ts`는 구현체와 wiring을 내보내지 않는다. 유스케이스는 포트를 인자로 받고 구현체 기본값을 두지 않는다. | 자동(`[wiring위치]`, `[공개API]`, `[의존방향]`, `[구조]`) + 정독 | `layer-architecture` §6 |
+| F18 | 계층은 추상(포트)으로만 연결한다. 도메인 데이터 접근은 domain 포트, 유스케이스 전용 기술 기능은 application 포트(`interface`)로 선언하고, 구현체는 그 개체를 소유한 영역(`features/<영역>`, 영역 7개는 `fsd-structure` §1.1)의 infrastructure에 `implements`로 둔다(entities에는 infrastructure를 두지 않는다). 토큰은 포트와 같은 slice의 `application/tokens.ts`에 두고 훅은 `useDep(토큰)`으로 받는다. 구현체를 만드는 곳은 영역별 `features/<영역>/wiring.ts`뿐이고, 토큰 하나는 소유 영역 한 곳에서만 등록한다. `wiring.ts`를 가져오는 곳은 `app/container.ts`뿐이다. features slice는 영역 목록에 있는 이름만 쓴다. `index.ts`는 구현체와 wiring을 내보내지 않는다. 유스케이스는 포트를 인자로 받고 구현체 기본값을 두지 않는다. | 자동(`[wiring위치]`, `[공개API]`, `[의존방향]`, `[구조]`) + 정독 | `layer-architecture` §6 |
 
 ## 3. 서버 통신과 상태
 
@@ -77,4 +77,4 @@ npm run build                                        # 성공
 
 | 심각도 | 파일:줄 | 규칙 | 내용 | 고치는 방법 |
 | --- | --- | --- | --- | --- |
-| 위반 / 주의 / 미구현 | `src/features/reserve-offer/application/useReserveOffer.ts:4` | F5, F18 | application에서 infrastructure의 `HttpReservationRepository`를 직접 import | `ReservationRepository` 포트를 `useDep(ReservationRepositoryToken)`으로 받고, 구현체 연결은 `wiring.ts`에 둠 |
+| 위반 / 주의 / 미구현 | `src/features/reservations/application/useReserveOffer.ts:4` | F5, F18 | application에서 infrastructure의 `HttpReservationRepository`를 직접 import | `ReservationRepository` 포트를 `useDep(ReservationRepositoryToken)`으로 받고, 구현체 연결은 `features/reservations/wiring.ts`에 둠 |

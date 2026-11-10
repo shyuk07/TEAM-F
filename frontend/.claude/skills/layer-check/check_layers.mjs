@@ -14,6 +14,8 @@ const RANK = Object.fromEntries(LAYERS.map((l, i) => [l, i]))
 const SLICED = new Set(['pages', 'widgets', 'features', 'entities'])
 const INNER = ['presentation', 'application', 'domain', 'infrastructure']
 const SLICE_ROOT_FILES = ['index', 'wiring']
+// features slice = 업무 영역. 바꾸려면 사용자 승인 후 fsd-structure §1.1 표와 함께 고친다
+const FEATURE_DOMAINS = ['auth', 'stores', 'products', 'offers', 'reservations', 'payments', 'admin']
 // slice 안 계층 → import할 수 있는 slice 안 계층. infrastructure → application은 import type만 (별도 검사)
 const ALLOWED_INNER = {
   presentation: ['presentation', 'application', 'domain'],
@@ -114,7 +116,13 @@ function checkStructure(rel, loc) {
   if (SLICED.has(layer) && !slice) report('[구조]', rel, 1, `${layer} 계층 바로 아래 파일. slice 폴더 안에 둔다 (F3)`)
   if (slice) {
     if (parts.length === 3 && !SLICE_ROOT_FILES.includes(inner))
-      report('[구조]', rel, 1, 'slice 루트에는 index.ts와 wiring.ts만 둔다 (F4, F18)')
+      report('[구조]', rel, 1, 'slice 루트에는 index.ts와 wiring.ts(영역만)만 둔다 (F4, F18)')
+    if (parts.length === 3 && inner === 'wiring' && layer !== 'features')
+      report('[구조]', rel, 1, `wiring.ts는 영역(features slice)에만 둔다. 구현체는 소유 영역의 wiring.ts에서 연결한다 (F18)`)
+    if (layer === 'entities' && inner === 'infrastructure')
+      report('[구조]', rel, 1, 'entities에는 infrastructure를 두지 않는다. 구현체는 그 개체를 소유한 영역(features)에 둔다 (F18)')
+    if (layer === 'features' && !FEATURE_DOMAINS.includes(slice))
+      report('[구조]', rel, 1, `features slice '${slice}'는 영역 목록(${FEATURE_DOMAINS.join(', ')})에 없다. 새 영역은 사용자 승인 후 추가한다`)
     if (parts.length > 3 && !INNER.includes(inner))
       report('[구조]', rel, 1, `slice 안 폴더 '${inner}'. ${INNER.join(' / ')}만 쓴다 (F4)`)
   }

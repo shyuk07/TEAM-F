@@ -10,7 +10,7 @@ description: 마감 직전 프론트엔드(React + TypeScript + Vite)에서 컴�
 ## 1. 공통
 - TypeScript `strict`. `any`, `@ts-ignore`, 타입 단언(`as`)으로 오류를 덮지 않습니다(F16). 외부 입력은 infrastructure에서 좁힙니다.
 - 컴포넌트는 함수 컴포넌트와 named export. 파일 하나에 공개 컴포넌트 하나, 파일명은 PascalCase(`OfferCard.tsx`).
-- 훅은 `use`로 시작하고 camelCase 파일(`useOffers.ts`). domain·infrastructure 파일도 camelCase.
+- 훅은 `use`로 시작하고 camelCase 파일(`useOffers.ts`, 안에 `useNearbyOffers`·`useOfferDetail`). domain·infrastructure 파일도 camelCase.
 - 스타일은 `bundle.css` 클래스와 토큰 변수만 씁니다(F12, `design-system-usage`). 인라인 `style`은 토큰 변수를 쓰는 레이아웃 값에만 씁니다.
 
 ## 2. 서버 데이터 읽기: 공용 훅
@@ -52,19 +52,19 @@ export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, key: stri
 ```
 
 ```ts
-// entities/offer/application/useOffers.ts
+// features/offers/application/useOffers.ts
 import { useDep } from '@/shared/lib/di'
 import { useAsync } from '@/shared/lib/useAsync'
-import type { NearbyQuery } from '../domain/offerRepository'
-import { OfferRepositoryToken } from './tokens'
+import { OfferRepositoryToken, type NearbyQuery } from '@/entities/offer'
 
-export function useOffers(q: NearbyQuery) {
+export function useNearbyOffers(q: NearbyQuery) {
   const offers = useDep(OfferRepositoryToken)   // 포트만 받는다. 구현체(HttpOfferRepository)를 모른다
   return useAsync((signal) => offers.findNearby(q, signal), `${q.lat}|${q.lng}|${q.radiusKm}`)
 }
 ```
 
 - 포트·토큰·구현체·wiring 구조는 `layer-architecture` §6이 정본입니다(F18). application 코드에서 infrastructure를 import하지 않습니다.
+- 다른 영역이 소유한 데이터(예: reservations 화면의 할인 정보)도 같은 방식으로 entities 토큰을 `useDep`해 읽습니다. 영역끼리 import하지 않습니다.
 - 정리된 요청의 결과로 상태를 바꾸지 않습니다(F10). `signal`은 포트 → infrastructure → `shared/api`까지 넘깁니다.
 - `key`는 요청을 결정하는 원시값을 이어 붙인 문자열입니다. 객체를 그대로 쓰면 렌더마다 다시 요청합니다.
 - `eslint-disable`로 의존성 경고를 끄지 않습니다(F16). 경고가 나면 `key`를 다시 정합니다.
@@ -76,7 +76,7 @@ export function useOffers(q: NearbyQuery) {
 
 ```tsx
 export function OfferList({ query }: { query: NearbyQuery }) {
-  const offers = useOffers(query)
+  const offers = useNearbyOffers(query)
   if (offers.status === 'loading') return <OfferListSkeleton />
   if (offers.status === 'error') return <LoadError error={offers.error} onRetry={offers.reload} />
   if (offers.data.length === 0) return <EmptyState title="주변에 할인 중인 상품이 없어요" />
@@ -89,8 +89,9 @@ export function OfferList({ query }: { query: NearbyQuery }) {
 ## 4. 데이터 바꾸기: 요청 훅
 
 ```ts
-// features/reserve-offer/application/reserveOffer.ts  (유스케이스: 포트만 받는 순수 함수)
-import type { Reservation, ReservationRepository } from '@/entities/reservation'
+// features/reservations/application/reserveOffer.ts  (유스케이스: 포트만 받는 순수 함수)
+import type { Reservation } from '../domain/reservation'
+import type { ReservationRepository } from '../domain/reservationRepository'
 
 export function reserveOffer(
   deps: { reservations: ReservationRepository },
@@ -99,10 +100,11 @@ export function reserveOffer(
   return deps.reservations.create(input)
 }
 
-// features/reserve-offer/application/useReserveOffer.ts  (훅: 포트를 꺼내 유스케이스에 넘기고 상태를 관리)
+// features/reservations/application/useReserveOffer.ts  (훅: 포트를 꺼내 유스케이스에 넘기고 상태를 관리)
 import { useState } from 'react'
 import { useDep } from '@/shared/lib/di'
-import { ReservationRepositoryToken, type Reservation } from '@/entities/reservation'
+import type { Reservation } from '../domain/reservation'
+import { ReservationRepositoryToken } from './tokens'
 import { reserveOffer } from './reserveOffer'
 
 export function useReserveOffer() {

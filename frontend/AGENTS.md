@@ -66,7 +66,7 @@
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
 | 불변 규칙(F1~F18)·코드 완료 게이트 | `.claude/skills/frontend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
-| FSD 계층·slice 배치·공개 API·화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` | 새 화면·기능의 위치를 정할 때, slice를 만들거나 옮길 때 |
+| FSD 계층·업무 영역 7개(features)·영역 ↔ 백엔드·명세·화면 대응·공개 API·화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` | 새 화면·기능의 영역과 위치를 정할 때, slice를 만들거나 옮길 때 |
 | slice 안 4계층 책임·의존 방향·설계안 항목 | `.claude/skills/layer-architecture/SKILL.md` §1~§5 | slice 안에 코드를 나눌 때, 설계안을 쓸 때 |
 | 추상화(포트)·구현체·의존성 주입(토큰·wiring·container) | `.claude/skills/layer-architecture/SKILL.md` §6 | 포트·구현체·wiring을 만들 때, 가짜 구현체로 테스트할 때 |
 | FSD·4계층·주입 규칙 자동 검사 | `.claude/skills/layer-check/SKILL.md`, `check_layers.mjs` | 코드 변경 후, 머지 전 |
@@ -93,8 +93,8 @@
 |--------|------|
 | slice 설계안 (결정 표 D-번호, 정합 이슈 C-번호, 질문 목록) | `../docs/design/frontend/<slice>.md` |
 | 화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` §7 |
-| 의존성 조립 (slice별 wiring을 모으는 유일한 곳) | `src/app/container.ts` |
-| slice 구현체 ↔ 토큰 연결 | `src/<계층>/<slice>/wiring.ts` |
+| 의존성 조립 (영역별 wiring을 모으는 유일한 곳) | `src/app/container.ts` |
+| 영역별 구현체 ↔ 토큰 연결 (소유한 entities 포트 포함) | `src/features/<영역>/wiring.ts` |
 | DI 도구 (토큰·Container·`useDep`) | `src/shared/lib/di.tsx` |
 | 디자인 시스템 CSS 복사본 (직접 수정 금지) | `src/app/styles/tokens.css`, `src/app/styles/bundle.css` |
 | E2E 테스트 | `e2e/<흐름>.spec.ts` |

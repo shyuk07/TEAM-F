@@ -23,7 +23,7 @@ node .claude/skills/layer-check/check_layers.mjs
 | `[같은계층]` | F1 | 같은 계층의 다른 slice를 import (features/a → features/b) |
 | `[공개API]` | F2, F18 | 다른 slice의 내부 경로를 import (`@/entities/offer/domain/offer`), `index.ts`가 infrastructure를 내보냄 |
 | `[wiring위치]` | F18 | `app` 밖에서 다른 slice의 `wiring`을 import, 같은 slice 안에서 `wiring`을 import |
-| `[구조]` | F3, F4, F18 | 계층 바로 아래 파일, slice 루트의 `index.ts`·`wiring.ts` 외 파일, slice 안 4계층 외 폴더(`ui`, `model` 등), `app`·`shared` 안 4계층 폴더, FSD 계층 밖 폴더 |
+| `[구조]` | F3, F4, F18 | 계층 바로 아래 파일, slice 루트의 `index.ts`·`wiring.ts` 외 파일, features 밖(entities·widgets·pages)의 `wiring.ts`, entities 안의 `infrastructure/`, 영역 목록(`FEATURE_DOMAINS`)에 없는 features slice, slice 안 4계층 외 폴더(`ui`, `model` 등), `app`·`shared` 안 4계층 폴더, FSD 계층 밖 폴더 |
 | `[의존방향]` | F5, F8, F18 | slice 안 금지 방향(application → infrastructure, presentation → infrastructure, domain → 다른 계층), infrastructure → application을 `import type` 없이 가져옴, presentation·application의 `shared/api` import |
 | `[외부의존]` | F6, F18 | domain의 `react`·`react-router` import, `window`·`document`·`localStorage`·`import.meta.env` 사용, `shared/lib` 외 shared import, domain의 `shared/lib/di` import |
 | `[fetch위치]` | F8 | `shared/api` 밖의 `fetch(` 호출 |
@@ -42,7 +42,7 @@ node .claude/skills/layer-check/check_layers.mjs
 | --- | --- |
 | `[계층방향]`, `[같은계층]` | 공통 부분을 아래 계층(entities·shared)으로 내리거나, 위 계층(widgets·pages)에서 두 slice를 조립합니다(`fsd-structure` §2). |
 | `[공개API]` | 대상 slice의 `index.ts`에 포트 타입·토큰·훅을 export하고 그 경로로 import합니다. 구현체는 공개하지 않습니다. |
-| `[wiring위치]` | 구현체가 필요하면 포트와 토큰으로 받습니다(`useDep`). wiring은 `app/container.ts`에서만 모읍니다(`layer-architecture` §6.6~6.7). |
+| `[wiring위치]` | 구현체가 필요하면 포트와 토큰으로 받습니다(`useDep`). wiring은 영역별(`features/<영역>/wiring.ts`)로 두고 `app/container.ts`에서만 모읍니다(`layer-architecture` §6.6~6.7). entities에 있는 구현체·wiring은 그 개체를 소유한 영역으로 옮깁니다(`fsd-structure` §1.1). 영역 목록 밖 features는 맞는 영역 안으로 옮기거나, 새 영역이 필요하면 사용자에게 묻습니다. |
 | `[구조]` | 파일을 slice 안의 맞는 4계층 폴더로 옮깁니다(`layer-architecture` §1). |
 | `[의존방향]` | application·presentation이 구현체를 쓰면 포트(`interface`)와 토큰을 만들고 `useDep`로 받습니다. infrastructure → application은 `import type`으로 바꿉니다(`layer-architecture` §6). |
 | `[외부의존]` | 시각은 `now: Date` 인자로, 환경값은 infrastructure·`shared/config`에서 읽어 인자로 넘깁니다. 토큰은 domain이 아니라 `application/tokens.ts`에 둡니다. |

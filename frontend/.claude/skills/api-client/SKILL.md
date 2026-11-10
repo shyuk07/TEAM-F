@@ -89,15 +89,15 @@ export function onTokenChange(cb: (token: string | null) => void): () => void {
 }
 ```
 
-`tokenStorage.ts` 함수를 직접 부르는 곳은 두 곳뿐입니다. `shared/api/client.ts`(`readToken`으로 헤더 붙이기)와 `entities/session/infrastructure/localSessionStore.ts`(application 포트 `SessionStore`의 구현체)입니다. 나머지 코드는 `SessionStore` 포트를 `useDep(SessionStoreToken)`으로 받아 씁니다(`layer-architecture` §6.3, §6.5). 쿠키 방식으로 바꾸면 구현체와 `entities/session/wiring.ts`만 고치면 됩니다.
+`tokenStorage.ts` 함수를 직접 부르는 곳은 두 곳뿐입니다. `shared/api/client.ts`(`readToken`으로 헤더 붙이기)와 `features/auth/infrastructure/localSessionStore.ts`(entities의 application 포트 `SessionStore`를 auth 영역이 구현)입니다. 나머지 코드는 `SessionStore` 포트를 `useDep(SessionStoreToken)`으로 받아 씁니다(`layer-architecture` §6.3, §6.5). 쿠키 방식으로 바꾸면 `features/auth/infrastructure`에 구현체를 하나 새로 만들고 `features/auth/wiring.ts` 한 줄만 바꾸면 됩니다.
 
 | 시점 | 동작 | 위치 |
 | --- | --- | --- |
-| 로그인 성공 (`POST /v1/auth/login`) | `session.save(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/login`의 유스케이스 |
+| 로그인 성공 (`POST /v1/auth/login`) | `session.save(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/auth`의 로그인 유스케이스 |
 | 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `app/providers`의 인증 Context |
-| 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/logout`의 유스케이스 |
+| 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/auth`의 로그아웃 유스케이스 |
 | `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `session.clear()` → 로그인 화면(A1) | 인증 Context (§3) |
-| 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | 해당 feature의 유스케이스 |
+| 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | `features/auth`의 유스케이스 |
 | 다른 탭 변경 | `onTokenChange`로 인증 Context 상태 갱신 (포트에 `subscribe`를 두고 구현체가 `onTokenChange`를 감쌈) | 인증 Context |
 
 ### 보안 메모: localStorage의 약점과 대책

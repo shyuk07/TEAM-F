@@ -18,7 +18,7 @@
 | 상황 | 에이전트 | 쓰기 범위 | 병렬 |
 | --- | --- | --- | --- |
 | 화면·slice 설계, 구조 점검 | `fe-architect` | `../docs/design/frontend/<slice>.md`, `fsd-structure` §7 대응표 | 설계는 slice가 다르면 가능. 대응표는 한 번에 한 명 |
-| slice 구현·수정 | `fe-developer` | 맡은 slice(`wiring.ts` 포함)와 그 테스트, `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 `wire*()` 한 줄 | slice가 다르고 서로 import하지 않을 때만 |
+| slice 구현·수정 | `fe-developer` | 맡은 slice와 그 테스트(features면 `wiring.ts` 포함), `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄 | 영역(slice)이 다를 때. entities 포트를 바꾸면 그 포트를 쓰는 영역은 순차 |
 | 변경 코드 정확성 리뷰 | `fe-reviewer` | 없음 (읽기 전용, npm·서버 실행 안 함) | 가능 |
 | 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
 
@@ -76,8 +76,10 @@
 | --- | --- |
 | `../docs/design/frontend/<slice>.md` | `fe-architect` |
 | `.claude/skills/fsd-structure/SKILL.md` §7 대응표 | `fe-architect` (한 번에 한 명) |
-| `src/<계층>/<slice>/**` (pages·widgets·features·entities, `wiring.ts` 포함) | 그 slice를 맡은 `fe-developer` (한 번에 한 명) |
-| `src/app/container.ts` | 각 developer는 자기 slice의 `wire*()` 한 줄씩. 중복 토큰 충돌 조정은 오케스트레이터 |
+| `src/<계층>/<slice>/**` (pages·widgets·features·entities) | 그 slice를 맡은 `fe-developer` (한 번에 한 명) |
+| `src/features/<영역>/wiring.ts` | 그 영역을 맡은 `fe-developer` (영역 7개는 `fsd-structure` §1.1) |
+| `src/entities/<개체>/**` | 그 개체를 소유한 영역(`fsd-structure` §1.1)의 `fe-developer`. 다른 영역이 바꿔야 하면 오케스트레이터가 소유 영역 담당에게 발주 |
+| `src/app/container.ts` | 각 developer는 자기 영역의 `wire*()` 한 줄씩. 토큰 중복 등록 조정은 오케스트레이터 |
 | `src/shared/lib/di.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
 | `src/<계층>/<slice>/**/*.test.ts(x)` | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
 | `src/app/router/**` | 각 developer는 자기 라우트 한 줄씩. 순서·레이아웃 조정은 오케스트레이터가 발주 |
