@@ -9,17 +9,28 @@ import {
 import { AuthGatewayToken, AuthProvider } from '@/features/auth';
 import { SessionStoreToken } from '@/entities/session';
 import { MyStoreProvider, StoreRepositoryToken } from '@/entities/store';
+import { StoreCommandsToken } from '@/features/stores/application/tokens';
 import { DepsProvider } from '@/shared/lib/DepsProvider';
 import { Container, bind } from '@/shared/lib/di';
 import { anonymousFakes, signedInFakes, type AuthFakes } from './authFakes';
 import { FakeStoreRepository } from '../entities/store/fakes/fakeStoreRepository.fake';
+import { FakeStoreCommands } from '../features/stores/fakes/fakeStoreCommands.fake';
 
-type Deps = { fakes: AuthFakes; repo: FakeStoreRepository };
+type Deps = {
+  fakes: AuthFakes;
+  repo: FakeStoreRepository;
+  commands: FakeStoreCommands;
+};
 
-function createDeps(opts: { fakes?: AuthFakes; repo?: FakeStoreRepository }): Deps {
+function createDeps(opts: {
+  fakes?: AuthFakes;
+  repo?: FakeStoreRepository;
+  commands?: FakeStoreCommands;
+}): Deps {
   return {
     fakes: opts.fakes ?? anonymousFakes(),
     repo: opts.repo ?? new FakeStoreRepository(),
+    commands: opts.commands ?? new FakeStoreCommands(),
   };
 }
 
@@ -29,15 +40,26 @@ function createOwnerContainer(deps: Deps): Container {
     bind(AuthGatewayToken, deps.fakes.auth),
     bind(SessionStoreToken, deps.fakes.session),
     bind(StoreRepositoryToken, deps.repo),
+    bind(StoreCommandsToken, deps.commands),
   ]);
 }
 
-function ownerTree(deps: Deps, children: ReactNode) {
+/** 단일 page 렌더용: MyStoreProvider를 포함한다(page가 MyStoreProvider 밖에 있을 때). */
+function ownerPageTree(deps: Deps, children: ReactNode) {
   return (
     <DepsProvider container={createOwnerContainer(deps)}>
       <AuthProvider>
         <MyStoreProvider>{children}</MyStoreProvider>
       </AuthProvider>
+    </DepsProvider>
+  );
+}
+
+/** 라우트 렌더용: MyStoreProvider를 감싸지 않는다(OwnerLayout이 직접 제공, eager findMine 중복 방지). */
+function ownerRouteTree(deps: Deps, children: ReactNode) {
+  return (
+    <DepsProvider container={createOwnerContainer(deps)}>
+      <AuthProvider>{children}</AuthProvider>
     </DepsProvider>
   );
 }
@@ -51,7 +73,7 @@ export function renderWithOwnerStore(
   const router = createMemoryRouter([{ path: '*', element: ui }], {
     initialEntries: opts.initialEntries ?? ['/'],
   });
-  const result = render(ownerTree(deps, <RouterProvider router={router} />));
+  const result = render(ownerPageTree(deps, <RouterProvider router={router} />));
   return { ...result, router, fakes: deps.fakes, repo: deps.repo };
 }
 
@@ -62,7 +84,7 @@ export function renderRoutesWithOwnerStore(
 ) {
   const deps = createDeps(opts);
   const router = createMemoryRouter(routes, { initialEntries: opts.initialEntries });
-  const result = render(ownerTree(deps, <RouterProvider router={router} />));
+  const result = render(ownerRouteTree(deps, <RouterProvider router={router} />));
   return { ...result, router, fakes: deps.fakes, repo: deps.repo };
 }
 

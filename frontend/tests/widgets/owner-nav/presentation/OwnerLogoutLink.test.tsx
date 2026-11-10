@@ -4,14 +4,17 @@ import { describe, expect, it } from 'vitest';
 import { OwnerLogoutLink } from '@/widgets/owner-nav';
 import { createAuthContainer, signedInFakes } from '../../../support/authFakes';
 import { DepsProvider } from '@/shared/lib/DepsProvider';
+import { AuthProvider } from '@/features/auth';
 
 function renderLink() {
   const fakes = signedInFakes();
   render(
     <DepsProvider container={createAuthContainer(fakes)}>
-      <div className="app">
-        <OwnerLogoutLink />
-      </div>
+      <AuthProvider>
+        <div className="app">
+          <OwnerLogoutLink />
+        </div>
+      </AuthProvider>
     </DepsProvider>,
   );
   return { fakes };
