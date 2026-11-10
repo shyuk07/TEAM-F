@@ -1,15 +1,6 @@
-import { BrowserRouter, Route, Routes } from 'react-router';
-
-function HomePlaceholder() {
-  return <h1>마감 직전</h1>;
-}
+import { RouterProvider } from 'react-router';
+import { router } from '@/app/router';
 
 export function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePlaceholder />} />
-      </Routes>
-    </BrowserRouter>
-  );
+  return <RouterProvider router={router} />;
 }
