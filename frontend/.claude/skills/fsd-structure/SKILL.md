@@ -136,3 +136,10 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | C9 비밀번호 변경 | `pages/account-password` | `features/auth`(`PasswordChangeForm`) | `../docs/design/frontend/auth-account.md` |
 | C8·C9 로그인 필요 가드 | 없음(`app/layouts/AccountLayout`) | `features/auth`(`useAuth`, `decideAccess(…, 'ANY')`) | `../docs/design/frontend/auth-account.md` |
 | O8 계정 메뉴의 C8·C9 행 | 없음(`widgets/owner-nav`의 `OwnerAccountMenu`) | `widgets/owner-nav`, `features/auth` | `../docs/design/frontend/auth-account.md` |
+| 고객 셸(하단 탭 홈·내 예약·마이)·고객 가드 | 없음(`app/layouts/CustomerLayout`·`CustomerFrame`) | `widgets/customer-nav`, `features/auth`(`useAuth`, `decideAccess(…, 'CUSTOMER')`, `loginRedirectState`) | `../docs/design/frontend/customer-home.md` |
+| C1 홈·주변 할인, C1a 위치·반경(C1 위 시트) | `pages/home` | `features/offers`, `features/auth`(`useAuth`), `widgets/customer-nav`(레이아웃) | `../docs/design/frontend/customer-home.md` |
+| C6 마이, C10 로그아웃 확인(고객, C6 위 시트) | `pages/my` | `features/auth`(`usePointHistory`, `PointLogList`, `LogoutConfirmSheet`) | `../docs/design/frontend/customer-home.md` |
+| C11 포인트 내역 전체 | `pages/point-history` | `features/auth`(`usePointHistory`, `PointLogList`) | `../docs/design/frontend/customer-home.md` |
+| C7 회원 탈퇴 확인 | `pages/withdraw` | `features/auth`(`WithdrawForm`, `useWithdraw`, `usePointHistory`) | `../docs/design/frontend/customer-home.md` |
+| C2 할인 상세·C5 내 예약 (자리 page, 담당 팀원이 교체) | 없음(`app/router/placeholders.tsx`의 `OfferDetailPlaceholder`·`ReservationsPlaceholder`) | 없음 | `../docs/design/frontend/customer-home.md` §5 |
+| A1 진입 경로별 안내 한 줄 | `pages/login` | `features/auth`(`readLoginEntry`, `loginEntryMessage`) | `../docs/design/frontend/customer-home.md` |
