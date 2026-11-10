@@ -1,5 +1,5 @@
 import { AppBar } from '@/shared/ui';
-import { ownerStartView, useMyStore } from '@/entities/store';
+import { ownerStartView, type OwnerStartView, useMyStore } from '@/entities/store';
 import { useAuth } from '@/features/auth';
 import { StoreOpenForm, StoreStartNotice } from '@/features/stores';
 import { OwnerLogoutLink } from '@/widgets/owner-nav';
@@ -11,19 +11,23 @@ export function OwnerStartPage() {
   const { state } = useAuth();
   const { lookup } = useMyStore();
 
-  const view =
-    state.status === 'authenticated'
-      ? ownerStartView({ accountStatus: state.user.status, lookup })
-      : null;
+  const authenticated = state.status === 'authenticated';
+  const view = authenticated ? ownerStartView({ accountStatus: state.user.status, lookup }) : null;
+  // 상점 개설 화면에서만 쓴다. view가 open-form이면 authenticated가므로 여기서 안전하게 뽑힌다.
+  const ownerName = authenticated ? (state.user.name ?? '') : '';
 
   // OwnerLayout이 이미 .app을 그리므로 page는 조각이다(stores.md §5).
   return (
     <>
       <AppBar logo title="마감직전 상점주" right={<OwnerLogoutLink />} />
-      {view === 'open-form' && state.status === 'authenticated' ? (
-        <StoreOpenForm ownerName={state.user.name ?? ''} />
-      ) : null}
-      {view !== null && view !== 'open-form' ? <StoreStartNotice view={view} /> : null}
+      {renderView(view, ownerName)}
     </>
   );
+}
+
+// O0 단일 화면: 개설 대기·거절·폐점 등은 안내 박스, 개설 가능하면 개설 폼 하나를 그린다.
+function renderView(view: OwnerStartView | null, ownerName: string) {
+  if (view === null) return null;
+  if (view === 'open-form') return <StoreOpenForm ownerName={ownerName} />;
+  return <StoreStartNotice view={view} />;
 }
