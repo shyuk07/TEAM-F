@@ -64,6 +64,15 @@ class CancellationDeadlinePassedError(ValueError):
         super().__init__(message)
 
 
+class PickupOutsideWindowError(ValueError):
+    """400 PICKUP_OUTSIDE_WINDOW (픽업 완료는 pickup_start <= 현재 <= pickup_end에서만, 확정, 사용자 결정 2026-11-10)"""
+
+    error_code = "PICKUP_OUTSIDE_WINDOW"
+
+    def __init__(self, message: str = "픽업 가능 시간이 아닙니다."):
+        super().__init__(message)
+
+
 class PickupCodeMismatchError(ValueError):
     """400 PICKUP_CODE_MISMATCH"""
 

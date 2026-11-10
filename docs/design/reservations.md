@@ -97,7 +97,7 @@
 
 ### 1.4 `OfferRef` (값 객체, catalog에서 받은 값의 복사본)
 
-`catalog.domain.store_ref.StoreRef`와 같은 패턴입니다. 속성: `offer_id`, `owner_id`(상점주 `users.id`), `store_name`, `product_name`, `pickup_address`, `sale_price`, `pickup_start`, `pickup_end`. `OfferRef.from_info(info)`(classmethod, `Any`를 받아 속성으로 복사), `ensure_owned_by(user_id, message)` → `NotPickupStoreOwnerError`(403), `ensure_not_owned_by(user_id)` → `ValueError`(400, `ALLOW_OWNER_SELF_RESERVATION=False`일 때만 사용), `ensure_in_pickup_window(now)` → `ValueError`(400, `PICKUP_WINDOW_ENFORCED=True`일 때만 사용).
+`catalog.domain.store_ref.StoreRef`와 같은 패턴입니다. 속성: `offer_id`, `owner_id`(상점주 `users.id`), `store_name`, `product_name`, `pickup_address`, `sale_price`, `pickup_start`, `pickup_end`. `OfferRef.from_info(info)`(classmethod, `Any`를 받아 속성으로 복사), `ensure_owned_by(user_id, message)` → `NotPickupStoreOwnerError`(403), `ensure_not_owned_by(user_id)` → `ValueError`(400, `ALLOW_OWNER_SELF_RESERVATION=False`일 때만 사용), `ensure_pickup_time(now)` → `PickupOutsideWindowError`(400 `PICKUP_OUTSIDE_WINDOW`, 항상 검사, `pickup_start <= now <= pickup_end` 양 끝 포함).
 
 ### 1.5 추상 (`repository.py`, `service.py`)
 
@@ -128,7 +128,7 @@
 | 상수 | 임시 기본값 | 관련 질문 |
 | --- | --- | --- |
 | `PAYMENT_TIMEOUT` | `None` (결제 제한 시간 없음) | Q-2 |
-| `PICKUP_WINDOW_ENFORCED` | `False` (픽업 시간 밖에서도 처리 가능) | Q-5 |
+| ~~`PICKUP_WINDOW_ENFORCED`~~ | 삭제(2026-11-10). 픽업 시간 제한은 확정 규칙이라 스위치를 두지 않는다 | Q-5 확정 |
 | `ALLOW_OWNER_SELF_RESERVATION` | `True` (상점주가 자기 매장 할인을 예약해도 막지 않음) | Q-3 |
 | `PICKUP_CODE_CASE_SENSITIVE` | `False` | Q-4 |
 | `PICKUP_CODE_LETTERS`, `PICKUP_CODE_DIGITS` | `1`, `5` (예: `A12345`) | Q-4 |
@@ -271,7 +271,7 @@ class RefundPort(Protocol):              # 결제 모듈. commit하지 않는다
 3. `reservation = await reservations.find_by_id(reservation_id, for_update=True)` — 예약 행만 잠금(재고를 건드리지 않음). `populate_existing`
 4. `reservation.pick_up(pickup_code, clock.now())` — 상태 → 코드 순서
 5. `await reservations.save(reservation)` → `await session.commit()`
-(`PICKUP_WINDOW_ENFORCED=True`일 때만 `view.offer.ensure_in_pickup_window(now)`를 4번 앞에 호출. 기본 False, Q-5)
+(4번 앞에서 항상 `view.offer.ensure_pickup_time(now)`를 호출한다: `pickup_start <= now <= pickup_end`(양 끝 포함)가 아니면 400 `PICKUP_OUTSIDE_WINDOW`, 쓰기 없음. Q-5 확정, 사용자 결정 2026-11-10. 순서: 403(상점주 아님) → 404 → 400(시간) → 409(상태) → 400(코드))
 
 **⑤ `cancel_all_for_offer(offer_id, *, reason) -> int`** (catalog `ReservationCancelPort`용, **commit 없음**)
 1. `cancelled = await lifecycle.cancel_all_for_offer(offer_id, reason=reason)` (픽업 완료가 있으면 예외로 전체 중단, D40: 재고 복구 없음)
@@ -519,7 +519,7 @@ StorePort(StoresService) ──▶ CatalogStockService ──▶ StockPort
 | Q-2 | 결제하지 않은 예약(`PENDING_PAYMENT`)의 결제 제한 시간과 재고 반환 시점 | 명세 §1 확인 필요, payments D-15 | 결제 제한 시간 없음, 만료 상태 없음. **위험: 결제하지 않은 예약이 재고를 계속 잡고 있음.** 고객 취소로만 복구 | payments D-15가 같은 값을 가정 |
 | Q-3 | 상점주가 자기 매장 할인을 예약할 수 있는지 | 명세 §1 확인 필요 | 허용(`ALLOW_OWNER_SELF_RESERVATION=True`). 생성은 로그인한 모든 역할(`CurrentUser`) | 명세에 금지 규칙 없음, payments D-12 방식 |
 | Q-4 | `pickup_code` 발급 시점·형식·고유 범위, 고객에게 보여 줄 위치 | 명세 §2·§4 확인 필요, README 확인 18번, db-schema 5절 5항 | 생성 때 발급, `A12345` 형식(대문자 1+숫자 5), 전역 고유 아님, 목록 항목과 픽업 응답에 `pickup_code`·`pickup_address` 추가 | payments D-18, 명세 예시 |
-| Q-5 | 픽업 시간(`pickup_start`~`pickup_end`) 밖에서 픽업 처리 가능 여부 | 명세 §4 확인 필요 | 가능(`PICKUP_WINDOW_ENFORCED=False`) | 명세에 제한 없음 |
+| Q-5 | 픽업 시간(`pickup_start`~`pickup_end`) 밖에서 픽업 처리 가능 여부 | 명세 §4 확인 필요 | **확정(2026-11-10, 사용자 결정)**: 불가. 픽업 시작·마감 포함, 밖이면 400 `PICKUP_OUTSIDE_WINDOW`. 마감 후 미수령 예약 처리는 미정 | 이전 임시값: 가능(`PICKUP_WINDOW_ENFORCED=False`, 삭제) |
 | Q-6 | 취소 가능 시한(catalog `cancel_policy`의 "픽업 시작 1시간 전")을 예약 취소가 강제하는지 | catalog D55·C14, 명세 §3(409은 상태만) | 강제하지 않음(상태만 확인). 위약금은 payments 정책(현재 0원) | payments D-1, D-7 |
 | Q-7 | 취소 주체·사유를 예약 행에 저장할지 | catalog Q28 | 저장하지 않음(`cancelled_at`만). 사유는 환불 사유로만 전달 | 스키마에 컬럼 없음 |
 | Q-8 | 결제한 예약 취소가 환불을 자동으로 만드는지, 환불 API를 따로 호출해야 하는지 | 명세 §3 확인 필요, README 확인 20번, payments D-6 | 취소가 자동 환불을 호출하고 환불 API 경로도 지원(둘 다) | payments D-6 임시 기본값 |

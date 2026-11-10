@@ -7,6 +7,7 @@
 """
 
 import asyncio
+import contextlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -99,6 +100,34 @@ async def seed(c, token, offer_id, quantity=2, paid=False):
         )
         await session.commit()
         return str(saved.id), reservation.pickup_code
+
+
+class _AtClock:
+    def __init__(self, at):
+        self.at = at
+
+    def now(self):
+        return self.at
+
+
+@contextlib.asynccontextmanager
+async def in_pickup_window(c, offer_id, after=timedelta(minutes=10)):
+    """픽업은 할인 픽업 시간 안에서만 된다(사용자 결정 2026-11-10). 이 구간 동안만 예약 시계를 pickup_start + after로 옮긴다.
+
+    판매 마감(sales_end)이 픽업 시작보다 앞이라, 예약 생성·결제는 이 구간 밖(실제 시계)에서 해야 한다.
+    """
+    import container
+
+    async with c.session_factory() as s:
+        start = (
+            await s.execute(text("SELECT pickup_start FROM discount_offers WHERE id = :i"), {"i": uuid.UUID(offer_id)})
+        ).scalar_one()
+    previous = container._reservations_clock
+    container._reservations_clock = _AtClock(start + after)
+    try:
+        yield
+    finally:
+        container._reservations_clock = previous
 
 
 async def count_rows(c):
@@ -249,6 +278,12 @@ async def test_pickup_flow(client):
     owner, offer_id, _ = await seed_offer(client)
     me = await token_for(client, "me@test.com")
     rid, code = await seed(client, me, offer_id)
+    paid_rid, paid_code = await seed(client, me, offer_id, paid=True)
+    async with in_pickup_window(client, offer_id):
+        await _pickup_flow_checks(client, owner, me, rid, code, paid_rid, paid_code)
+
+
+async def _pickup_flow_checks(client, owner, me, rid, code, paid_rid, paid_code):
     url = f"/v1/reservations/{rid}/pickup"
     body = {"pickup_code": code}
 
@@ -256,7 +291,7 @@ async def test_pickup_flow(client):
     assert r.status_code == 409
     assert r.json() == err("RESERVATION_NOT_PAID", "결제가 완료되지 않은 예약입니다.")
 
-    rid, code = await seed(client, me, offer_id, paid=True)
+    rid, code = paid_rid, paid_code
     url = f"/v1/reservations/{rid}/pickup"
     r = await client.post(url, json={"pickup_code": "ZZZZZZ"}, headers=bearer(owner))
     assert r.status_code == 400 and r.json()["error_code"] == "PICKUP_CODE_MISMATCH"
@@ -282,13 +317,14 @@ async def test_concurrent_pickup_only_one_succeeds(client):
     me = await token_for(client, "me@test.com")
     rid, code = await seed(client, me, offer_id, paid=True)
 
-    results = await asyncio.gather(
-        *[
-            client.post(
-                f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner)
-            )
-            for _ in range(2)
-        ]
-    )
+    async with in_pickup_window(client, offer_id):
+        results = await asyncio.gather(
+            *[
+                client.post(
+                    f"/v1/reservations/{rid}/pickup", json={"pickup_code": code}, headers=bearer(owner)
+                )
+                for _ in range(2)
+            ]
+        )
 
     assert sorted(r.status_code for r in results) == [200, 409]

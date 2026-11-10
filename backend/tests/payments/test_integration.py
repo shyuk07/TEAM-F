@@ -393,7 +393,7 @@ async def refund(client, payment_id, user=CUSTOMER, reason="변심"):
 
 
 # ══ 전체 성공 흐름 (복구 성공 재고) ══
-async def test_pay_confirms_reservation_then_pickup(make_env, client):
+async def test_pay_confirms_reservation_then_pickup(make_env, client, monkeypatch):
     env = make_env()
     rid = await env.seed()
 
@@ -404,6 +404,10 @@ async def test_pay_confirms_reservation_then_pickup(make_env, client):
     assert env.payment_for(rid).status == PaymentStatus.PAID
     assert env.tx.commits == 1  # commit은 결제 서비스가 한 번만
 
+    # 픽업은 픽업 시간(NOW+1h ~ NOW+3h) 안에서만 된다(사용자 결정 2026-11-10): 시계를 픽업 시간 안으로 옮긴다
+    from tests.reservations.test_service import AtClock
+
+    monkeypatch.setattr(container, "_reservations_clock", AtClock(NOW + timedelta(hours=2)))
     r = await client.post(
         f"/v1/reservations/{rid}/pickup", json={"pickup_code": "A12345"}, headers=headers(OWNER, "OWNER")
     )
