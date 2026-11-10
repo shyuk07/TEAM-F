@@ -41,6 +41,9 @@ class ReservationListItem(BaseModel):
     cancelled_by: str | None = Field(
         None, description="취소 주체: CUSTOMER / STORE / SYSTEM. 취소되지 않았거나 주체를 모르면 null"
     )
+    pickup_start: datetime = Field(..., description="픽업 시작 시각(할인 기준)")
+    pickup_end: datetime = Field(..., description="픽업 마감 시각. 결제 완료(RESERVED)인데 지났으면 미수령")
+    cancellable_until: datetime = Field(..., description="고객 취소·환불 마감 시각(이 시각까지 가능)")
 
 
 class ReservationListResponse(BaseModel):

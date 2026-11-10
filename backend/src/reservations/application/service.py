@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.ports import RefundPort, StockPort
-from reservations.application.views import Page, RefundTarget
+from reservations.application.views import MyReservationEntry, Page, RefundTarget
 from reservations.domain import rules
 from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
@@ -66,11 +66,38 @@ class ReservationApplicationService:
 
     async def list_my_reservations(
         self, user_id: uuid.UUID, status: ReservationStatus | None, page: int, size: int
-    ) -> Page[PickupReservation]:
+    ) -> Page[MyReservationEntry]:
         items, total = await self.reservations.find_by_user(
             user_id, status=status, page=page, size=size
         )
-        return Page(items=items, total=total, page=page, size=size)
+        terms = {}
+        for offer_id in dict.fromkeys(r.offer_id for r in items):  # 같은 할인은 한 번만 읽는다(잠금 없음)
+            terms[offer_id] = await self.stock.get_terms(offer_id)
+        entries = [
+            MyReservationEntry(
+                reservation=r,
+                pickup_start=terms[r.offer_id].pickup_start,
+                pickup_end=terms[r.offer_id].pickup_end,
+                cancellable_until=terms[r.offer_id].cancellable_until,
+            )
+            for r in items
+        ]
+        return Page(items=entries, total=total, page=page, size=size)
+
+    async def get_my_reservation(
+        self, user_id: uuid.UUID, reservation_id: uuid.UUID
+    ) -> MyReservationEntry:
+        """본인 예약 한 건(결제 완료 화면 등). 없으면 404, 남의 예약이면 403. 읽기 전용."""
+        view = await self.lifecycle.get_snapshot(reservation_id)
+        if view is None:
+            raise ReservationNotFoundError()
+        view.reservation.ensure_owned_by(user_id, "본인 예약만 조회할 수 있습니다.")
+        return MyReservationEntry(
+            reservation=view.reservation,
+            pickup_start=view.offer.pickup_start,
+            pickup_end=view.offer.pickup_end,
+            cancellable_until=view.offer.cancellable_until,
+        )
 
     async def cancel_reservation(
         self, user_id: uuid.UUID, reservation_id: uuid.UUID

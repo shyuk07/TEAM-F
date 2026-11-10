@@ -130,3 +130,7 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | A1 로그인 | `pages/login` | `features/auth`, `entities/session` | `../docs/design/frontend/auth.md` |
 | O8 계정 메뉴, C10 로그아웃 확인 (상점주 셸) | 없음(라우트 없는 오버레이. `widgets/owner-nav`의 `OwnerAccountButton` 안) | `widgets/owner-nav`, `features/auth`(`LogoutConfirmSheet`), `entities/session` | `../docs/design/frontend/auth.md` |
 | 상점주 셸 가드 | 없음(`app/layouts/OwnerLayout`) | `features/auth`(`useAuth`, `decideAccess`) | `../docs/design/frontend/auth.md` |
+| C2 할인 상세(예약 영역만) | `pages/offer-detail`(offers 소유) | `features/reservations`(`ReserveOfferPanel`), `features/auth`(`useAuth`) | `../docs/design/frontend/reservations.md` |
+| C3 결제, C3a 결제 화면 나가기 | `pages/checkout` | `features/payments`(`PaymentForm`), `features/reservations`(`useMyReservation`, `LeaveCheckoutSheet`), `features/auth`(`useAuth`) | `../docs/design/frontend/payments.md`, `reservations.md` |
+| C4 결제 완료 | `pages/payment-complete` | `features/reservations`(`useMyReservation`) | `../docs/design/frontend/payments.md` |
+| C5 내 예약, C5b 지난 예약, C5a 예약 취소 확인(오버레이) | `pages/my-reservations` | `features/reservations`(`MyReservationList`, `CancelReservationSheet`), 고객 TabBar(미설계) | `../docs/design/frontend/reservations.md` |

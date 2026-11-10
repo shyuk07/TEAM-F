@@ -20,6 +20,7 @@ from reservations.presentation.schemas import (
     ReservationCancelResponse,
     ReservationCreateRequest,
     ReservationCreateResponse,
+    ReservationListItem,
     ReservationListResponse,
     StoreReservationListResponse,
 )
@@ -69,8 +70,39 @@ async def list_my_reservations(
     size: SizeParam = rules.LIST_DEFAULT_SIZE,
 ):
     result = await service.list_my_reservations(user.id, status, page, size)
+    items = [_my_item(e) for e in result.items]
     return ReservationListResponse(
-        reservations=result.items, page=result.page, size=result.size, total=result.total
+        reservations=items, page=result.page, size=result.size, total=result.total
+    )
+
+
+@router.get(
+    "/reservations/{reservation_id}",
+    response_model=ReservationListItem,
+    summary="내 예약 한 건 조회",
+)
+async def get_my_reservation(reservation_id: uuid.UUID, user: CurrentUser, service: Service):
+    return _my_item(await service.get_my_reservation(user.id, reservation_id))
+
+
+def _my_item(e) -> ReservationListItem:
+    """내 예약 목록·단건 응답 항목. 할인의 픽업 시간·취소 마감을 함께 담는다."""
+    r = e.reservation
+    return ReservationListItem(
+        id=r.id,
+        offer_id=r.offer_id,
+        store_name=r.store_name,
+        product_name=r.product_name,
+        quantity=r.quantity,
+        total_price=r.total_price,
+        status=str(r.status),
+        created_at=r.created_at,
+        pickup_code=r.pickup_code,
+        pickup_address=r.pickup_address,
+        cancelled_by=None if r.cancelled_by is None else str(r.cancelled_by),
+        pickup_start=e.pickup_start,
+        pickup_end=e.pickup_end,
+        cancellable_until=e.cancellable_until,
     )
 
 

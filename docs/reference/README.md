@@ -47,6 +47,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 21 | catalog | [재고 수동 조정](catalog.md#14-재고-수동-조정) | POST | `/v1/offers/{offer_id}/stock-adjustments` | 상점주(본인) | 200 |
 | 22 | reservations | [예약 생성](reservations.md#1-예약-생성) | POST | `/v1/reservations` | 회원 | 201 |
 | 23 | reservations | [내 예약 목록 조회](reservations.md#2-내-예약-목록-조회) | GET | `/v1/users/me/reservations` | 회원 | 200 |
+| 23-1 | reservations | [내 예약 한 건 조회](reservations.md#2-1-내-예약-한-건-조회) | GET | `/v1/reservations/{reservation_id}` | 회원(본인) | 200 |
 | 24 | reservations | [예약 취소](reservations.md#3-예약-취소) | POST | `/v1/reservations/{reservation_id}/cancel` | 회원(본인) | 200 |
 | 25 | reservations | [픽업 완료](reservations.md#4-픽업-완료) | POST | `/v1/reservations/{reservation_id}/pickup` | 상점주(해당 매장) | 200 |
 | 26 | payments | [결제 요청](payments.md#1-결제-요청) | POST | `/v1/payments` | 회원 | 201 |

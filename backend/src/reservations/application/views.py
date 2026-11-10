@@ -36,6 +36,16 @@ class CancelledReservation:
 
 
 @dataclass(frozen=True)
+class MyReservationEntry:
+    """내 예약 목록 한 줄: 예약 + 할인의 픽업 시간·취소 마감(화면 표시용, 프론트엔드 연동 2026-11-10)."""
+
+    reservation: PickupReservation
+    pickup_start: datetime
+    pickup_end: datetime
+    cancellable_until: datetime
+
+
+@dataclass(frozen=True)
 class Page(Generic[T]):
     items: list[T]
     total: int

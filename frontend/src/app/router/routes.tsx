@@ -1,7 +1,11 @@
 import { Navigate, type RouteObject } from 'react-router';
 import { ROUTES, ROUTE_PATTERNS } from '@/shared/lib/routes';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { CustomerLayout } from '@/app/layouts/CustomerLayout';
 import { LoginPage } from '@/pages/login';
+import { MyReservationsPage } from '@/pages/my-reservations';
+import { CheckoutPage } from '@/pages/checkout';
+import { PaymentCompletePage } from '@/pages/payment-complete';
 import { TAB_BAR_HANDLE } from './handle';
 import {
   HomePlaceholder,
@@ -26,6 +30,14 @@ export const routes: RouteObject[] = [
       { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerProductNew, element: <OwnerProductNewPlaceholder /> },
       { path: ROUTE_PATTERNS.ownerProduct, element: <OwnerProductEditPlaceholder /> },
+    ],
+  },
+  {
+    element: <CustomerLayout />,
+    children: [
+      { path: ROUTES.myReservations, element: <MyReservationsPage /> },
+      { path: ROUTE_PATTERNS.checkout, element: <CheckoutPage /> },
+      { path: ROUTE_PATTERNS.paymentComplete, element: <PaymentCompletePage /> },
     ],
   },
   // TODO: 정의되지 않은 경로를 /로 보낸다. 전용 NotFound 화면과 문구를 정한다.
