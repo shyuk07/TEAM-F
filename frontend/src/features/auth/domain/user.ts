@@ -26,3 +26,7 @@ export function roleLabel(role: Role): string {
 export function isOwnerPath(path: string): boolean {
   return path === '/owner' || path.startsWith('/owner/');
 }
+
+export function isAdminPath(path: string): boolean {
+  return path === '/admin' || path.startsWith('/admin/');
+}

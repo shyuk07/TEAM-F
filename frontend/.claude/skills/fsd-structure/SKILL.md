@@ -130,3 +130,8 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | A1 로그인 | `pages/login` | `features/auth`, `entities/session` | `../docs/design/frontend/auth.md` |
 | O8 계정 메뉴, C10 로그아웃 확인 (상점주 셸) | 없음(라우트 없는 오버레이. `widgets/owner-nav`의 `OwnerAccountButton` 안) | `widgets/owner-nav`, `features/auth`(`LogoutConfirmSheet`), `entities/session` | `../docs/design/frontend/auth.md` |
 | 상점주 셸 가드 | 없음(`app/layouts/OwnerLayout`) | `features/auth`(`useAuth`, `decideAccess`) | `../docs/design/frontend/auth.md` |
+| 관리자 셸 가드·상단 바 | 없음(`app/layouts/AdminLayout`) | `widgets/admin-nav`, `widgets/owner-nav`(`OwnerAccountButton`), `features/auth` | `../docs/design/frontend/admin.md` |
+| M1 승인 | `pages/admin-approvals` | `features/admin`(`ApprovalsPanel`) | `../docs/design/frontend/admin.md` |
+| M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
+| M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
+| M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |
