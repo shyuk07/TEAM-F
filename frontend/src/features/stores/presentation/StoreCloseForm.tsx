@@ -9,15 +9,16 @@ import { useCloseStore } from '../application/useCloseStore';
 //   언제: offers 구현 시, reservations 구현 시
 export function StoreCloseForm(props: { store: Store; onCancel(): void }) {
   const { store, onCancel } = props;
-  const [typed, setTyped] = useState('');
+  const [typedName, setTypedName] = useState('');
   const { submit, pending, errorMessage } = useCloseStore(store);
 
-  const disabled = !canSubmitClose(typed, store.name) || pending;
+  // 상점명 완전 일치(NFC, D-8)와 pending 중 비활성(F10).
+  const disabled = !canSubmitClose(typedName, store.name) || pending;
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled) return;
-    void submit(typed).catch(() => undefined);
+    void submit(typedName).catch(() => undefined);
   }
 
   // .body와 CtaBar 두 형제. 취소는 pending 중에도 눌린다. 두 벌의 버튼은 같은 폼을 제출한다(D-18).
@@ -32,8 +33,8 @@ export function StoreCloseForm(props: { store: Store; onCancel(): void }) {
                 확인을 위해 상점명을 입력하세요: <b>{store.name}</b>
               </>
             }
-            value={typed}
-            onChange={setTyped}
+            value={typedName}
+            onChange={setTypedName}
             error={errorMessage}
           />
           <Button type="button" desktopOnly onClick={onCancel}>

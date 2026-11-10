@@ -6,7 +6,7 @@ import { useOpenStore } from '../application/useOpenStore';
 // open-issues: C8 상점은 가입 시 상호를 이름으로 복사해 만든다. 이름은 입력받지 않는다.
 export function StoreOpenForm(props: { ownerName: string }) {
   const { ownerName } = props;
-  const [address, setAddress] = useState('');
+  const [pickupAddress, setPickupAddress] = useState('');
   const { submit, pending, errorMessage } = useOpenStore();
 
   // 계정 name이 null로 오면(빈 값) 폼 대신 개설 불가 안내를 그린다(D-21 임시).
@@ -20,12 +20,13 @@ export function StoreOpenForm(props: { ownerName: string }) {
     );
   }
 
-  const disabled = !canSubmitOpenStore(address) || pending;
+  // 픽업 주소 길이 검증(D-19)과 pending 중 비활성(F10).
+  const disabled = !canSubmitOpenStore(pickupAddress) || pending;
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled) return;
-    void submit(address).catch(() => undefined);
+    void submit(pickupAddress).catch(() => undefined);
   }
 
   // .body와 CtaBar 두 형제(.app 직속 레이아웃). 두 「상점 열기」 버튼은 같은 폼을 제출한다(D-18).
@@ -43,8 +44,8 @@ export function StoreOpenForm(props: { ownerName: string }) {
             />
             <Input
               label="픽업 주소"
-              value={address}
-              onChange={setAddress}
+              value={pickupAddress}
+              onChange={setPickupAddress}
               required
               maxLength={500}
               autoComplete="street-address"

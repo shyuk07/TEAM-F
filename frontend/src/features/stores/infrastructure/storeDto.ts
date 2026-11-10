@@ -18,13 +18,17 @@ type StoreDto = {
 export type { StoreDto as MyStoreDto };
 export type StoreOpenDto = Omit<StoreDto, 'status'>;
 
+function storeStatusOrThrow(rawStatus: string, fallbackStatus?: StoreStatus): StoreStatus {
+  if (fallbackStatus !== undefined) return fallbackStatus;
+  if (rawStatus === 'ACTIVE' || rawStatus === 'SUSPENDED' || rawStatus === 'CLOSED') {
+    return rawStatus;
+  }
+  throw new Error(`알 수 없는 status: ${String(rawStatus)}`);
+}
+
 // status가 ACTIVE·SUSPENDED·CLOSED가 아니면 Error. 개설 응답은 fallbackStatus로 'ACTIVE'를 채운다.
 export function toStore(dto: StoreDto | StoreOpenDto, fallbackStatus?: StoreStatus): Store {
   const raw = dto as StoreDto;
-  const status: StoreStatus | unknown = fallbackStatus ?? raw.status;
-  if (status !== 'ACTIVE' && status !== 'SUSPENDED' && status !== 'CLOSED') {
-    throw new Error(`알 수 없는 status: ${String(status)}`);
-  }
   return {
     id: raw.id,
     ownerId: raw.owner_id,
@@ -35,6 +39,6 @@ export function toStore(dto: StoreDto | StoreOpenDto, fallbackStatus?: StoreStat
     createdAt: new Date(raw.created_at),
     approvalAt: raw.approval_at !== null ? new Date(raw.approval_at) : null,
     closedAt: raw.closed_at !== null ? new Date(raw.closed_at) : null,
-    status,
+    status: storeStatusOrThrow(raw.status, fallbackStatus),
   };
 }
