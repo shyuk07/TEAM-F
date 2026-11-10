@@ -29,7 +29,6 @@ from catalog.domain.discount_offer import (
     resolve_store_list_statuses,
 )
 from catalog.domain.exceptions import (
-    NotStoreOwnerError,
     OfferNotFoundError,
     OpenOfferExistsError,
     ProductImageNotFoundError,
@@ -209,7 +208,13 @@ class CatalogApplicationService:
         return Page(items=items, page=page, size=size, total=total)
 
     # ── 쓰기 ──────────────────────────────
-    async def create_product(self, user_id: uuid.UUID, store_id: uuid.UUID, data: dict) -> Product:
+    async def create_product(
+        self,
+        user_id: uuid.UUID,
+        store_id: uuid.UUID,
+        data: dict,
+        image_data: bytes | None = None,
+    ) -> Product:
         store = await self._load_store(store_id)
         store.ensure_owner(user_id, "본인 상점에만 상품을 등록할 수 있습니다.")
         store.ensure_can_register("상품")
@@ -221,7 +226,14 @@ class CatalogApplicationService:
             description=data.get("description"),
             product_image=data.get("product_image"),
         )
+        if image_data is not None:
+            ProductImage.validate_bytes(image_data)  # D112: 저장 전 검증
         await self.products.save(product)
+        if image_data is not None:
+            image = ProductImage.create(product.id, image_data)
+            await self.product_images.add(image)
+            product.attach_image(image)
+            await self.products.save(product)
         await self.session.commit()
         return product
 
@@ -430,16 +442,17 @@ class CatalogApplicationService:
         viewer_id: uuid.UUID | None,
         store_id: uuid.UUID,
         category: str | None,
-        is_active: bool,
+        is_active: bool | None,
         page: int,
         size: int,
     ) -> Page[Product]:
         store = await self._load_store(store_id)
         store.ensure_products_visible_to(viewer_id)
-        if not is_active and not store.is_owned_by(viewer_id):
-            raise NotStoreOwnerError("본인 상점의 비활성 상품만 조회할 수 있습니다.")  # D6
+        scope = store.product_list_scope(viewer_id, is_active)  # D106
+        if scope.is_empty:
+            return Page(items=[], page=page, size=size, total=0)
         items, total = await self.products.find_by_store(
-            store_id, category=category, is_active=is_active, page=page, size=size
+            store_id, category=category, is_active=scope.is_active, page=page, size=size
         )
         return Page(items=items, page=page, size=size, total=total)
 

@@ -69,13 +69,19 @@ class ProductImage:
         self.content_type = content_type
         self.data = data
 
-    @classmethod
-    def create(cls, product_id: uuid.UUID, data: bytes) -> "ProductImage":
+    @staticmethod
+    def validate_bytes(data: bytes) -> str:
+        """저장 전 검증(D113). 통과하면 content_type을 돌려준다."""
         if len(data) > MAX_IMAGE_BYTES:
             raise ImageTooLargeError()
         content_type = detect_image_content_type(data)
         if content_type is None:
             raise UnsupportedImageTypeError()
+        return content_type
+
+    @classmethod
+    def create(cls, product_id: uuid.UUID, data: bytes) -> "ProductImage":
+        content_type = cls.validate_bytes(data)
         return cls(product_id=product_id, content_type=content_type, data=data)
 
     @property

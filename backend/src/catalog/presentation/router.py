@@ -1,17 +1,21 @@
+import json
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from auth.domain.exceptions import AuthenticationError
 from auth.presentation.dependencies import OwnerUser
 from catalog.application.service import CatalogApplicationService
 from catalog.domain.discount_offer import OfferStatus
 from catalog.domain.search import OfferSort
 from catalog.domain.exceptions import ReservationDataInconsistentError
 from catalog.presentation.dependencies import OptionalUser, provide_catalog_service
-from catalog.presentation.image_router import image_router
+from catalog.domain.product_image import MAX_IMAGE_BYTES
+from catalog.presentation.image_router import MultipartSizeLimitRoute, image_router
 from catalog.presentation.schemas import (
     OfferCreateRequest,
     OfferDeactivateRequest,
@@ -42,16 +46,115 @@ PageParam = Annotated[int, Query(ge=1, description="페이지 (1부터)")]
 SizeParam = Annotated[int, Query(ge=1, le=100, description="페이지 크기 (1~100)")]
 
 
-@router.post(
+_CREATE_PRODUCT_FORM_PROPS = {
+    "name": {"type": "string"},
+    "category": {"type": "string"},
+    "description": {"type": "string"},
+    "original_price": {"type": "integer"},
+    "file": {"type": "string", "format": "binary"},
+}
+_CREATE_PRODUCT_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/ProductCreateRequest"}},
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "required": ["name", "original_price"],
+                    "properties": _CREATE_PRODUCT_FORM_PROPS,
+                }
+            },
+        },
+    }
+}
+
+
+class BodyParseError(ValueError):
+    """본문을 읽지 못함. FastAPI 기본 동작(400 HTTP_ERROR)과 같은 응답을 내되 router에서 HTTPException을 만들지 않는다(R6)."""
+
+    error_code = "HTTP_ERROR"
+
+    def __init__(self, message: str = "There was an error parsing the body"):
+        super().__init__(message)
+
+
+def _form_error(field: str, message: str) -> RequestValidationError:
+    return RequestValidationError([{"loc": ("body", field), "msg": message, "type": "value_error"}])
+
+
+async def _read_json_body(request: Request) -> tuple[dict, None]:
+    raw = await request.body()
+    if not raw:  # FastAPI: 빈 본문은 body 필드 누락(missing)
+        raise RequestValidationError([{"type": "missing", "loc": ("body",), "msg": "Field required", "input": None}])
+    try:
+        parsed = json.loads(raw)  # FastAPI와 같은 방식으로 디코드한다
+    except json.JSONDecodeError as e:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": ("body", e.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": e.msg},
+                }
+            ],
+            body=e.doc,
+        ) from e
+    except Exception as e:  # 인코딩 오류 등. FastAPI는 HTTPException(400)으로 바꾼다 -> HTTP_ERROR
+        raise BodyParseError() from e
+    try:
+        body = ProductCreateRequest.model_validate(parsed, from_attributes=True)  # FastAPI와 같은 검증 모드
+    except ValidationError as e:
+        raise RequestValidationError(e.errors()) from e
+    return body.model_dump(), None
+
+
+async def _read_multipart_body(request: Request) -> tuple[dict, bytes | None]:
+    form = await request.form()
+    raw: dict = {}
+    for key in ("name", "category", "description", "original_price"):
+        value = form.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise _form_error(key, "문자열이어야 합니다")
+        if key in ("category", "description") and value == "":
+            continue  # Q58: 비운 입력은 없음
+        raw[key] = value
+    try:
+        data = ProductCreateRequest.model_validate(raw).model_dump()
+    except ValidationError as e:
+        raise RequestValidationError(e.errors()) from e
+    data["product_image"] = None  # Q60: product_image 폼 필드는 무시
+    files = form.getlist("file")
+    if not files:
+        return data, None
+    if len(files) > 1 or not isinstance(files[0], StarletteUploadFile):
+        raise _form_error("file", "사진은 1장만 보낼 수 있습니다")
+    return data, await files[0].read(MAX_IMAGE_BYTES + 1)
+
+
+_create_product_router = APIRouter(route_class=MultipartSizeLimitRoute, tags=["카탈로그"])
+
+
+@_create_product_router.post(
     "/stores/{store_id}/products",
     response_model=ProductResponse,
     status_code=201,
     summary="상품 등록",
+    openapi_extra=_CREATE_PRODUCT_OPENAPI,
 )
-async def create_product(
-    store_id: uuid.UUID, body: ProductCreateRequest, owner: OwnerUser, service: Service
-):
-    return await service.create_product(owner.id, store_id, body.model_dump())
+async def create_product(store_id: uuid.UUID, request: Request, owner: OwnerUser, service: Service):
+    if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
+        data, image_data = await _read_multipart_body(request)
+    else:
+        data, image_data = await _read_json_body(request)
+    return await service.create_product(owner.id, store_id, data, image_data)
+
+
+router.include_router(_create_product_router)
 
 
 @router.get(
@@ -64,12 +167,10 @@ async def list_products(
     viewer: OptionalUser,
     service: Service,
     category: str | None = None,
-    is_active: bool = True,
+    is_active: bool | None = None,
     page: PageParam = 1,
     size: SizeParam = 20,
 ):
-    if not is_active and viewer is None:
-        raise AuthenticationError()  # 비활성 상품 조회는 로그인 필요 (D6, CI-3)
     return await service.list_products(
         viewer.id if viewer else None, store_id, category, is_active, page, size
     )

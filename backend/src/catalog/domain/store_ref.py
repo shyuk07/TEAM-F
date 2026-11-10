@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +10,12 @@ from catalog.domain.exceptions import (
     StoreNotFoundError,
     StoreSuspendedError,
 )
+
+
+@dataclass(frozen=True)
+class ProductListScope:
+    is_empty: bool  # True면 조회하지 않고 빈 목록
+    is_active: bool | None  # None이면 노출·숨김 모두
 
 
 class StoreRef:
@@ -80,6 +87,14 @@ class StoreRef:
     def ensure_products_visible_to(self, viewer_id: uuid.UUID | None) -> None:
         if not self.are_products_visible_to(viewer_id):
             raise StoreNotFoundError()
+
+    def product_list_scope(self, viewer_id: uuid.UUID | None, requested: bool | None) -> ProductListScope:
+        """상점 상품 목록의 is_active 필터 해석 (D106). 비소유자의 숨김 조회는 빈 목록."""
+        if self.is_owned_by(viewer_id):
+            return ProductListScope(is_empty=False, is_active=requested)
+        if requested is False:
+            return ProductListScope(is_empty=True, is_active=True)
+        return ProductListScope(is_empty=False, is_active=True)
 
     def ensure_can_register(self, what: str) -> None:
         """what: '상품' 또는 '할인'. 검사 순서는 폐점 -> 정지 -> 미승인 (D9, admin.md D17)."""

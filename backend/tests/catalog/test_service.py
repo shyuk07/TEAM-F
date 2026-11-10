@@ -127,9 +127,10 @@ class FakeProducts(ProductRepository):
         return self.items.get(product_id)
 
     async def find_by_store(self, store_id, *, category, is_active, page, size):
+        self.find_by_store_calls = getattr(self, "find_by_store_calls", 0) + 1
         rows = [
             p for p in self.items.values()
-            if p.store_id == store_id and p.is_active == is_active
+            if p.store_id == store_id and (is_active is None or p.is_active == is_active)
             and (category is None or p.category == category)
         ]
         return rows[(page - 1) * size : page * size], len(rows)
@@ -591,13 +592,31 @@ async def test_list_products_active_public(ctx):
 async def test_list_products_inactive_owner_only(ctx):
     p = await ctx.product()
     p.is_active = False
-    for viewer in (None, uuid.uuid4()):
-        with pytest.raises(NotStoreOwnerError, match="본인 상점의 비활성 상품만 조회할 수 있습니다."):
-            await ctx.service.list_products(viewer, ctx.store.id, None, False, 1, 20)
+    for viewer in (None, uuid.uuid4()):  # D106: 비소유자의 숨김 조회는 빈 목록 (조회 없음)
+        page = await ctx.service.list_products(viewer, ctx.store.id, None, False, 1, 20)
+        assert page.items == [] and page.total == 0 and page.page == 1 and page.size == 20
+    assert getattr(ctx.products, "find_by_store_calls", 0) == 0
     page = await ctx.service.list_products(ctx.owner, ctx.store.id, None, False, 1, 20)
     assert page.total == 1
     with pytest.raises(StoreNotFoundError):
         await ctx.service.list_products(None, uuid.uuid4(), None, True, 1, 20)
+
+
+async def test_list_products_default_scope(ctx):
+    await ctx.product(name="a")
+    hidden = await ctx.product(name="b")
+    hidden.is_active = False
+    owner = await ctx.service.list_products(ctx.owner, ctx.store.id, None, None, 1, 20)
+    assert [p.name for p in owner.items] == ["a", "b"] and owner.total == 2
+    for viewer in (None, uuid.uuid4()):
+        other = await ctx.service.list_products(viewer, ctx.store.id, None, None, 1, 20)
+        assert [p.name for p in other.items] == ["a"]
+
+
+async def test_list_products_closed_store_404_before_empty(ctx):
+    ctx.stores.items[ctx.store.id].closed_at = NOW
+    with pytest.raises(StoreNotFoundError):
+        await ctx.service.list_products(None, ctx.store.id, None, False, 1, 20)
 
 
 async def test_get_product(ctx):
