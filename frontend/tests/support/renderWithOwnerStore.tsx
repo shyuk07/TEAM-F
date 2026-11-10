@@ -6,7 +6,7 @@ import {
   type InitialEntry,
   type RouteObject,
 } from 'react-router';
-import { AuthGatewayToken, AuthProvider } from '@/features/auth';
+import { AccountGatewayToken, AuthGatewayToken, AuthProvider } from '@/features/auth';
 import { SessionStoreToken } from '@/entities/session';
 import { MyStoreProvider, StoreRepositoryToken } from '@/entities/store';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
@@ -38,6 +38,7 @@ function createDeps(opts: {
 function createOwnerContainer(deps: Deps): Container {
   return new Container([
     bind(AuthGatewayToken, deps.fakes.auth),
+    bind(AccountGatewayToken, deps.fakes.account),
     bind(SessionStoreToken, deps.fakes.session),
     bind(StoreRepositoryToken, deps.repo),
     bind(StoreCommandsToken, deps.commands),

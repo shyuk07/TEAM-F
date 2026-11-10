@@ -181,5 +181,3 @@ describe('routes stores 화면 추가', () => {
     expect(await screen.findByRole('heading', { name: 'O1 오늘' })).toBeInTheDocument();
   });
 });
-  });
-});
