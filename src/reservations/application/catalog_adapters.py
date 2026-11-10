@@ -17,7 +17,8 @@ class OfferReservationLookup:
         self.reservations = reservations
 
     async def has_reservations_for_offer(self, offer_id: uuid.UUID) -> bool:
-        return await self.reservations.exists_by_offer(offer_id)
+        # 취소되지 않은 예약만 센다(D-39, catalog D81·REQ-17). 모두 취소됐으면 할인 수정을 막지 않는다.
+        return await self.reservations.exists_non_cancelled_by_offer(offer_id)
 
 
 class OfferReservationCanceller:

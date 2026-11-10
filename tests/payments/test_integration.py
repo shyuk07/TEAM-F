@@ -121,6 +121,9 @@ class ResRepo(ReservationRepository):
     async def exists_by_offer(self, offer_id):
         return any(r.offer_id == offer_id for r in self.store.all())
 
+    async def exists_non_cancelled_by_offer(self, offer_id):
+        return any(r.offer_id == offer_id and r.status != S.CANCELLED for r in self.store.all())
+
     async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
         return [r for r in self.store.all() if r.user_id == user_id and r.status in statuses]
 

@@ -69,6 +69,17 @@ class SqlAlchemyReservationRepository(ReservationRepository):
         )
         return found is not None
 
+    async def exists_non_cancelled_by_offer(self, offer_id: uuid.UUID) -> bool:
+        found = await self.session.scalar(
+            select(PickupReservationModel.id)
+            .where(
+                PickupReservationModel.offer_id == offer_id,
+                PickupReservationModel.status != str(ReservationStatus.CANCELLED),
+            )
+            .limit(1)
+        )
+        return found is not None
+
     async def find_by_user_and_statuses(
         self,
         user_id: uuid.UUID,

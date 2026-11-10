@@ -30,6 +30,10 @@ class ReservationRepository(ABC):
     async def exists_by_offer(self, offer_id: uuid.UUID) -> bool: ...
 
     @abstractmethod
+    async def exists_non_cancelled_by_offer(self, offer_id: uuid.UUID) -> bool:
+        """CANCELLED가 아닌 예약(PENDING_PAYMENT·RESERVED·PICKED_UP)이 한 건이라도 있으면 True (D-39, catalog REQ-17). 잠그지 않는다."""
+
+    @abstractmethod
     async def find_by_user_and_statuses(
         self,
         user_id: uuid.UUID,
