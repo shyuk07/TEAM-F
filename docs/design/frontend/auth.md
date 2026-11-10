@@ -3,6 +3,7 @@
 - 대상: `features/auth`(영역), `entities/session`, `pages/login`, `widgets/owner-nav`의 계정 메뉴(O8)·로그아웃 확인(C10), `app`의 가드·조립
 - 대응 화면: A1 로그인(정식), O8 계정 메뉴(로그아웃 한 줄), C10 로그아웃 확인. 범위 밖: A2 회원가입, A3 비밀번호 재설정, C6~C9·C11, 고객 셸, 관리자(M1~)
 - 상태: 설계안 3차(구현 반영). 사용자 확정: D-1, D-2, D-4(임시 처리로 확정), D-14. 그 밖의 설계자 값(D-3, D-5~D-10)은 "임시"이며 구현을 막지 않는다. 구현을 막는 남은 항목은 없다(§11). app-shell.md Q-2는 D-1 확정으로 해소된다.
+- 후속 설계: A2·A3·C8·C9와 O8의 C8·C9 행은 `auth-account.md`(2차, 사용자 결정 전). 확정되면 이 문서의 D-3·N-1·N-4는 `auth-account.md` D-23·§8이 대체한다.
 - 정본: `../../reference/auth.md` §2·§3·§4, `../../design-system/screens.md` A1·C10·O8, `layout.md` 69~72줄, `content.md` 5~12줄, `components/{Input,Button,BottomSheet}/README.md`, `frontend/.claude/skills/{fsd-structure,layer-architecture,api-client,react-implementation,tdd-workflow,code-annotations}`
 - 백엔드 실재 확인(`frontend-orchestration.md` §6): `backend/src/auth/presentation/router.py:34`(`/v1` 접두사), `:58` 로그인, `:65` 로그아웃(정지 회원 허용), `:101` `GET /v1/users/me`, `schemas.py`(`TokenResponse`, `UserResponse`), `dependencies.py:39`·`:106`(`/users/me`는 정지 회원 403), `error_handlers.py:33~38`(401·429 처리). 로그인 요청·응답, `error_code`는 명세와 같다. 다른 점은 C-2.
 - 기존 코드 현황: `app/container.ts`는 빈 배열, `OwnerLayout` 가드는 항상 통과, `/login`은 `LoginPlaceholder`, `OwnerAccountButton`은 동작 없음, `shared/api`·`shared/lib/di` 완료, features·entities·pages 없음
