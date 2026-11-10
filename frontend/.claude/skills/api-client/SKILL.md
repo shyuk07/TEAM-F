@@ -95,7 +95,7 @@ export function onTokenChange(cb: (token: string | null) => void): () => void {
 | 시점 | 동작 | 위치 |
 | --- | --- | --- |
 | 로그인 성공 (`POST /v1/auth/login`) | `session.save(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/auth`의 로그인 유스케이스 |
-| 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `app/providers`의 인증 Context |
+| 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `features/auth`의 인증 Context(`AuthProvider`, `App.tsx`에서 마운트) |
 | 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/auth`의 로그아웃 유스케이스 |
 | `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `session.clear()` → 로그인 화면(A1) | 인증 Context (§3) |
 | 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | `features/auth`의 유스케이스 |
@@ -137,7 +137,7 @@ export async function toApiError(res: Response): Promise<ApiError> {
 ```
 - 화면 분기는 `errorCode`로 합니다. `message` 문자열 비교로 분기하지 않습니다.
 - 명세상 auth 외 모듈은 에러 형식이 아직 통일되지 않았을 수 있습니다(`../docs/reference/README.md` "확인 필요"). 형식이 다르면 `UNKNOWN`으로 떨어지므로, 발견하면 보고서에 적습니다.
-- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`session.clear()` → 로그인 화면 A1, §2.1). 처리 위치는 `app/providers`의 인증 Context입니다.
+- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`session.clear()` → 로그인 화면 A1, §2.1). 처리 위치는 `features/auth`의 인증 Context(`AuthProvider`)입니다. widgets·pages가 현재 사용자를 읽어야 하므로 app이 아니라 features에 둡니다(F1).
 - `429 ACCOUNT_LOCKED`는 `Retry-After` 헤더가 있으니 필요한 화면에서 읽습니다.
 
 ## 4. slice infrastructure (F9, F18)

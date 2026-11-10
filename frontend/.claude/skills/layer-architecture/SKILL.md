@@ -84,7 +84,7 @@ export function canReserve(o: Offer, now: Date): boolean {
 | `OfferRepository` 인터페이스(`findNearby`, `findById`) | `entities/offer/domain` (domain 포트) | 도메인 데이터 접근의 추상. reservations도 씀 |
 | `GET /v1/offers` 호출과 응답 → `Offer[]` 변환 (`HttpOfferRepository`) | `features/offers/infrastructure` | offer를 소유한 영역. 서버 형식을 아는 유일한 곳 |
 | `StockAdjustment` 포트(재고 조정, O10) | `features/offers/domain` | offers 영역만 씀. 공유하지 않으면 entities로 내리지 않음 |
-| `SessionStore` 인터페이스(`save`, `clear`, `hasSession`) | `entities/session/application` (application 포트) | 도메인 규칙과 무관한 기술 기능. auth·app 인증 Context 등이 씀 |
+| `SessionStore` 인터페이스(`save`, `clear`, `hasSession`, `subscribe`) | `entities/session/application` (application 포트) | 도메인 규칙과 무관한 기술 기능. auth 영역과 그 인증 Context 등이 씀 |
 | `localStorage` 사용 (`LocalSessionStore`) | `features/auth/infrastructure` | session을 소유한 영역. 브라우저 기술 |
 | `reserveOffer(deps, input)` 유스케이스 | `features/reservations/application` | 흐름. 포트만 받음 |
 | `useNearbyOffers()`가 로딩·에러·데이터를 돌려줌 | `features/offers/application` | 비동기 흐름. 포트는 `useDep(토큰)`으로 받음 |
@@ -202,11 +202,12 @@ export interface OfferRepository {
 ### 6.3 application 포트와 토큰
 
 ```ts
-// entities/session/application/ports.ts  (auth 영역과 app 인증 Context 등이 함께 씀)
+// entities/session/application/ports.ts  (auth 영역과 그 인증 Context 등이 함께 씀)
 export interface SessionStore {
   save(accessToken: string): void
   clear(): void
   hasSession(): boolean
+  subscribe(listener: () => void): () => void // 다른 탭의 로그인·로그아웃 (api-client §2.1 onTokenChange)
 }
 
 // entities/session/application/tokens.ts
