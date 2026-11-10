@@ -23,26 +23,32 @@ export const ACCOUNT_FALLBACK_MESSAGE = '처리하지 못했어요. 잠시 후 �
 export const BACK_LABEL = '뒤로';
 
 export function signupErrorView(e: ErrorLike): FieldError<'email' | 'form'> {
-  void e;
-  throw new Error('not implemented: signupErrorView');
+  if (e.errorCode === 'EMAIL_DUPLICATED') {
+    return { field: 'email', message: EMAIL_DUPLICATED_MESSAGE };
+  }
+  return { field: 'form', message: accountErrorMessage(e) };
 }
 
 export function resetConfirmErrorMessage(e: ErrorLike): string {
-  void e;
-  throw new Error('not implemented: resetConfirmErrorMessage');
+  if (e.errorCode === 'INVALID_RESET_CODE') return INVALID_RESET_CODE_MESSAGE;
+  return accountErrorMessage(e);
 }
 
 export function changePasswordErrorView(e: ErrorLike): FieldError<'current' | 'form'> {
-  void e;
-  throw new Error('not implemented: changePasswordErrorView');
+  if (e.errorCode === 'CURRENT_PASSWORD_MISMATCH') {
+    return { field: 'current', message: CURRENT_PASSWORD_MISMATCH_MESSAGE };
+  }
+  return { field: 'form', message: accountErrorMessage(e) };
 }
 
+// 계정·보안 서버 오류는 서버 문구(합니다체)를 그대로 보인다(content.md). 비어 있으면 기본 문구.
 export function accountErrorMessage(e: ErrorLike): string {
-  void e;
-  throw new Error('not implemented: accountErrorMessage');
+  return e.message !== '' ? e.message : ACCOUNT_FALLBACK_MESSAGE;
 }
 
+// 'tooShort'는 라벨 「(8자 이상)」이 알려 주므로 문구 없이 버튼만 비활성으로 둔다.
 export function passwordRuleMessage(check: PasswordCheck): string | null {
-  void check;
-  throw new Error('not implemented: passwordRuleMessage');
+  if (check === 'blank') return PASSWORD_BLANK_MESSAGE;
+  if (check === 'tooLong') return PASSWORD_TOO_LONG_MESSAGE;
+  return null;
 }

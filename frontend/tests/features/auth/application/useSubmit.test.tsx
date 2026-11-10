@@ -25,7 +25,7 @@ describe('useSubmit', () => {
       returned = result.current.submit('a');
     });
     expect(result.current.state).toEqual({ pending: true, error: null, done: false });
-    expect(run).toHaveBeenCalledWith('a');
+    expect(run).toHaveBeenCalledWith('a', expect.any(AbortSignal));
     await act(async () => {
       d.resolve('결과');
     });

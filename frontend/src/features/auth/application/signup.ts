@@ -7,8 +7,10 @@ export type SignupOutcome = { kind: 'loggedIn'; user: User } | { kind: 'loginFai
 export async function signupAndLogin(
   deps: { account: AccountGateway; login(email: string, password: string): Promise<User> },
   form: SignupForm,
+  signal?: AbortSignal,
 ): Promise<SignupOutcome> {
   void deps;
   void form;
+  void signal;
   throw new Error('not implemented: signupAndLogin');
 }
