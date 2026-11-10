@@ -72,7 +72,7 @@ from catalog.presentation.dependencies import (
 )
 from database import get_db
 from reservations.application.adapters import PaymentRefundAdapter, PaymentReservationAdapter
-from reservations.application.admin_adapters import ReservationAdminAdapter
+from reservations.application.admin_adapters import AdminWithdrawalReservationAdapter, ReservationAdminAdapter
 from reservations.application.catalog_adapters import OfferReservationCanceller, OfferReservationLookup
 from reservations.application.catalog_stock_adapter import CatalogStockAdapter
 from reservations.application.lifecycle_service import ReservationLifecycleService
@@ -459,6 +459,14 @@ def create_reservation_admin(
     return ReservationAdminAdapter(service, query)  # 같은 요청 세션의 예약 서비스 (R13)
 
 
+def create_reservation_admin_for_admin(
+    service: ReservationApplicationService = Depends(create_reservation_service),
+    query: StoreReservationQuery = Depends(create_store_reservation_query),
+) -> ReservationAdminPort:
+    """관리자 강제 탈퇴용: 예약 취소·환불 사유는 고정 문구(관리자 원문 사유는 탈퇴 기록에만)."""
+    return AdminWithdrawalReservationAdapter(service, query)
+
+
 # ── auth 탈퇴 조정 (모듈 간 연결: stores·catalog·reservations 팩토리 뒤에 정의) ──
 def create_account_withdrawal_service(
     session: AsyncSession = Depends(get_db),
@@ -483,7 +491,7 @@ def create_admin_service(
     accounts: AuthApplicationService = Depends(create_auth_service),
     stores: StoresApplicationService = Depends(create_stores_service),
     offers: CatalogApplicationService = Depends(create_catalog_service),
-    reservations: ReservationAdminPort = Depends(create_reservation_admin),
+    reservations: ReservationAdminPort = Depends(create_reservation_admin_for_admin),
 ) -> AdminApplicationService:
     return AdminApplicationService(
         session=session,
