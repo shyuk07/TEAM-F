@@ -19,6 +19,7 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import Clock as AuthClock
 from auth.domain.service import (
+    EmailFingerprint,
     PasswordHasher,
     PasswordResetNotifier,
     ResetCodeGenerator,
@@ -37,6 +38,7 @@ from auth.infrastructure.reset_notifier import (
 )
 from auth.infrastructure.security import (
     BcryptPasswordHasher,
+    HmacEmailFingerprint,
     JwtTokenProvider,
     SecretsResetCodeGenerator,
 )
@@ -136,6 +138,7 @@ def build_reset_notifier(settings: MailSettings | None) -> PasswordResetNotifier
 # 상태 없는 유틸은 싱글턴 (세션을 가진 객체는 요청마다 만든다)
 _password_hasher: PasswordHasher = BcryptPasswordHasher()
 _token_provider: TokenProvider = JwtTokenProvider()
+_email_fingerprint: EmailFingerprint = HmacEmailFingerprint()
 _auth_clock: AuthClock = AuthSystemClock()
 _reset_code_generator: ResetCodeGenerator = SecretsResetCodeGenerator()
 _reset_notifier: PasswordResetNotifier = build_reset_notifier(get_mail_settings())
@@ -187,6 +190,7 @@ def create_auth_service(
         tokens=_token_provider,
         clock=_auth_clock,
         codes=codes,
+        email_fingerprint=_email_fingerprint,
     )
 
 

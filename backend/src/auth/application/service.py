@@ -18,7 +18,7 @@ from auth.domain.repository.password_reset_code_repository import PasswordResetC
 from auth.domain.repository.point_log_repository import PointLogRepository
 from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepository
 from auth.domain.repository.user_repository import UserRepository
-from auth.domain.service import Clock, PasswordHasher, TokenProvider
+from auth.domain.service import Clock, EmailFingerprint, PasswordHasher, TokenProvider
 from auth.domain.token_claims import TokenClaims
 from auth.domain.user import SELF_WITHDRAWAL_REASON, Role, User
 from auth.domain.user_list_query import DEFAULT_PAGE, DEFAULT_SIZE, UserListQuery
@@ -105,6 +105,7 @@ class AuthApplicationService:
         tokens: TokenProvider,
         clock: Clock,
         codes: PasswordResetCodeRepository,
+        email_fingerprint: EmailFingerprint,
     ):
         self.session = session
         self.users = users
@@ -114,6 +115,7 @@ class AuthApplicationService:
         self.tokens = tokens
         self.clock = clock
         self.codes = codes
+        self.email_fingerprint = email_fingerprint
 
     async def signup(
         self,
@@ -129,7 +131,7 @@ class AuthApplicationService:
         user = User.register(
             email=email, password_hash=password_hash, role=role, name=name, phone=phone
         )
-        if await self.users.exists_by_email(user.email):
+        if await self._email_taken(user.email):
             raise EmailDuplicatedError()
         try:
             await self.users.save(user)
@@ -147,6 +149,8 @@ class AuthApplicationService:
         existing = await self.users.find_by_email(User.normalize_email(email))
         if existing is not None:
             return self._existing_admin(existing), False
+        if await self.users.exists_by_email(self.email_fingerprint.tombstone(User.normalize_email(email))):
+            raise EmailDuplicatedError("탈퇴한 회원의 이메일로는 관리자를 만들 수 없습니다.")
         admin = User.register_admin(
             email=email, password_hash=self.hasher.hash(password), name=name
         )
@@ -160,6 +164,12 @@ class AuthApplicationService:
             return self._existing_admin(existing), False
         await self.session.commit()
         return admin, True
+
+    async def _email_taken(self, normalized_email: str) -> bool:
+        """사용 중이거나 탈퇴한 회원의 이메일이면 True (REQ-4·REQ-35: 탈퇴 이메일 재사용 금지)."""
+        if await self.users.exists_by_email(normalized_email):
+            return True
+        return await self.users.exists_by_email(self.email_fingerprint.tombstone(normalized_email))
 
     @staticmethod
     def _existing_admin(user: User) -> User:
@@ -351,6 +361,7 @@ class AuthApplicationService:
     ) -> User:
         user = await self._locked_user(user_id)
         expired = user.withdraw(reason, now)  # 남은 포인트는 소멸(잔액 0). 복구(환불)가 먼저 끝나 있어야 한다
+        user.erase_personal_data(self.email_fingerprint.tombstone(user.email))  # 개인정보 B안
         await self.users.save(user)
         if expired > 0:
             await self.point_logs.add(PointLog.record(user.id, PointType.EXPIRE, -expired, 0))

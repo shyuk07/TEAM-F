@@ -27,6 +27,9 @@ REASON_MAX_LENGTH = 500
 POINT_MAX_BALANCE = 2_147_483_647  # DB INTEGER 상한 (D24)
 PROFILE_TEXT_MAX_LENGTH = 100
 SELF_WITHDRAWAL_REASON = "회원 본인 탈퇴"  # 자진 탈퇴 사유 (D-자진탈퇴조정)
+# 탈퇴 회원 개인정보 파기 (개인정보 B안, 사용자 결정 2026-11-10)
+WITHDRAWN_EMAIL_PREFIX = "withdrawn:"  # 이메일 대체값 접두어. 정상 이메일에는 '@'가 있어 겹치지 않는다
+WITHDRAWN_PASSWORD_HASH = "!withdrawn"  # 어떤 비밀번호와도 맞지 않는 값(bcrypt 형식 아님)
 
 
 class Role(StrEnum):
@@ -109,7 +112,8 @@ class User:
         login_locked_until: datetime | None = None,
     ):
         email = self.normalize_email(email)
-        self._validate_email(email)
+        if not (status is UserStatus.WITHDRAWN and self.is_email_tombstone(email)):
+            self._validate_email(email)  # 탈퇴 회원만 이메일 대체값을 가질 수 있다(개인정보 B안)
         if not password_hash:
             raise ValueError("비밀번호 해시는 비어 있을 수 없습니다.")
         if not isinstance(role, Role):
@@ -173,6 +177,16 @@ class User:
     @staticmethod
     def normalize_email(email: str) -> str:
         return email.strip().lower()
+
+    @staticmethod
+    def is_email_tombstone(email: str) -> bool:
+        """탈퇴 회원 이메일 대체값 형식: 접두어 + 소문자 16진수 64자."""
+        digest = email[len(WITHDRAWN_EMAIL_PREFIX):]
+        return (
+            email.startswith(WITHDRAWN_EMAIL_PREFIX)
+            and len(digest) == 64
+            and all(c in "0123456789abcdef" for c in digest)
+        )
 
     @staticmethod
     def _validate_email(email: str) -> None:
@@ -361,6 +375,22 @@ class User:
         self.deleted_at = now
         self.deleted_reason = normalized
         return expired
+
+    def erase_personal_data(self, email_tombstone: str) -> None:
+        """탈퇴 회원의 개인정보를 파기한다(개인정보 B안). 탈퇴한 뒤에만 부를 수 있다.
+
+        이메일은 재가입 차단용 대체값으로, 비밀번호 해시는 쓸 수 없는 값으로 바꾸고 이름·전화번호·사업자번호는 지운다.
+        행·역할·상태·사유·시각은 거래 기록 연결과 운영 기록을 위해 남긴다.
+        """
+        if self.status is not UserStatus.WITHDRAWN:
+            raise ValueError("탈퇴한 회원만 개인정보를 파기할 수 있습니다.")
+        if not self.is_email_tombstone(email_tombstone):
+            raise ValueError("이메일 대체값 형식이 올바르지 않습니다.")
+        self.email = email_tombstone
+        self.password_hash = WITHDRAWN_PASSWORD_HASH
+        self.name = None
+        self.phone = None
+        self.business_number = None
 
     # ── 프로필·비밀번호·토큰 세대 (D-프로필변경, D-비밀번호변경, D-토큰무효화) ──
     def update_profile(self, name: str | None, phone: str | None) -> None:
