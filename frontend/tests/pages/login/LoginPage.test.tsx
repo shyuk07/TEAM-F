@@ -235,6 +235,23 @@ describe('LoginPage (A1) 계정 화면 연결 (auth-account D-7·D-10·D-17·D-2
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it("state.entry가 'reservation'이면 제목 바로 아래 「예약을 이어가려면 로그인하세요.」", () => {
+    renderLogin({
+      entry: { pathname: '/login', state: { from: '/offers/1', entry: 'reservation' } },
+    });
+    const guide = screen.getByText('예약을 이어가려면 로그인하세요.');
+    expect(screen.getByRole('heading', { level: 1, name: '로그인' }).nextElementSibling).toBe(
+      guide,
+    );
+  });
+
+  // 골격에서도 통과한다(안내가 없는 현재 동작). entry가 없을 때 안내가 생기지 않음을 고정한다.
+  it('state.entry가 없으면 진입 안내 줄이 없다', () => {
+    renderLogin({ entry: { pathname: '/login', state: { from: '/me' } } });
+    expect(screen.queryByText('예약을 이어가려면 로그인하세요.')).not.toBeInTheDocument();
+    expect(screen.queryByText('예약 내역을 보려면 로그인하세요.')).not.toBeInTheDocument();
+  });
+
   it('429 ACCOUNT_LOCKED면 서버 문구를 글자 그대로 보이고 입력을 유지한 채 「로그인」이 다시 활성이다', async () => {
     const fakes = anonymousFakes();
     const message = '로그인 시도가 너무 많아 계정이 잠겼습니다. 9분 뒤에 다시 시도해 주세요.';

@@ -66,6 +66,12 @@ export function useAuthController(): AuthContextValue {
     }
   }, [auth, session]);
 
+  const withdraw = useCallback(async (password: string, signal?: AbortSignal): Promise<void> => {
+    void password;
+    void signal;
+    throw new Error('not implemented: useAuthController.withdraw');
+  }, []);
+
   // 인증 상태일 때만 사용자를 바꾼다. reload()와 달리 loading을 거치지 않는다(auth-account.md D-13).
   const replaceUser = useCallback((user: User): void => {
     setState((prev) =>
@@ -74,7 +80,7 @@ export function useAuthController(): AuthContextValue {
   }, []);
 
   return useMemo(
-    () => ({ state, login, logout, reload, replaceUser }),
-    [state, login, logout, reload, replaceUser],
+    () => ({ state, login, logout, withdraw, reload, replaceUser }),
+    [state, login, logout, withdraw, reload, replaceUser],
   );
 }

@@ -1,6 +1,7 @@
 import { createContainer } from '@/app/container';
 import { SessionStoreToken } from '@/entities/session';
 import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
+import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
 import { Container, type Token } from '@/shared/lib/di';
 
 // 영역 wiring이 추가될 때마다 같은 커밋에서 이 목록에 토큰을 추가한다.
@@ -8,6 +9,8 @@ const TOKENS: readonly Token<unknown>[] = [
   SessionStoreToken,
   AuthGatewayToken,
   AccountGatewayToken,
+  OfferRepositoryToken,
+  LocationProviderToken,
 ];
 
 describe('createContainer', () => {

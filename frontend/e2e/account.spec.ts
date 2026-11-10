@@ -52,7 +52,7 @@ test('A1 → A2 → C1: 고객으로 가입하면 로그인되어 /로 이동한
   await fillSignup(page, '이름 *');
   await visibleButton(page, '가입하기').click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { name: '마감 직전' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '마감직전' })).toBeVisible();
   expect(bodies).toHaveLength(1);
   expect(bodies[0]).toMatchObject({ role: 'CUSTOMER', email: 'new@test.com' });
 });

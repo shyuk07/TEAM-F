@@ -8,12 +8,13 @@ describe('App', () => {
     localStorage.clear();
   });
 
-  it('루트 경로에서 자리 표시 화면을 보여 준다', () => {
+  // D-27: 홈 로고는 와이어프레임 문구 「마감직전」(기존 자리 page 「마감 직전」에서 교체)
+  it('루트 경로에서 홈(C1) 로고 「마감직전」을 보여 준다', async () => {
     render(
       <DepsProvider container={createContainer()}>
         <App />
       </DepsProvider>,
     );
-    expect(screen.getByRole('heading', { name: '마감 직전' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '마감직전' })).toBeInTheDocument();
   });
 });

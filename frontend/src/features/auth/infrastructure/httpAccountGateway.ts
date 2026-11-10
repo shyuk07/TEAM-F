@@ -1,5 +1,6 @@
 import { request } from '@/shared/api/client';
 import type { AccountGateway } from '../application/ports';
+import type { PointPage } from '../domain/points';
 import type { ProfilePatch } from '../domain/profileInput';
 import type { SignupInput } from '../domain/signupInput';
 import type { User } from '../domain/user';
@@ -70,5 +71,17 @@ export class HttpAccountGateway implements AccountGateway {
       body: { current_password: input.currentPassword, new_password: input.newPassword },
       signal,
     });
+  }
+
+  findPoints(query: { page: number; size: number }, signal?: AbortSignal): Promise<PointPage> {
+    void query;
+    void signal;
+    throw new Error('not implemented: HttpAccountGateway.findPoints');
+  }
+
+  withdraw(password: string, signal?: AbortSignal): Promise<void> {
+    void password;
+    void signal;
+    throw new Error('not implemented: HttpAccountGateway.withdraw');
   }
 }

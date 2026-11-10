@@ -43,6 +43,12 @@ export async function mockOwnerSession(page: Page) {
   await page.route('**/v1/users/me', (route) => json(route, userDto('OWNER')));
 }
 
+// 토큰을 미리 심고 /v1/users/me가 CUSTOMER를 돌려주게 한다(customer.spec.ts).
+export async function mockCustomerSession(page: Page) {
+  await seedToken(page);
+  await page.route('**/v1/users/me', (route) => json(route, userDto('CUSTOMER')));
+}
+
 // mockOwnerSession과 같되 /v1/users/me를 메서드로 나눈다. GET은 현재 사용자, PATCH는 본문을 기록하고 반영한 사용자를 돌려준다.
 export async function mockOwnerSessionWithProfile(page: Page) {
   const patches: unknown[] = [];

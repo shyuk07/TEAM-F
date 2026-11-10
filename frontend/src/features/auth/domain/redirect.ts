@@ -3,7 +3,10 @@ import { isOwnerPath, type User } from './user';
 
 export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
 
-export type LoginLocationState = { from?: string; notice?: LoginNotice };
+// A1 진입 안내 한 줄의 진입 경로(customer-home.md D-7)
+export type LoginEntry = 'reservation' | 'customerTab';
+
+export type LoginLocationState = { from?: string; notice?: LoginNotice; entry?: LoginEntry };
 
 function hasControlChar(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
@@ -38,6 +41,11 @@ export function readLoginNotice(state: unknown): LoginNotice | null {
   return LOGIN_NOTICES.find((n) => n === notice) ?? null;
 }
 
+export function readLoginEntry(state: unknown): LoginEntry | null {
+  void state;
+  throw new Error('not implemented: readLoginEntry');
+}
+
 export function isAccountPath(path: string): boolean {
   return path === ROUTES.account || path.startsWith(`${ROUTES.account}/`);
 }
@@ -45,7 +53,9 @@ export function isAccountPath(path: string): boolean {
 export function loginRedirectState(
   cause: 'loggedOut' | 'other',
   currentPath: string,
+  entry?: LoginEntry,
 ): LoginLocationState | undefined {
+  void entry;
   return cause === 'loggedOut' ? undefined : { from: currentPath };
 }
 

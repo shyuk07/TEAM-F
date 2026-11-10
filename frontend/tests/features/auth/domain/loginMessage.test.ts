@@ -1,8 +1,19 @@
 import {
   INVALID_CREDENTIALS_MESSAGE,
   LOGIN_FALLBACK_MESSAGE,
+  loginEntryMessage,
   loginErrorMessage,
 } from '@/features/auth/domain/loginMessage';
+
+describe('loginEntryMessage (A1 진입 안내, customer-home §3.1)', () => {
+  it('reservation → 「예약을 이어가려면 로그인하세요.」', () => {
+    expect(loginEntryMessage('reservation')).toBe('예약을 이어가려면 로그인하세요.');
+  });
+
+  it('customerTab → 임시 문구 「예약 내역을 보려면 로그인하세요.」', () => {
+    expect(loginEntryMessage('customerTab')).toBe('예약 내역을 보려면 로그인하세요.');
+  });
+});
 
 describe('loginErrorMessage', () => {
   it('INVALID_CREDENTIALS는 서버 문구가 무엇이든 화면 명세 문구로 고정한다', () => {

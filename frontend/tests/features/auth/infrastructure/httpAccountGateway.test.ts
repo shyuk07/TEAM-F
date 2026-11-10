@@ -181,4 +181,66 @@ describe('HttpAccountGateway', () => {
       expect(lastOptions().signal).toBe(c.signal);
     });
   });
+
+  describe('포인트·탈퇴 (customer-home §3.3)', () => {
+    it('findPoints({page:0,size:20})는 GET /v1/users/me/points?page=0&size=20, DTO → PointPage', async () => {
+      const c = new AbortController();
+      request.mockResolvedValue({
+        users_point: 1240,
+        logs: [
+          {
+            id: 'pl1',
+            amount: 115,
+            point_type: 'EARN',
+            balance_after: 1240,
+            created_at: '2026-11-07T09:02:00Z',
+          },
+          {
+            id: 'pl0',
+            amount: -500,
+            point_type: 'USE',
+            balance_after: null,
+            created_at: '2026-11-06T03:00:00Z',
+          },
+        ],
+        page: 0,
+        size: 20,
+        total_elements: 2,
+      });
+      const page = await gateway.findPoints({ page: 0, size: 20 }, c.signal);
+      const path = String(lastPath());
+      const [pathname, search = ''] = path.split('?');
+      expect(pathname).toBe('/v1/users/me/points');
+      expect(Object.fromEntries(new URLSearchParams(search))).toEqual({ page: '0', size: '20' });
+      expect(lastOptions().method ?? 'GET').toBe('GET');
+      expect(lastOptions().auth).not.toBe(false);
+      expect(lastOptions().signal).toBe(c.signal);
+      expect(page).toMatchObject({ balance: 1240, page: 0, size: 20, total: 2 });
+      expect(page.logs[0]).toMatchObject({
+        id: 'pl1',
+        amount: 115,
+        type: 'EARN',
+        balanceAfter: 1240,
+      });
+      expect(page.logs[0]?.createdAt.getTime()).toBe(Date.parse('2026-11-07T09:02:00Z'));
+      expect(page.logs[1]?.balanceAfter).toBeNull();
+      expect(page.logs[1]?.type).toBe('USE');
+    });
+
+    it("withdraw('pw')는 POST /v1/users/me/withdraw {password:'pw'}(trim 안 함), 토큰 붙임", async () => {
+      const c = new AbortController();
+      request.mockResolvedValue({
+        id: 'u1',
+        status: 'WITHDRAWN',
+        deleted_at: '2026-11-10T00:00:00Z',
+        cancelled_reservation_count: 0,
+      });
+      await expect(gateway.withdraw(' pw ', c.signal)).resolves.toBeUndefined();
+      expect(lastPath()).toBe('/v1/users/me/withdraw');
+      expect(lastOptions().method).toBe('POST');
+      expect(lastOptions().body).toEqual({ password: ' pw ' });
+      expect(lastOptions().auth).not.toBe(false);
+      expect(lastOptions().signal).toBe(c.signal);
+    });
+  });
 });

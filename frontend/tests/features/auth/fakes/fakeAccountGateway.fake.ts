@@ -13,4 +13,9 @@ export class FakeAccountGateway implements AccountGateway {
     Promise.resolve({ ...this.base, ...patch }),
   );
   changePassword = vi.fn<AccountGateway['changePassword']>(() => Promise.resolve());
+  // 기본: 잔액 0·빈 목록
+  findPoints = vi.fn<AccountGateway['findPoints']>((query) =>
+    Promise.resolve({ balance: 0, logs: [], page: query.page, size: query.size, total: 0 }),
+  );
+  withdraw = vi.fn<AccountGateway['withdraw']>(() => Promise.resolve());
 }

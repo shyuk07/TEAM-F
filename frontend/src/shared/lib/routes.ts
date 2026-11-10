@@ -7,6 +7,11 @@ export const ROUTES = {
   accountProfile: '/account/profile',
   accountPassword: '/account/password',
   home: '/',
+  offerDetail: (id: string) => `/offers/${encodeURIComponent(id)}`,
+  reservations: '/reservations',
+  me: '/me',
+  mePoints: '/me/points',
+  meWithdraw: '/me/withdraw',
   owner: '/owner',
   ownerToday: '/owner/today',
   ownerOffers: '/owner/offers',
@@ -18,5 +23,6 @@ export const ROUTES = {
 } as const;
 
 export const ROUTE_PATTERNS = {
+  offerDetail: '/offers/:offerId',
   ownerProduct: '/owner/products/:productId',
 } as const;
