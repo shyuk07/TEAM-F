@@ -199,6 +199,36 @@ async def test_lookup_adapter():
     assert await lookup.has_reservations_for_offer(stock.offer_id) is True
 
 
+@pytest.mark.parametrize(
+    "statuses,expected",
+    [
+        ([], False),  # 예약 없음
+        (["CANCELLED", "CANCELLED"], False),  # 모두 취소 (REQ-17: 수정 가능)
+        (["PENDING_PAYMENT"], True),
+        (["RESERVED"], True),
+        (["PICKED_UP"], True),
+        (["CANCELLED", "RESERVED"], True),  # 취소 + 살아 있는 예약 1건
+    ],
+)
+async def test_lookup_adapter_counts_only_non_cancelled(statuses, expected):
+    """catalog 할인 수정 가드(REQ-17, D81·D-39): 취소되지 않은 예약만 센다. 레포지토리는 exists_non_cancelled_by_offer만 쓴다."""
+    service, _, _, repo, stock, *_ = build()
+    for status in statuses:
+        r = await service.create_reservation(uuid.uuid4(), stock.offer_id, 1)
+        set_status(r, S(status))
+    calls = []
+    original = repo.exists_by_offer
+
+    async def spy(offer_id):
+        calls.append(offer_id)
+        return await original(offer_id)
+
+    repo.exists_by_offer = spy
+    lookup = OfferReservationLookup(repo)
+    assert await lookup.has_reservations_for_offer(stock.offer_id) is expected
+    assert calls == []  # 상태 무관 조회(exists_by_offer)는 쓰지 않는다
+
+
 async def test_canceller_adapter_delegates_without_commit():
     service, _, session, repo, stock, refunds, *_ = build()
     r = await service.create_reservation(uuid.uuid4(), stock.offer_id, 1)
