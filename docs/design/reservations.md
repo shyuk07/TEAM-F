@@ -864,6 +864,7 @@ async def has_pickup_pending_for_store(self, store_id) -> bool:  # stores Pickup
 - `application/store_adapters.py`: `CatalogStoreOffersAdapter(offers: DiscountOfferRepository)`가 `StoreOffersPort`를 만족. catalog **추상 레포지토리**만 쓴다(R11 §3.4 1행). catalog 서비스는 받지 않는다(R12).
 - `application/admin_adapters.py`: `ReservationAdminAdapter(service: ReservationApplicationService, query: StoreReservationQuery)`가 admin 새 포트(D-32)를 만족.
   - `cancel_active_for_user(user_id, *, reason) -> int` → `service.cancel_all_for_user(user_id, reason=reason)`
+  - **관리자 강제 탈퇴 전용 `AdminWithdrawalReservationAdapter`(하위 클래스, 2026-11-10 사용자 결정)**: `cancel_active_for_user`는 넘어온 관리자 사유를 쓰지 않고 `rules.ADMIN_WITHDRAWAL_CANCEL_REASON`("관리자 강제 탈퇴")으로 `service.cancel_all_for_user`를 부른다. 관리자 원문 사유(최대 500자)는 탈퇴 기록(`users.deleted_reason`)과 강제 폐점 사유에만 남고, 200자 제한이 있는 환불 사유에는 고정 문구가 들어간다(201~500자 사유로도 탈퇴·전액 환불 가능). container는 `create_admin_service`에만 이 어댑터(`create_reservation_admin_for_admin`)를 주입하고, 본인 탈퇴(auth)는 기존 어댑터와 `SELF_WITHDRAWAL_REASON`을 그대로 쓴다. 재고 복구 기록 사유는 원래 catalog 고정 문구("예약 취소 복구")라 영향 없음.
   - `has_reserved_for_store(store_id, *, excluding_user_id=None) -> bool` → `query.has_reserved_for_store(...)`
   - `DataInconsistentError`는 admin이 정의한 `ReservationDataInconsistentError`로 **번역만** 한다(로그 없음. 서비스가 이미 1건 기록, `catalog_adapters.OfferReservationCanceller`와 같은 방식, C-17).
 

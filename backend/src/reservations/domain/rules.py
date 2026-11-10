@@ -11,6 +11,9 @@ PICKUP_CODE_LETTERS = 1  # Q-4: 예) A12345
 PICKUP_CODE_DIGITS = 5
 CUSTOMER_CANCEL_REASON = "고객 요청 취소"  # Q-7
 WITHDRAWAL_CANCEL_REASON = "회원 탈퇴"  # Q-A6: 호출자가 사유를 넘기면 그 값을 쓴다
+# 관리자 강제 탈퇴로 인한 예약 취소·환불·재고 기록에 쓰는 고정 사유(사용자 결정 2026-11-10).
+# 관리자가 입력한 원문 사유(최대 500자)는 탈퇴 기록(users.deleted_reason)에만 남고, 200자 제한이 있는 환불·재고 기록에는 쓰지 않는다.
+ADMIN_WITHDRAWAL_CANCEL_REASON = "관리자 강제 탈퇴"
 MAX_RESERVATION_QUANTITY = 5  # 요구조건 R-REQ1: 예약 1건 수량 1~5 (확정, 2026-11-06)
 LIST_DEFAULT_SIZE = 20  # Q-9
 LIST_MAX_SIZE = 100
