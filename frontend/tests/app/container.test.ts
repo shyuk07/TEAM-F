@@ -1,5 +1,6 @@
 import { createContainer } from '@/app/container';
 import { SessionStoreToken } from '@/entities/session';
+import { AdminRepositoryToken } from '@/features/admin';
 import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
 import { Container, type Token } from '@/shared/lib/di';
 
@@ -8,6 +9,7 @@ const TOKENS: readonly Token<unknown>[] = [
   SessionStoreToken,
   AuthGatewayToken,
   AccountGatewayToken,
+  AdminRepositoryToken,
 ];
 
 describe('createContainer', () => {

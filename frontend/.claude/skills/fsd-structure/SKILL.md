@@ -136,3 +136,8 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | C9 비밀번호 변경 | `pages/account-password` | `features/auth`(`PasswordChangeForm`) | `../docs/design/frontend/auth-account.md` |
 | C8·C9 로그인 필요 가드 | 없음(`app/layouts/AccountLayout`) | `features/auth`(`useAuth`, `decideAccess(…, 'ANY')`) | `../docs/design/frontend/auth-account.md` |
 | O8 계정 메뉴의 C8·C9 행 | 없음(`widgets/owner-nav`의 `OwnerAccountMenu`) | `widgets/owner-nav`, `features/auth` | `../docs/design/frontend/auth-account.md` |
+| 관리자 셸 가드·상단 바 | 없음(`app/layouts/AdminLayout`) | `widgets/admin-nav`, `widgets/owner-nav`(`OwnerAccountButton`), `features/auth` | `../docs/design/frontend/admin.md` |
+| M1 승인 | `pages/admin-approvals` | `features/admin`(`ApprovalsPanel`) | `../docs/design/frontend/admin.md` |
+| M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
+| M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
+| M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |
