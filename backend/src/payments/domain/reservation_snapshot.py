@@ -23,6 +23,7 @@ class ReservationSnapshot:
     total_price: int | None
     status: str
     pickup_start: datetime | None = None
+    cancellable_until: datetime | None = None  # 고객 환불 마감 시각(Catalog 정책, REQ-6)
 
     def _is_owner(self, user_id: UUID) -> bool:
         return self.user_id == user_id

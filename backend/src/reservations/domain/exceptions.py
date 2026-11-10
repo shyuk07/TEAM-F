@@ -55,6 +55,15 @@ class NotPickupStoreOwnerError(PermissionError):
         super().__init__(message)
 
 
+class CancellationDeadlinePassedError(ValueError):
+    """400 CANCELLATION_DEADLINE_PASSED (결제 완료 예약은 취소 가능 시각까지만 고객 취소·환불, payments REQ-6)"""
+
+    error_code = "CANCELLATION_DEADLINE_PASSED"
+
+    def __init__(self, message: str = "취소 가능 시각이 지나 취소·환불할 수 없습니다."):
+        super().__init__(message)
+
+
 class PickupCodeMismatchError(ValueError):
     """400 PICKUP_CODE_MISMATCH"""
 

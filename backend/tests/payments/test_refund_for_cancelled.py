@@ -34,7 +34,10 @@ class HalfPolicy:
 
 
 async def call(env, payment, **kwargs):
-    args = dict(reservation_status="RESERVED", pickup_start=NOW + timedelta(hours=1), reason="고객 요청 취소")
+    args = dict(
+        reservation_status="RESERVED", pickup_start=NOW + timedelta(hours=1), reason="고객 요청 취소",
+        cancellable_until=NOW,  # Catalog 정책: pickup_start - 1시간. NOW는 경계라 취소 가능
+    )
     args.update(kwargs)
     return await env.service.refund_for_cancelled_reservation(payment.reservation_id, **args)
 

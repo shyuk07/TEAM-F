@@ -23,6 +23,7 @@ from payments.domain.exceptions import (
 )
 from payments.domain.payment import Payment, PaymentStatus
 from payments.domain.refund import Refund
+from tests.payments.fakes import FAR_FUTURE
 from tests.payments.test_service import OTHER, USER, Env, paid
 
 pytestmark = pytest.mark.anyio
@@ -117,7 +118,8 @@ def test_ensure_consistent_with_reservation_combinations(payment_status, reserva
 # ══ ①②③ refund_for_cancelled_reservation: 환불·결제 저장 0, commit·rollback 0, 로그 0(호출한 쪽이 기록) ══
 async def call(env, reservation_id, status="RESERVED"):
     return await env.service.refund_for_cancelled_reservation(
-        reservation_id, reservation_status=status, pickup_start=None, reason="x"
+        reservation_id, reservation_status=status, pickup_start=None, reason="x",
+        cancellable_until=FAR_FUTURE,  # 시간 제한(REQ-6) 밖의 불일치 시나리오
     )
 
 

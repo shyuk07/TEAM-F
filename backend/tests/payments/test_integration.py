@@ -348,7 +348,13 @@ class Env:
 
 
 @pytest.fixture
-def make_env():
+def make_env(monkeypatch):
+    # 예약·결제 시계를 테스트 기준 시각(NOW)에 고정한다. 할인 픽업 시각이 NOW 기준이라, 실제 시계를 쓰면
+    # 고객 취소·환불 마감(REQ-6, pickup_start - 1시간 = NOW)이 날짜가 지나며 저절로 지나 버린다.
+    from tests.reservations.fakes import FakeClock
+
+    monkeypatch.setattr(container, "_reservations_clock", FakeClock())
+    monkeypatch.setattr(container, "_payments_clock", FakeClock())
     previous: dict = {}
 
     def factory(mode: str = "restores") -> Env:

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.application.service import AuthApplicationService
 from payments.application.ports import ReservationPort
-from payments.domain.cancellation_policy import CancellationPolicy
+from payments.domain.cancellation_policy import CancellationPolicy, ensure_before_refund_deadline
 from payments.domain.exceptions import (
     InconsistencyKind,
     PaymentAlreadyExistsError,
@@ -148,7 +148,9 @@ class PaymentApplicationService:
 
         # 미정(D-2): 위약금 계산 담당. 현재는 payments의 정책이 계산한다(D-1: 0원).
         now = self.clock.now()
-        penalty = self.policy.penalty(payment.amount, snapshot.pickup_start, now)
+        # 시간 제한(REQ-6)은 불일치(500)·중복 환불(409)·상태(400) 검사 뒤, 쓰기 전에 본다.
+        ensure_before_refund_deadline(snapshot.cancellable_until, now)
+        penalty = self.policy.penalty(payment.amount, snapshot.pickup_start, now)  # pickup_start는 위약금 정책용(마감 판정은 cancellable_until)
         refund = payment.refund(penalty, reason, now)
 
         try:
@@ -182,6 +184,7 @@ class PaymentApplicationService:
         pickup_start: datetime | None,
         reason: str,
         waive_penalty: bool = False,
+        cancellable_until: datetime | None = None,
     ) -> Refund:
         payment = await self.payments.find_by_reservation_id(reservation_id, for_update=True)
         if payment is None or payment.id is None:
@@ -190,6 +193,8 @@ class PaymentApplicationService:
         payment.ensure_cancel_refundable(reservation_status, has_refund)  # 불일치면 500 예외
 
         now = self.clock.now()
+        if not waive_penalty:  # 고객 취소만 시간 제한(REQ-6). 상점주 사유·탈퇴 일괄 취소는 제외
+            ensure_before_refund_deadline(cancellable_until, now)  # 불일치 검사 뒤, 쓰기 전
         penalty = 0 if waive_penalty else self.policy.penalty(payment.amount, pickup_start, now)
         refund = payment.refund(penalty, reason, now)
         await self.refunds.save(refund)
