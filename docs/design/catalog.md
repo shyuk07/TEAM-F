@@ -463,7 +463,7 @@ class CatalogApplicationService:
 
 ### 6.3 시나리오 (읽기)
 
-**#2 `list_products(viewer_id: UUID | None, store_id, category, is_active, page, size) -> Page[Product]`**
+**#2 `list_products(viewer_id: UUID | None, store_id, category, is_active, page, size) -> Page[Product]`** — **D106으로 대체 (2026-11-10)**: 아래 2번(`NotStoreOwnerError`)·router 401 분기는 더 이상 쓰지 않는다. 현행은 16.4절
 1. `store = _load_store(store_id)` (404)
 2. `is_active=False`를 요청하면: 소유자(`store.is_owned_by(viewer_id)`)가 아니면 `NotStoreOwnerError("본인 상점의 비활성 상품만 조회할 수 있습니다.")` (D6). **비로그인(401) 판정은 router가 한다**(7.1절, CI-3): `is_active=False`인데 `viewer`가 `None`이면 router가 `auth.domain.exceptions.AuthenticationError`를 낸다(`HTTPException`이 아니므로 R6 위반 아님, 401 형식·헤더는 전역 핸들러).
 3. `products.find_by_store(...)`
@@ -773,7 +773,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | D3 | 시간 경과에 따른 상태(스케줄러 없음) | 설계 | **조회 시 계산**(`effective_status`), 저장 `status`는 쓰기 때 동기화 | 배치 인프라가 없음 | `effective_status`, `_status_clause` | 임시 |
 | D4 | "진행 중인 할인" 정의 (#5, #6, #7, #11 재개, 폐점) | 명세 #5·#6·#7 | `is_active and now < sales_end` (유효 상태 SCHEDULED/ON_SALE/SOLD_OUT) | 판매가 끝나 픽업만 남은 할인이 다음 날 할인 등록을 막지 않게 | `DiscountOffer.is_open` | 임시 |
 | D5 | 재고 0 ↔ `SOLD_OUT`/`ON_SALE` 전환 | 명세 #14 | 0이 되면 `SOLD_OUT`, 0에서 늘면 `ON_SALE`(시작 전이면 `SCHEDULED`) 자동 | 명세 제안 + `is_sold_out` 계산 값과 일치 | `adjust_stock` | 임시 |
-| D6 | 공개 목록의 `is_active=false` | 명세 #2 | 기본은 활성만. `false` 요청은 해당 상점 소유자만(비로그인 401, 타인 403) | 명세 제안 | `list_products`, router | 임시 |
+| D6 | 공개 목록의 `is_active=false` | 명세 #2 | 기본은 활성만. `false` 요청은 해당 상점 소유자만(비로그인 401, 타인 403) | 명세 제안 | `list_products`, router | 임시 — **D106으로 대체 (2026-11-10)** |
 | D7 | 비활성 상품 상세 노출 | 명세 #4 | 소유자 외에는 404 | D6과 일관 | `get_product` | 임시 |
 | D8 | #14 누락 에러 | 명세 #14 | 초과 차감 400 `INSUFFICIENT_STOCK`; `amount=0` 400; 중단된 할인(`is_active=false`) 400 `OFFER_CLOSED`(시간만 지난 건 허용); 증가 후 `initial > 9999` 400; 403 문구 "본인 상점의 재고만 조정할 수 있습니다." | 명세 제안 + 최초 수량 상한 1~9999 | `adjust_stock` | 임시 |
 | D9 | 폐점·미승인 상점 에러 문구 | 명세 #1 | "폐점된 상점에서는 {상품/할인}을 등록할 수 없습니다." (400 `STORE_CLOSED`), 미승인은 명세 문구 그대로. 할인 등록·재등록에도 같은 검사 적용 | stores 명세 "폐점된 상점에서는 상품 및 할인 판매를 등록할 수 없다" | `StoreRef.ensure_can_register` | 임시 |
@@ -899,7 +899,7 @@ src/container.py -> stores.{application, presentation.dependencies, ...}   (조�
 | # | 위치 | 이슈 | 영향·제안 |
 | --- | --- | --- | --- |
 | CI-2 | 2.3 ↔ stores.md 8절 | `has_open_offers_for_store(store_id, *, now=None) -> bool` 서명이 두 문서에서 같아야 구조적 만족이 깨지지 않는다 | 확정 서명이다. `now`는 키워드 전용이고 None이면 주입된 `Clock`을 쓴다 |
-| CI-3 | 6.1, 6.3, 7.1 | 서비스는 `user_id`만 받고 비로그인 401은 router가 낸다. 대신 router가 "`is_active=false` 조회는 로그인 필요"를 알아야 한다 | 규칙 자체(소유자만)는 서비스·도메인(`NotStoreOwnerError`)에 있고 router는 인증 여부만 판단한다. 팀이 router 분기를 원하지 않으면 `is_active=false` 목록을 별도 EP(`OwnerUser`)로 분리하는 안을 명세 변경으로 논의 |
+| CI-3 | 6.1, 6.3, 7.1 | 서비스는 `user_id`만 받고 비로그인 401은 router가 낸다. 대신 router가 "`is_active=false` 조회는 로그인 필요"를 알아야 한다 | 규칙 자체(소유자만)는 서비스·도메인(`NotStoreOwnerError`)에 있고 router는 인증 여부만 판단한다. 팀이 router 분기를 원하지 않으면 `is_active=false` 목록을 별도 EP(`OwnerUser`)로 분리하는 안을 명세 변경으로 논의 — **D106으로 대체 (2026-11-10)**: router의 401 분기 삭제로 해소 |
 | CI-5 | 3.7, 5.2 | 시간 의존 코드(`effective_status`, `_status_clause`)는 `Clock`과 DB `now()` 두 출처를 섞으면 안 된다 | 레포지토리 쿼리는 항상 인자로 받은 `now`(Clock 값)만 사용하고 SQL `now()`를 쓰지 않는다. 테스트로 확인(10절) |
 | CI-7 | 5.2 `save` | `save`의 갱신 경로가 가격·시간 컬럼을 빠뜨리면 #11 수정이 DB에 반영되지 않는 조용한 실패가 된다 | 갱신 경로가 `sale_price`, `sales_start`, `sales_end`, `pickup_start`, `pickup_end`를 모두 쓴다. 왕복 테스트로 확인(10절) |
 | CI-10 | 6.4 ↔ reservations 설계(미작성) | catalog → reservations(예약 존재 확인)와 reservations → catalog(재고 차감, 6.4)가 양방향이다 | 둘 다 쓰는 쪽이 포트를 정의하고 container가 연결하면 import 순환은 없다. 생성 순환을 피하려면 `create_reservation_lookup`이 reservations **레포지토리만** 받아야 한다(catalog 서비스에 의존 금지). 예약 생성이 offer 행 잠금 아래에서 INSERT 되어야 #11 검사와 직렬화된다(5.3, db-schema §7). reservations 설계에 요구사항으로 전달: `exists_by_offer(offer_id)` 추상 메서드, 잠금 순서(offer 잠금 → 예약 insert). reservations 구현 PR에서 container 바인딩과 `test_wiring.py`의 `NoReservationLookup` 단언을 교체 |
@@ -1465,3 +1465,236 @@ async def get_product_image(product_id: uuid.UUID, image_id: uuid.UUID, service:
 | Q55 | 캐시 정책 | 사용자 위임 | `public, max-age=3600` | 내용 불변이지만 삭제·비공개 전환 반영 지연을 1시간으로 제한 | `IMAGE_RESPONSE_HEADERS` 한 곳(ETag·304는 후속) |
 | Q56 | 정지·미승인 상점의 상점주가 이미지를 올리거나 지울 수 있는지 | 정책 표 "상품 수정"은 폐점·노출 중단만 명시 | 허용(`update_product`와 같은 검사) | 같은 EP들과 규칙을 맞춤 | `upload_product_image`·`delete_product_image`에 `StoreRef` 검사 추가 |
 | Q57 | 같은 파일의 중복 업로드(해시 중복 제거)·업로드 이미지 순서 바꾸기 전용 EP | 결정 3 범위 밖 | 하지 않는다. 순서는 PATCH(`product_image` 순서 변경, 허용됨)로 | 요구에 없음 | 후속 설계 |
+
+---
+
+## 16. 상품 등록 multipart · 상점 상품 목록 기본값 (2026-11-10 추가)
+
+대상: #1 `POST /v1/stores/{store_id}/products`, #2 `GET /v1/stores/{store_id}/products`. 요청서: 프론트 products 차수(O4·O6·O12). 코드는 쓰지 않는다. 15절(이미지)의 EP·동작은 바꾸지 않고 재사용만 한다.
+
+### 16.0 차단 이슈와 실행 확인
+
+차단 이슈 없음. 근거:
+
+| 확인 | 명령 | 결과 |
+| --- | --- | --- |
+| `python-multipart` 설치 | 15절 D104로 이미 추가됨. `uv run python -c "import fastapi;print(fastapi.__version__)"` | 0.162.0, `Request.form()` 동작(아래 프로브) |
+| Content-Type 분기 실현 가능성 | `uv run python -I <scratchpad>/probe.py` (핸들러가 `Request`만 받고 `content-type`으로 분기) | JSON → `{'kind':'json'}`, multipart(`file` 2개) → `{'kind':'multipart','nfiles':2}`(`form.getlist("file")`로 개수 확인 가능) |
+| 깨진 multipart | 같은 프로브에 `content-type: multipart/form-data; boundary=zzz`, 본문 `garbage` | 400 `{"detail":"Invalid multipart data."}`. 이 `HTTPException`은 `_HTTP_CODES`에 400이 없어 `error_code`가 `HTTP_ERROR`가 된다(소스 기준, CI-24와 같은 원인) |
+| 폼 검증 실패를 JSON과 같은 응답으로 | `uv run python -I <scratchpad>/probe2.py` (`pydantic.ValidationError` → `RequestValidationError(e.errors())` 재발생) | 전역 핸들러가 받는 형태(`loc`에 `name`·`original_price`)로 나온다 → 400 `VALIDATION_ERROR`·`필드: 메시지`(`error_handlers.py:53-63`) |
+| `openapi_extra`로 문서화 | 같은 프로브 | `requestBody.content`에 `multipart/form-data`가 생성됨 |
+| 현재 코드 import | (구현 때 확인) `(cd src && uv run python -c "import main")` | 설계만 하므로 이번에는 실행하지 않음 |
+
+### 16.1 큰 그림
+
+- #1은 한 경로에서 `Content-Type`으로 두 갈래다. `multipart/form-data`로 시작하면 폼 경로, 그 밖은 지금의 JSON 경로(동작 불변).
+- 서비스는 상품 등록과 이미지 첨부를 **한 메서드·한 `commit()`**으로 처리한다. 이미지 검증은 어떤 INSERT보다 먼저 한다.
+- #2는 `is_active`를 `bool | None`으로 받고, 필터 해석(본인 여부)은 도메인(`StoreRef`)이 한다.
+
+### 16.2 도메인 (domain/)
+
+**`ProductImage` (`product_image.py`)**: 검증 로직을 `create`에서 꺼낸다(동작 불변).
+- 새 `@staticmethod validate_bytes(data: bytes) -> str`: 길이 > `MAX_IMAGE_BYTES`이면 `ImageTooLargeError`, `detect_image_content_type`이 None이면 `UnsupportedImageTypeError`, 아니면 content_type 반환. 빈 바이트도 `UnsupportedImageTypeError`(생성자와 같음).
+- `create(product_id, data)`는 `validate_bytes(data)`를 호출한 뒤 생성한다. 형식·크기 판정의 정본이 한 곳이다. 이유: `create`는 `product_id`가 필요한데 새 상품은 저장 전에는 id가 없다(`Product.save`가 flush에서 id를 채움, `repositories.py:151-164`). 저장 전에 검증하려면 id 없이 바이트만 검사하는 진입점이 필요하다.
+
+**`Product`**: 변경 없음. `register`(검증)·`attach_image`(`image.id`·소속 검사, 10개 상한)를 그대로 쓴다. 외부 URL은 폼 경로에서 `product_image=None`으로 넘긴다.
+
+**`StoreRef` (`store_ref.py`)**: 새 값 객체와 메서드(R3: 본인 여부 판단은 도메인).
+```
+@dataclass(frozen=True)
+class ProductListScope:
+    is_empty: bool            # True면 조회하지 않고 빈 목록
+    is_active: bool | None    # None이면 노출·숨김 모두
+
+StoreRef.product_list_scope(viewer_id: UUID | None, requested: bool | None) -> ProductListScope
+```
+| 요청자 | `requested` | 결과 |
+| --- | --- | --- |
+| 소유자 | None | `is_active=None` |
+| 소유자 | True / False | 그 값 |
+| 비소유자(타인·비로그인) | None / True | `is_active=True` |
+| 비소유자 | False | `is_empty=True` |
+
+`ValueError` 조건 없음. `NotStoreOwnerError`는 #2에서 더 이상 내지 않는다(다른 곳에서 계속 사용).
+
+### 16.3 인프라 (infrastructure/)
+
+스키마 변경 없음. 새 레포지토리 메서드 없음.
+- `ProductRepository.find_by_store(store_id, *, category=None, is_active: bool | None = None, page, size)` — 추상(`domain/repository/product_repository.py:18`)과 구현(`repositories.py:80`) 모두. 기본값을 `True`에서 `None`으로 바꾸고, `is_active`가 None이면 `ProductModel.is_active == ...` 조건을 넣지 않는다(count 쿼리와 목록 쿼리가 같은 `conditions`를 쓰므로 한 곳). 정렬 `name, id`(D15) 유지. 호출처는 `list_products` 하나(Grep 확인).
+- `ProductRepository.save`·`ProductImageRepository.add`·`attach_image`는 그대로 재사용.
+- 동시성: 새 상품에는 잠글 기존 행이 없다. 상점 행은 읽기만 한다(`_load_store`, 기존과 같음). 새 상품은 만든 요청만 알고 있어 10개 상한 경쟁이 없다. `with_for_update()` 불필요.
+
+### 16.4 응용 (application/)
+
+**#1 새 메서드를 만들지 않고 기존 `create_product`를 확장한다** (호출처 1곳, JSON 경로를 그대로 두기 위해):
+```
+create_product(user_id, store_id, data: dict, image_data: bytes | None = None) -> Product
+```
+시나리오 (실패 시 어느 단계에서도 `commit()` 전이므로 세션 종료 때 롤백 — `get_db`는 `async with AsyncSessionLocal()`로 닫기만 하며 `commit`이 없으면 되돌려짐):
+1. `store = _load_store(store_id)` (404) → `ensure_owner` (403) → `ensure_can_register("상품")` (400)
+2. `product = Product.register(...)` (도메인 검증 400, 저장 전)
+3. `image_data`가 있으면 `ProductImage.validate_bytes(image_data)` — 저장 전 검증(400 `IMAGE_TOO_LARGE`·`UNSUPPORTED_IMAGE_TYPE`)
+4. `products.save(product)` (flush로 id 확보)
+5. `image_data`가 있으면 `image = ProductImage.create(product.id, image_data)` → `product_images.add(image)` → `product.attach_image(image)` → `products.save(product)` (URL을 `product_image`에 반영)
+6. `session.commit()` — **한 번**. 반환은 `Product`(응답 스키마 `ProductResponse` 그대로, `product_image`에 업로드 URL이 들어 있음)
+
+순서의 근거: 3을 4 앞에 두면 사진 불량(가장 흔한 실패)은 DB를 건드리지 않는다. 4~5 사이의 예기치 않은 실패(DB 오류 등)는 commit 이전이라 products·product_images 행이 모두 남지 않는다(같은 세션). 오류 우선순위는 권한·상점 상태(1) → 상품 필드(2) → 사진(3). 사진 오류가 상품 필드 오류보다 뒤에 보고된다.
+
+잠금·교착: 상점은 읽기만 하고 새 상품 행 하나만 만든다. 다른 모듈을 거치지 않는다.
+
+`upload_product_image`는 그대로(상품 `FOR UPDATE`·소유 검사 유지). 등록 흐름은 이 메서드를 호출하지 않는다(상품 잠금·재조회·중간 `commit()`이 한 트랜잭션을 깨기 때문). 대신 같은 도메인 부품(`ProductImage`, `attach_image`)과 레포지토리를 재사용한다. 폼 경로 서비스 호출에는 권한 판단이 필요 없다(1단계가 정본).
+
+**#2 `list_products(viewer_id, store_id, category, is_active: bool | None, page, size) -> Page[Product]`**:
+1. `store = _load_store(store_id)` (404) → `store.ensure_products_visible_to(viewer_id)` (폐점·정지 상점은 비소유자에게 404, 기존과 같음 — 빈 목록보다 우선)
+2. `scope = store.product_list_scope(viewer_id, is_active)`
+3. `scope.is_empty`이면 `Page(items=[], page=page, size=size, total=0)` 반환(쿼리 없음)
+4. 아니면 `products.find_by_store(store_id, category=category, is_active=scope.is_active, page=page, size=size)`
+
+서비스에는 `if`를 `scope.is_empty` 한 곳만 둔다(규칙 자체는 도메인). 읽기 전용이라 `commit` 없음.
+
+### 16.5 표현 (presentation/)
+
+**엔드포인트**
+
+| Method | URI | 요청 | 응답 | 성공 | 에러 |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/v1/stores/{store_id}/products` | `application/json`: `ProductCreateRequest`(기존) 또는 `multipart/form-data`: 폼 `name`·`category`·`description`·`original_price` + 파트 `file`(선택) | `ProductResponse`(기존) | 201 | 400(`VALIDATION_ERROR`, `IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, 상점 상태), 401, 403, 404 |
+| GET | `/v1/stores/{store_id}/products` | 쿼리 아래 표 | `ProductListResponse`(기존) | 200 | 400(쿼리 형식), 404. **401·403 없음**(D106) |
+
+**#1 router 분기**: `create_product(store_id, request: Request, owner: OwnerUser, service)` — 본문 모델 파라미터를 없애고 `Request`로 직접 받는다. 이유: FastAPI는 같은 경로·메서드에 Content-Type별로 다른 핸들러를 고르지 못하고(Starlette 라우팅은 경로·메서드만 본다), `Body` 모델과 `Form`을 한 핸들러에 선언하면 둘 다 필수가 되어 한쪽이 항상 실패한다. 프로브로 `Request` 방식이 둘 다 통과함을 확인했다(16.0).
+- 인증(`OwnerUser`)은 의존성이라 본문 파싱보다 먼저 실행된다(핸들러 본문에서 `request.form()`을 호출하므로).
+- `content-type`이 `multipart/form-data`로 시작: `form = await request.form()` → `name`·`category`·`description`·`original_price`를 모아 `ProductCreateRequest`(스키마 재사용)로 `model_validate`, `pydantic.ValidationError`는 `RequestValidationError(e.errors())`로 다시 올린다(→ 전역 핸들러가 400 `VALIDATION_ERROR`, JSON 등록의 필드 오류와 같은 상태·`error_code`·`필드: 메시지` 형식). `original_price`는 문자열로 오므로 pydantic이 int로 변환한다(변환 불가·누락은 400 `VALIDATION_ERROR`). `product_image` 필드는 폼에서 읽지 않는다(보내도 무시. Q60). `form.getlist("file")`: 0개면 `image_data=None`; 1개가 `UploadFile`이면 `await file.read(MAX_IMAGE_BYTES + 1)`; 2개 이상이거나 `UploadFile`이 아닌 문자열이면 `RequestValidationError`로 400 `VALIDATION_ERROR`(Q59). 이후 `service.create_product(owner.id, store_id, data, image_data)`.
+- 그 밖(JSON 포함): `ProductCreateRequest.model_validate_json(await request.body())`, 실패는 같은 방식으로 `RequestValidationError` → 400 `VALIDATION_ERROR`(현재와 같은 형식), 성공 시 `service.create_product(owner.id, store_id, body.model_dump())`. 기존 JSON 호출·테스트 26곳의 입력·응답은 그대로다(`image_data` 기본 None).
+- 분기·파싱 코드는 router 안의 작은 비공개 함수 2개(`_read_json_body`, `_read_multipart_body`)로 두고, 검증 규칙은 스키마·도메인에 남긴다(R3, R6: `HTTPException` 없음).
+- OpenAPI: `Request`만 받으면 요청 본문이 문서에 없으므로 `openapi_extra={"requestBody": {...}}`에 `application/json`(`ProductCreateRequest.model_json_schema()` 참조)과 `multipart/form-data`(위 필드 + `file` binary) 두 형태를 함께 적는다.
+
+**`UploadSizeLimitRoute`를 #1에 적용하는 방법**: 지금 클래스는 `Content-Length`가 `MAX+64 KiB`를 넘으면 content-type과 관계없이 `ImageTooLargeError`를 낸다. #1에 그대로 쓰면 5 MiB를 넘는 JSON 본문도 `IMAGE_TOO_LARGE`가 되어 JSON 동작이 바뀐다. 그래서 `image_router.py`에 서브클래스 `MultipartSizeLimitRoute(UploadSizeLimitRoute)`를 두고 **`content-type`이 `multipart/form-data`일 때만** 검사한다(검사 본체는 부모의 상수·예외 재사용, 인증보다 먼저인 점은 D99와 같음). #1은 `APIRouter(route_class=MultipartSizeLimitRoute, ...)`로 만든 별도 라우터(또는 `router`의 해당 데코레이터 1곳)에 둔다. `UploadSizeLimitRoute`와 #15~#17은 건드리지 않는다. JSON은 한도 없이 FastAPI 기본(본문 전체 읽기)이던 현재 동작 그대로다. `Content-Length`가 없는 chunked 요청은 사전 검사를 통과하고 `file.read(MAX+1)`·`validate_bytes`가 판정한다(Q50과 같은 한계).
+
+**#2 쿼리 매개변수**
+
+| 이름 | 타입 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `category` | string | 없음 | 카테고리 필터(변경 없음) |
+| `is_active` | bool \| 미지정 | **미지정** | 미지정: 본인 상점이면 노출·숨김 모두, 그 외는 노출만. `true`: 누구에게나 노출만. `false`: 본인만 숨김 상품, 그 외(타인·비로그인)는 200 빈 목록 |
+| `page`, `size` | int | 1, 20 | 변경 없음 |
+
+router: `is_active: bool | None = None`. `if not is_active and viewer is None: raise AuthenticationError()`를 **삭제**한다(`router.py:71-72`). `AuthenticationError` import는 다른 사용처가 없으면 함께 지운다(Grep: 현재 이 1곳). `viewer.id if viewer else None`로 서비스에 넘기는 부분은 그대로. 비로그인 처리는 `OptionalUser`가 하므로(변경 없음) 토큰이 없으면 `None`.
+
+### 16.6 테스트 계획 (추가·수정분)
+
+기존 JSON 호출(reservations·stores 등 26곳)은 수정하지 않는다. 구현 후 `Grep -c "stores/.*products" tests`로 호출 수를 대조한다.
+
+| 구분 | 케이스 |
+| --- | --- |
+| 도메인 | `ProductImage.validate_bytes`: 정상 3종 → content_type, 5 MiB+1 → `ImageTooLargeError`, 비이미지·빈 바이트 → `UnsupportedImageTypeError`, `create`가 같은 결과(회귀). `StoreRef.product_list_scope` 3×3 표(16.2 전 행) |
+| 서비스(fake) | `create_product` 사진 없음 = 기존과 동일(회귀). 사진 정상 → 상품 1건 + 이미지 1건 + `product.product_image == [image_path]` + `commit` 1회. 사진 불량(형식·크기) → `products` fake 비어 있음, `commit` 0회. 상품 필드 불량 + 사진 정상 → `images` 비어 있음. 이미지 `add`가 예외 → `commit` 0회. `list_products`: `is_active=None` 소유자/비소유자, `False` 비소유자 → 빈 Page이고 `find_by_store` 호출 0회, 폐점 상점 비소유자 → 404가 빈 목록보다 우선 |
+| API(DB, `db` 마커) | **롤백**: 사진이 PNG가 아님 → 400 `UNSUPPORTED_IMAGE_TYPE` 후 `products` 행 0건·`product_images` 행 0건. 5 MiB 초과 → 400 `IMAGE_TOO_LARGE` 후 둘 다 0건. `ProductImageRepository.add`를 monkeypatch로 실패시켜(flush 이후 단계) 상품 INSERT가 롤백됨을 두 테이블 0건으로 확인. 정상(사진 있음) → 201, `product_image`에 `/v1/products/{id}/images/{iid}`, 그 URL로 GET #17 → 200 바이트 일치. 사진 없음 multipart → 201, 사진 행 0건. **JSON 회귀**: 기존 JSON 등록 201·`product_image` 외부 URL 유지·검증 오류 문구(가격 0 → 400) 불변. 5 MiB 초과 `Content-Length`의 JSON은 `IMAGE_TOO_LARGE`가 아니다(사전 검사 대상 아님). multipart `Content-Length`가 한도 초과 → 인증보다 먼저 400(토큰 없이 보내 `IMAGE_TOO_LARGE`, 15.8의 D99 테스트와 같은 방식). `file` 2개 → 400 `VALIDATION_ERROR`. `original_price` 누락·문자 → 400 `VALIDATION_ERROR`, JSON의 같은 오류와 `error_code`·메시지 형식 동일. 비소유자·비로그인 multipart → 403·401(사진 불량이어도 인증이 먼저). 깨진 multipart 본문 → 400, `error_code`는 실측해 기록(CI-24) |
+| 목록 3×3 | (소유자·타인 로그인·비로그인) × (`is_active` 미지정·true·false), 숨김 1건·노출 1건 상점: 소유자 → 2건 / 노출만 / 숨김만. 타인 → 노출만 / 노출만 / **200 빈 목록**. 비로그인 → 노출만 / 노출만 / **200 빈 목록(401 아님)**. 각 칸 `total` 포함 확인, `category` 필터와 `page`/`size` 조합 1건 |
+| 수정 필요한 기존 테스트 | `tests/catalog/test_service.py:582-600`(`list_products(... True/False ...)` 호출 `False` 비소유자가 `NotStoreOwnerError`를 기대하는 단언 → 빈 Page로 교체). 같은 파일 `FakeProductRepository.find_by_store`(129행) 서명의 `is_active`가 `None`을 처리하게 갱신. 라우트 서명 변경에 따라 `tests/catalog/test_wiring.py`의 라우트 단언은 경로·메서드가 같아 영향 없음(구현 때 실행 확인) |
+
+### 16.7 모듈 밖 변경 (이 문서는 쓰지 않는다, 승인 후 반영)
+
+**`../docs/reference/catalog.md` §1 (상품 등록) 변경 제안**
+- 상단 표는 그대로(POST, 상점주, 201). 설명 아래 문안:
+  > 상품 정보와 사진(선택, 0~1장)을 한 요청으로 등록할 수 있습니다. 같은 URI가 `Content-Type`으로 두 형식을 받습니다. 사진 저장이 실패하면 상품도 만들어지지 않습니다.
+- **헤더**: `Content-Type: application/json` 또는 `multipart/form-data`
+- **요청 본문 (multipart/form-data)** 표 추가:
+
+  | 필드 | 타입 | 필수 | 조건 |
+  | --- | --- | --- | --- |
+  | `name` | 폼 필드(string) | O | 1~200자 |
+  | `category` | 폼 필드(string) | X | 최대 80자 |
+  | `description` | 폼 필드(string) | X | |
+  | `original_price` | 폼 필드(int) | O | 1 이상 99,999,999 이하 |
+  | `file` | 파일 | X | JPEG·PNG·WebP(내용으로 판별), 5 MiB(5,242,880바이트) 이하. 사진이 없으면 `file`을 보내지 않는다. 1개만 보낸다 |
+
+  multipart는 `product_image`(외부 URL)를 받지 않습니다. 외부 URL은 JSON 등록 또는 상품 수정으로 넣습니다. 사진은 업로드 이미지 규칙(#15)과 같고, 저장되면 응답의 `product_image`에 `/v1/products/{product_id}/images/{image_id}` 형식 URL이 들어갑니다.
+- **에러** 표를 아래로 **다시 쓴다**(§15 형식, 확정 2026-11-10). 기존 "422 요청 형식 오류" 행은 삭제하고 실제 동작(400 `VALIDATION_ERROR`)으로 대체한다. 문구·코드 근거: `src/catalog/domain/exceptions.py`(이미지·상점 예외), `src/catalog/domain/store_ref.py:84-91`(`ensure_can_register`), `src/catalog/domain/product.py:41-70`(상품 필드), `src/auth/domain/exceptions.py:8·59`(401·403 기본 문구), `src/error_handlers.py:53-63`(`VALIDATION_ERROR` 형식).
+
+  **에러** (위에서부터 먼저 검사)
+
+  | HTTP | error_code | 상황 | 메시지 |
+  | --- | --- | --- | --- |
+  | 400 | `IMAGE_TOO_LARGE` | multipart 요청 크기(`Content-Length`)가 상한(5 MiB + 64 KiB)을 넘음. 인증보다 먼저 검사. JSON 요청에는 적용하지 않음 | 이미지 크기는 5MB 이하여야 합니다. |
+  | 401 | `UNAUTHORIZED` | 토큰 없음·유효하지 않음 | 로그인이 필요합니다. |
+  | 403 | `FORBIDDEN` | 상점주가 아님 | 접근 권한이 없습니다. |
+  | 400 | `VALIDATION_ERROR` | `store_id`가 UUID가 아님, JSON 본문이 비어 있음(메시지 `요청: Field required`) 또는 JSON 문법 오류(메시지 `{pos}: JSON decode error`), 필수 필드(`name`·`original_price`) 누락, `original_price`가 정수가 아님, `file`이 2개 이상이거나 파일이 아닌 값 | `필드: 오류` 형식(요청 형식 오류 공통 메시지) |
+  | 404 | `NOT_FOUND` | 상점 없음 | 상점을 찾을 수 없습니다. |
+  | 403 | `FORBIDDEN` | 남의 상점 | 본인 상점에만 상품을 등록할 수 있습니다. |
+  | 400 | `STORE_CLOSED` | 폐점한 상점 | 폐점된 상점에서는 상품을 등록할 수 없습니다. |
+  | 400 | `STORE_SUSPENDED` | 관리자에 의해 정지된 상점 | 관리자에 의해 정지된 상점입니다. |
+  | 400 | `STORE_NOT_APPROVED` | 승인되지 않은 상점 | 승인되지 않은 상점에는 상품을 등록할 수 없습니다. |
+  | 400 | `VALIDATION_ERROR` | 상품명이 1~200자가 아님 | 상품명은 1자 이상 200자 이하여야 합니다. |
+  | 400 | `VALIDATION_ERROR` | `original_price`가 0 이하 | 정상 가격은 0보다 커야 합니다. |
+  | 400 | `VALIDATION_ERROR` | `original_price`가 99,999,999 초과 | 정상 가격은 1억 원 미만이어야 합니다. |
+  | 400 | `UNSUPPORTED_IMAGE_TYPE` | `file`이 JPEG·PNG·WebP가 아니거나 0바이트(내용으로 판별) | JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다. |
+  | 400 | `IMAGE_TOO_LARGE` | `file`이 5 MiB(5,242,880바이트) 초과 | 이미지 크기는 5MB 이하여야 합니다. |
+
+  구현 때 `category`(최대 80자)·`product_image`(JSON, 최대 10개)의 400 문구(`product.py`의 `_validate_category`·`_validate_images`)와 기존 테스트의 단언을 대조해 행을 보태거나 맞춘다. 사진 오류가 상품 필드 오류보다 뒤에 검사된다(Q63).
+
+  **JSON 본문 디코드 실패 (확정 2026-11-11, D116)**: 아래 행도 위 표 끝에 추가한다(JSON 문법 오류·빈 본문은 위 `VALIDATION_ERROR` 행).
+
+  | HTTP | error_code | 상황 | 메시지 |
+  | --- | --- | --- | --- |
+  | 400 | `HTTP_ERROR` | JSON 본문을 문자열로 디코드하지 못함(예: UTF-8이 아닌 바이트). main(FastAPI 본문 모델 방식)과 같은 결과 | There was an error parsing the body |
+
+  **깨진 multipart (확정 2026-11-10, CI-29·CI-24)**: 아래 행을 위 표 끝에 추가해 현상을 명세에 기록한다. `error_handlers.py`는 바꾸지 않는다.
+
+  | HTTP | error_code | 상황 | 메시지 |
+  | --- | --- | --- | --- |
+  | 400 | `HTTP_ERROR` | multipart 본문 자체가 깨짐(경계 문자열 오류 등). 폼 필드 오류가 아니라 파싱 단계 실패이므로 `VALIDATION_ERROR`가 아님 | Invalid multipart data. (프레임워크 문구, 바뀔 수 있음) |
+
+**§2 (상점 상품 목록) 변경 제안**
+- 쿼리 `is_active` 행을 다음으로 바꾼다: 타입 bool, 필수 X, **기본값 (미지정)**, 설명 "미지정: 본인 상점이면 노출·숨김 상품 모두, 그 외(다른 사용자·비로그인)는 노출 상품만. `true`: 노출 상품만(누구나). `false`: 숨김 상품만, 본인 상점일 때만. 본인이 아닌 요청이 `false`를 보내면 200 빈 목록(숨김 상품은 존재하지 않는 것처럼 다룬다)."
+- 상단 권한 표 "공개"는 유지하되 "숨김 상품은 상점주 본인만"을 덧붙인다. 에러 표는 §15 형식으로 **다시 쓴다**(확정 2026-11-10). 기존 "422 page는 1 이상이어야 합니다" 행은 실제 동작(400 `VALIDATION_ERROR`)으로 바꾼다. 근거: `src/error_handlers.py:53-63`, `src/catalog/domain/exceptions.py:18-22`(`StoreNotFoundError`).
+
+  **에러** (위에서부터 먼저 검사)
+
+  | HTTP | error_code | 상황 | 메시지 |
+  | --- | --- | --- | --- |
+  | 400 | `VALIDATION_ERROR` | `store_id`가 UUID가 아님, `page`가 1 미만, `size`가 1~100 밖, `is_active`가 bool이 아님 | `필드: 오류` 형식(요청 형식 오류 공통 메시지) |
+  | 404 | `NOT_FOUND` | 상점 없음, 또는 폐점·정지 상점을 소유자 아닌 요청자가 조회 | 상점을 찾을 수 없습니다. |
+
+  401·403은 발생하지 않는다(비로그인·타인의 `is_active=false`는 200 빈 목록, D106). 구현 때 `page`·`size` 쿼리 검증 메시지(`router.py`의 `PageParam`·`SizeParam`)와 기존 테스트의 단언을 대조해 상황 열을 맞춘다.
+- 문서 끝의 "확인 필요: 공개 API에서 `is_active=false`를 누구나 볼 수 있는지" 블록을 삭제하고 결정(D106)으로 닫는다.
+
+### 16.8 결정 표 (D106~)
+
+| # | 항목 | 근거 | 결정 | 영향 파일 | 상태 |
+| --- | --- | --- | --- | --- | --- |
+| D106 | 상점 상품 목록 `is_active` 기본·권한 | 사용자 결정 5·6, 요구 조건 정책 표 "노출 중단 상품 조회"(비소유자 불가, 존재하지 않는 것처럼) | 미지정: 소유자 전체, 비소유자 노출만. `true`: 누구나 노출만. `false`: 소유자만 숨김, 비소유자·비로그인은 200 빈 목록(401·403 없음). **D6("비로그인 401, 타인 403")을 대체**한다 | `StoreRef`, `list_products`, router, `find_by_store` | 확정 (사용자, 2026-11-10) |
+| D107 | 필터 해석 위치 | R3, layer-architecture §3.2 | `StoreRef.product_list_scope` + 값 객체 `ProductListScope`. 서비스는 `is_empty` 한 곳만 분기 | `store_ref.py`, `service.py` | 확정 (사용자, 2026-11-10) — 위치는 설계자 제안, 규칙은 결정 5·6 |
+| D108 | 상품 등록 형식 | 사용자 결정 1·2·3 | 같은 경로가 `Content-Type`으로 분기. multipart는 폼 `name`·`category`·`description`·`original_price` + `file`(0~1). JSON은 기존 그대로. multipart는 외부 URL 불가 | router | 확정 (사용자, 2026-11-10) |
+| D109 | 원자성 | 사용자 결정 1 | 상품과 사진을 한 트랜잭션·한 `commit()`. 둘 중 하나 실패 시 둘 다 남지 않음 | `create_product` | 확정 (사용자, 2026-11-10) |
+| D110 | 사진 규칙·오류 | 사용자 결정 4 | #15와 같음: JPEG·PNG·WebP(내용), 5 MiB, 400 `IMAGE_TOO_LARGE`·`UNSUPPORTED_IMAGE_TYPE`, `Content-Length` 사전 검사는 인증보다 먼저(D99). 백엔드는 1장 제한을 두지 않음(화면에서만) | `ProductImage`, route class | 확정 (사용자, 2026-11-10) |
+| D111 | 서비스 시그니처 | 설계자 제안 | 새 메서드 없이 `create_product(..., image_data: bytes \| None = None)` 확장. `upload_product_image`는 호출하지 않고 `ProductImage`·`attach_image`·두 레포지토리를 재사용 | `service.py` | 확정 (사용자, 2026-11-10) |
+| D112 | 검증 순서 | 롤백 최소화 | 상점 검사 → 상품 필드 검증 → 사진 검증(저장 전) → 상품 save(flush) → 사진 add·attach → commit | `create_product` | 확정 (사용자, 2026-11-10) — Q63 확정에 따름 |
+| D113 | `ProductImage.validate_bytes` | 상품 id가 저장 전에 없음 | `create`에서 검증을 꺼낸 정적 메서드, `create`가 호출 | `product_image.py` | 확정 (사용자, 2026-11-10) |
+| D114 | 크기 사전 검사 범위 | JSON 동작 불변 | 서브클래스 `MultipartSizeLimitRoute`: multipart일 때만 검사. `UploadSizeLimitRoute`는 그대로 | `image_router.py`, router | 확정 (사용자, 2026-11-10) |
+| D115 | 폼 검증 오류 | 사용자 결정 2·README 공통 형식 | `ProductCreateRequest.model_validate` 실패를 `RequestValidationError`로 올려 400 `VALIDATION_ERROR`(JSON과 동일). 도메인 검증(가격 등)은 기존 `ValueError` 경로 그대로 | router | 확정 (사용자, 2026-11-10) |
+| D116 | #1 JSON 경로 오류 응답 | 사용자 결정(2026-11-11), main(FastAPI가 본문 모델을 직접 받던 방식)과의 호환 | `router.py`의 `_read_json_body`가 FastAPI `routing.py`의 본문 처리와 같은 결과를 낸다: 빈 본문 → 400 `VALIDATION_ERROR` `요청: Field required`, `JSONDecodeError` → 400 `VALIDATION_ERROR` `{pos}: JSON decode error`, 그 밖의 디코드 예외(`UnicodeDecodeError` 등) → 400 `HTTP_ERROR` `There was an error parsing the body`. 마지막 경우를 위해 router.py 안에 `BodyParseError(ValueError)`(`error_code = "HTTP_ERROR"`)를 둔다. R6은 모듈 예외를 `domain/exceptions.py`에 두라고 하지만, 이 예외는 HTTP 본문 파싱 전용이라 도메인 개념이 아니므로 표현 계층에 두는 것을 허용한다(layer-reviewer 지적 반영). 16.5의 "JSON 파싱 실패는 400 `VALIDATION_ERROR`" 서술은 이 결정이 구체화한다 | `router.py` | 확정 (사용자, 2026-11-11) |
+
+### 16.9 정합 이슈 (CI-26~)
+
+| # | 위치 | 이슈 | 영향·제안 |
+| --- | --- | --- | --- |
+| CI-26 | D106 ↔ 기존 D6, CI-3, 6.3절 #2 시나리오 2, 7.1절, 12.1 D6 행, 기존 테스트 | D6이 "비로그인 401, 타인 403"이었다. 이 결정으로 대체된다. **CI-3(router의 401 분기)은 #2에서 해소**된다: router의 `AuthenticationError` 분기를 삭제하고 서비스의 `NotStoreOwnerError`도 내지 않는다. CI-3의 대안(별도 EP 분리)은 필요 없다 | 구현 PR이 6.3절·12.1 D6·CI-3 행에 "D106으로 대체"를 표시하도록 갱신(이 절은 기존 확정 표를 고치지 않고 대체만 선언한다). 위 테스트 수정 목록 참조 |
+| CI-27 | D106 ↔ D7(`get_product` #4) | #4는 비활성 상품을 비소유자에게 404로 숨긴다. #2의 `is_active=false`는 이제 비소유자에게 200 빈 목록이라 "존재하지 않는 것처럼"에 둘 다 맞는다. #2에서 `is_active` 미지정이 비소유자에게 숨김을 제외하므로 D7과도 일관 | 조치 없음 |
+| CI-28 | requirements `../docs/requirements/catalog.md` | 정책 표 "노출 중단 상품 조회: 상점주 허용 / 그 외 불가(존재하지 않는 것처럼)"는 D106과 모순이 없고 오히려 이 결정이 요구 조건에 더 가깝다. 단 **상품 등록**의 "사진 함께 등록(원자성)·multipart·사진 규칙"은 새 규칙이다(CI-18과 같은 유형). 확정 문서라 이 설계가 고치지 않는다 | 요구 조건 변경은 필수는 아니다. 승인 시 CI-18의 새 REQ 묶음에 "상품 등록 때 사진을 함께 올릴 수 있고, 사진 실패 시 상품도 등록되지 않는다" 한 줄을 더하는 것을 제안. CI-18은 건드리지 않았다 |
+| CI-29 | CI-24 ↔ 새 #1 | 깨진 multipart(경계 문자열 오류 등)는 `request.form()`이 올리는 `HTTPException(400, "Invalid multipart data.")`가 되어 `error_code`가 `HTTP_ERROR`다(프로브 확인). #15와 같은 영향이며, `file` 누락·잘못된 필드는 영향 없음(400 `VALIDATION_ERROR`). 추가로 #1은 `request.form()`을 직접 부르므로 "Invalid multipart data."가 #15의 FastAPI 문구("There was an error parsing the body")와 다를 수 있으나 `error_code`는 같다 | `error_handlers.py`는 바꾸지 않았다. 보고만: 사용자 결정이 필요하면 400을 `_HTTP_CODES`에 매핑(모듈 밖). 프론트는 400이라는 상태 코드만 의존하는 것을 권한다. **확정 (사용자, 2026-11-10)**: 이번 변경에서 `error_handlers.py`를 바꾸지 않고, 현상(400 `HTTP_ERROR`)을 명세에 기록한다(16.7). CI-24도 같은 결론 |
+| CI-30 | D111 ↔ 생성 지점·fake | `create_product` 서명이 키워드 기본값이라 호출처(router 1, 테스트)는 깨지지 않는다. 단 `ProductRepository.find_by_store`의 `is_active` 기본값 변경으로 fake(`test_service.py:129`)·레포 테스트가 영향받는다 | 16.6 "수정 필요한 기존 테스트"에 적었다. CI-16과 같은 유형 |
+| CI-31 | 명세 §1 "422 요청 형식 오류" ↔ 실제 400 | 명세는 422, 실제 전역 핸들러는 400 `VALIDATION_ERROR`(`error_handlers.py:53-63`, README 공통 형식). 이 변경이 만든 불일치가 아님 | **확정 (사용자, 2026-11-10)**: 명세 §1·§2 반영 때 "422 요청 형식 오류"를 400 `VALIDATION_ERROR`로 맞추고 §1·§2 에러 표를 §15 형식(HTTP \| error_code \| 상황 \| 메시지, 검사 순서)으로 다시 쓴다. 문안은 16.7 |
+
+### 16.10 질문 목록과 임시 기본값
+
+**2026-11-10 사용자 결정으로 확정**: 결정 1~6(D106~D110), 그리고 Q58~Q64 전부 아래 임시 기본값 그대로 **확정 (사용자, 2026-11-10)**. 열린 질문 없음. 바뀔 때 고칠 곳은 마지막 열에 남겼다. 임시 상태로 남은 결정은 설계자 제안인 D111·D113·D114·D115(Q와 무관)뿐이다.
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 | 바뀔 때 고칠 곳 |
+| --- | --- | --- | --- | --- | --- |
+| Q58 | multipart에 폼 필드가 빈 문자열일 때(브라우저는 비운 입력도 `""`로 보낸다) `category`·`description`을 없음(None)으로 볼지 | 사용자 결정 3, `Product._validate_category`(빈 문자열 → 400) | `category`·`description`의 `""`는 None으로 취급(router의 `_read_multipart_body`에서만). `name`·`original_price`의 빈 값은 그대로 400 | 폼에서 "입력 안 함"과 "빈 값"이 구분되지 않는다. JSON은 그대로(빈 문자열 400) | `_read_multipart_body` 한 곳 |
+| Q59 | multipart에 `file`이 2개 이상 올 때 | 사용자 결정 4(백엔드 추가 제한 없음) | 400 `VALIDATION_ERROR`(`file: 사진은 1장만 보낼 수 있습니다`). 첫 장만 쓰거나 모두 저장하지 않는다 | 1장이 화면 제한이어도 조용히 버리면 데이터가 사라진다. 모두 저장하면 응답·원자성·`Content-Length` 한도(≈5 MiB)와 맞지 않아 사실상 불가 | `_read_multipart_body`. 모두 저장으로 바꾸면 `image_data: list[bytes]`와 `Content-Length` 한도 재설계 |
+| Q60 | multipart에 `product_image` 폼 필드가 와도 | 사용자 결정 3 | 조용히 무시(400 아님) | 결정은 "받지 않는다"이며 거부 여부는 없음. 무시가 프론트 호환에 안전 | `_read_multipart_body`(거부하려면 400 `VALIDATION_ERROR`) |
+| Q61 | 0바이트 `file` 파트(브라우저가 파일 미선택 시 보내는 빈 파트)의 처리 | 사용자 결정 3("사진 없이는 `file`을 뺀다") | 사진 없음이 아니라 #15와 같게 400 `UNSUPPORTED_IMAGE_TYPE` | 결정이 "빼라"고 정했고, 빈 파트를 관대하게 받으면 #15와 규칙이 갈린다. 화면은 파일이 없으면 파트를 넣지 않는다 | `_read_multipart_body`(관대하게 하려면 `filename`이 빈 문자열이고 크기 0이면 None) |
+| Q62 | 폼 경로의 JSON과 다른 Content-Type(예: `text/plain`, 비어 있음)의 처리 | 사용자 결정 2 | multipart가 아니면 모두 JSON 경로로 파싱(실패 시 400 `VALIDATION_ERROR`) | 현재 동작(Content-Type과 무관한 JSON 파싱 시도)을 최대한 유지. FastAPI 0.162의 엄격한 Content-Type 검사는 사용하지 않는다 | `_read_json_body` |
+| Q63 | 사진 오류와 상품 필드 오류가 함께 있을 때의 우선순위 | D112 | 상품 필드 오류(2단계)가 사진 오류(3단계)보다 먼저 보고된다 | 도메인 객체를 먼저 만드는 편이 자연스럽다 | `create_product` 순서(D112) |
+| Q64 | 사진 불량 시 `IMAGE_TOO_LARGE`의 사전 검사 한도(5 MiB + 64 KiB)에 폼 텍스트 필드(설명 등) 몫이 포함되는가 | D99 | 포함. 설명은 짧다는 전제. 파일은 5 MiB 이하라도 요청 전체가 한도를 넘으면 사전 검사에서 400 `IMAGE_TOO_LARGE`(5 MiB에 가까운 파일 + 긴 설명) | 64 KiB 여유가 헤더·경계·폼 필드를 모두 덮는다 | `MAX_UPLOAD_REQUEST_BYTES`(상수 한 곳) |

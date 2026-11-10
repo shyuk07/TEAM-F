@@ -151,12 +151,12 @@ async def test_list_products_inactive_rules(client):
     p = await make_product(client, token, store_id)
     await set_product_inactive(client, p["id"])
     url = f"/v1/stores/{store_id}/products"
+    # D106: 비소유자·비로그인의 is_active=false는 401·403이 아니라 200 빈 목록
     r = await client.get(url, params={"is_active": "false"})
-    assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
+    assert r.status_code == 200 and r.json()["total"] == 0 and r.json()["items"] == []
     other = await token_for(client, "x@test.com", "CUSTOMER")
     r = await client.get(url, params={"is_active": "false"}, headers=bearer(other))
-    assert r.status_code == 403
-    assert r.json()["message"] == "본인 상점의 비활성 상품만 조회할 수 있습니다."
+    assert r.status_code == 200 and r.json()["total"] == 0
     r = await client.get(url, params={"is_active": "false"}, headers=bearer(token))
     assert r.status_code == 200 and r.json()["total"] == 1
 
