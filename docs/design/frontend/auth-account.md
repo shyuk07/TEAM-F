@@ -3,7 +3,7 @@
 - 대상: `features/auth`(영역 확장), `pages/signup`·`pages/password-reset`·`pages/account-profile`·`pages/account-password`(신규), `pages/login`(링크 연결·안내), `widgets/owner-nav`(O8 행 추가), `app`(`layouts/AccountLayout.tsx` 신규, `router/routes.tsx`), `shared/lib/routes.ts`(경로 상수)
 - 대응 화면: A2 회원가입(고객·상점주), A3 비밀번호 재설정, C8 프로필 변경, C9 비밀번호 변경, O8 계정 메뉴의 C8·C9 행, A1 로그인의 링크 연결·안내 한 줄·429 잠금 문구
 - 범위 밖(추천, D-2): C6 마이, C7 회원 탈퇴 확인, C11 포인트 내역, 고객 셸·고객 가드, 관리자 셸(M1~). C8·C9 라우트는 역할 무관이라 이후 고객 셸(C6)·관리자 셸이 그대로 연결한다.
-- 상태: 설계안 1차. 모든 D는 "임시"(설계자 값)이며 사용자 결정 전이다. 구현을 막는 질문은 §12 Q-1·Q-3·Q-4·Q-5(범위·경로·C9 세션·C8 완료 표시)다.
+- 상태: 설계안 2차. 사용자가 결정을 위임해 Q-1~Q-16을 추천안대로, D-1~D-30을 확정했다(2026-11-10). 구현을 막는 항목은 없다.
 - 이어받는 설계: `auth.md`(1차, 구현 완료). 이 문서는 그 위에 **더하는 것만** 적는다. `auth.md`의 D·C·N 번호는 `auth.md D-3`처럼 파일명과 함께 가리킨다. 확정되면 `auth.md D-3`(O8 로그아웃 한 줄), `auth.md` N-1·N-4 주석이 이 문서 D-23·§9로 대체된다.
 - 정본: 화면 `../../design-system/screens.md` A1·A2·A3·C8·C9·O8, `layout.md`(화면 골격·연결 지도), `wireframe.html` 164~291줄, `content.md`, `open-issues.md`(A3·C8·O8), `components/{RolePicker,Input,Button,Box,CtaBar,AppBar,ListRow}/README.md`, `components/bundle.css`(`.pick`·`.pcard`·`.in.ro`·`.in.code`·`.box`·`.done`·`.cta`·`.dk`). API `../../reference/auth.md` §1·§2·§8·§9·§10·§11, `../../requirements/auth.md` REQ-3·5·6·7·13·22~32
 - 백엔드 실재 확인(`frontend-orchestration.md` §6): `backend/src/auth/presentation/router.py:41~56` 가입(201), `:75~87` 재설정 요청(204), `:90~98` 재설정 확인(204), `:106~108` `PATCH /v1/users/me`(`UserResponse`), `:111~126` 비밀번호 변경(204, `keep_jti`로 현재 토큰 유지). 스키마 `schemas.py`(`SignupRequest` 이름·전화 `max_length=100`·이메일 255·비밀번호 128, `ProfileUpdateRequest`, `PasswordChangeRequest`, `PasswordResetConfirmRequest.code` `^\d{6}$`). 오류 처리 `error_handlers.py:33~35`(429 + `Retry-After`), `:53~66`(pydantic 오류 → `VALIDATION_ERROR` `"<필드>: <영문 msg>"`, 도메인 `ValueError` → 한국어 문구), 잠금 문구 `auth/domain/exceptions.py:19~29`(`ceil(초/60)`분), 비밀번호 규칙 `auth/domain/user.py:203~209`(공백만 → 8자 → 72바이트 순). URI·필드·상태 코드·`error_code`는 명세와 같다. 문구 차이는 C-3.
@@ -315,7 +315,7 @@ pages 공개 API: `pages/signup/index.ts` → `SignupPage`, `pages/password-rese
 
 | C | 내용 | 근거 | 처리 |
 | --- | --- | --- | --- |
-| C-1 | `api-client` §2.1 표 "비밀번호 변경·재설정 성공 → `session.clear()` 후 다시 로그인"과 화면·API 명세 "변경은 현재 토큰 유지(다시 로그인 안 함), 재설정만 모든 토큰 무효"가 다르다 | `frontend/.claude/skills/api-client/SKILL.md` §2.1 표 "비밀번호 변경·재설정 성공" 행 / `screens.md` C9 동작 메모, `reference/auth.md` §9, `router.py:117~125`(`keep_jti`) | 화면·API 명세를 따른다(D-9). 스킬 표 수정은 오케스트레이터 몫(Q-4) |
+| C-1 | `api-client` §2.1 표 "비밀번호 변경·재설정 성공 → `session.clear()` 후 다시 로그인"과 화면·API 명세 "변경은 현재 토큰 유지(다시 로그인 안 함), 재설정만 모든 토큰 무효"가 다르다 | `frontend/.claude/skills/api-client/SKILL.md` §2.1 표 "비밀번호 변경·재설정 성공" 행 / `screens.md` C9 동작 메모, `reference/auth.md` §9, `router.py:117~125`(`keep_jti`) | **해소**: 화면·API 명세를 따른다(D-9 확정). 오케스트레이터가 `api-client` §2.1 표를 고쳤다(Q-4) |
 | C-2 | `screens.md` A3·`open-issues.md` A3 "코드는 서버 로그로만, 메일 미발송(reset_notifier.py) → 확인 필요"는 낡았다. 명세는 SMTP 설정 시 메일 발송, 백엔드에 `SmtpPasswordResetNotifier`가 있다 | `screens.md` A3, `open-issues.md` A3 / `reference/auth.md` §10 "전달 방식", `backend/src/auth/infrastructure/reset_notifier.py:46` | 화면 동작은 같다(가입 여부와 무관한 같은 안내). 디자인 문서 갱신을 사용자에게 보고. 코드에는 `open-issues:` 주석을 남기되 문구는 open-issues 원문 기준(M-3) |
 | C-3 | 서버 `message`와 화면 문구가 다르다: `CURRENT_PASSWORD_MISMATCH` 서버 `현재 비밀번호가 올바르지 않습니다.` ↔ 화면 `현재 비밀번호가 일치하지 않습니다.` / `INVALID_RESET_CODE` 서버 `재설정 코드가 올바르지 않거나 만료되었습니다.` ↔ 화면 `코드가 맞지 않거나 만료됐어요. 코드를 다시 받아 주세요.` | `reference/auth.md` §9·§11, `auth/domain/exceptions.py:150~159` / `screens.md` C9·A3 | `errorCode`로 분기해 화면 문구를 쓴다(F11·F13, D-16). `EMAIL_DUPLICATED`는 같은 문구 |
 | C-4 | C8 "저장 후 '저장했어요' 알림 + 이전 화면"인데 디자인 시스템에 알림(토스트) 컴포넌트·클래스가 없다. 이전 화면(상점주 자리 page 등)이 알림을 받아 그릴 방법도 없다 | `screens.md` C8 동작 메모 / `components/` 19종 목록, `bundle.css`(토스트 클래스 없음) | 같은 화면에 `box done`으로 표시하고 이동하지 않음(D-11). Q-5 |
@@ -590,40 +590,40 @@ domain 107(passwordRule 18, signupInput 20, passwordReset 12, profileInput 15, p
 
 ## 9. 결정 표
 
-모든 값은 설계자가 정한 **임시**다. "막는가"가 "예"인 항목은 사용자 결정 전에 해당 부분 구현을 맡기지 않는다.
+D-1~D-30은 사용자 위임으로 추천안대로 확정됐다(2026-11-10). 구현을 막는 항목은 없다. 문구 값 중 "임시"로 표시한 것(§3.1)은 확정된 임시값이며 content.md가 정해지면 바꾼다(M-1).
 
 | D | 항목 | 값 | 상태 | 근거 | 구현을 막는가 |
 | --- | --- | --- | --- | --- | --- |
-| D-1 | 문서 배치 | 새 파일 `auth-account.md`(같은 slice `features/auth`), `auth.md`는 가리키기만 | 임시 | `auth.md`가 1차 구현 반영본(436줄). 정본 하나 원칙: 겹치는 내용 없이 추가분만 | 아니오 |
-| D-2 | 이번 범위 | A2(고객·상점주), A3, C8, C9, O8 C8·C9 행, A1 링크·안내·429. 제외: C6, C7, C11, 고객 셸, 관리자 셸 | 임시 | C6·C7·C11은 고객 셸·고객 가드가 먼저 필요. C7은 C6에서만 들어감(`screens.md` C6·C7), O8 상점주 탈퇴는 `open-issues` O8로 없음 | **예**(Q-1) |
-| D-3 | 경로 | `/signup`, `/signup?role=owner`, `/password-reset`, `/account/profile`, `/account/password`, `/account` → `/account/profile` | 임시 | 뜻으로 짓기, 역할 무관 공용 화면 | **예**(Q-3) |
-| D-4 | C8·C9 가드 | 역할 무관 `app/layouts/AccountLayout`(`decideAccess(state,'ANY')`), TabBar 없음, ← 는 `resolvePostLoginPath(user, from)` | 임시 | 화면 명세상 고객·상점주·관리자 공용(`screens.md` C8·C9). 셸마다 같은 page를 두 번 등록하지 않음 | **예**(Q-3) |
-| D-5 | 비로그인 전용(A2·A3) | A1과 같이 page 안에서 `authenticated` → `Navigate(resolvePostLoginPath)`, `loading` → 빈 프레임 | 임시 | 기존 A1 방식과 일관. 새 레이아웃 없이 가입 직후 로그인 이동도 같은 한 곳에서 처리 | 아니오 |
-| D-6 | 상점주 가입 진입 | 쿼리 `?role=owner`로 미리 선택. 화면에서 다시 바꿀 수 있음 | 임시 | 이후 C1 「입점 신청」(`wireframe.html:323`)도 같은 주소. 새로고침·공유해도 유지 | 아니오(Q-7) |
-| D-7 | A1 ↔ A2·A3 `from` 전달 | 링크 `state={{from}}`로 넘기고 A2·A3 ←·완료 이동도 `from`을 유지 | 임시 | `screens.md` A2 "가입 후 이동은 A1과 같음"(원래 화면으로), `auth.md` D-1(`location.state`) | 아니오 |
-| D-8 | 포트 | 새 `AccountGateway`(application 포트) + `AccountGatewayToken` + `HttpAccountGateway`, `wireAuth` 한 줄 추가. `AuthGateway`는 그대로 | 임시 | 기존 가짜(`FakeAuthGateway`)·테스트를 건드리지 않음. 인증 상태(로그인·세션)와 계정 관리 책임 분리 | 아니오 |
-| D-9 | C9 성공 후 세션 | 유지(`session.clear()` 안 함, 다시 로그인 안 함) | 임시 | `screens.md` C9, `reference/auth.md` §9, `router.py:117~125`. `api-client` §2.1 표와 다름(C-1) | **예**(Q-4) |
-| D-10 | A3 성공 후 | `session.clear()` 후 `/login`으로 `replace` 이동, `state = { from, notice: 'passwordReset' }`, A1에 `box done` 「새 비밀번호로 로그인하세요」 | 임시 | `screens.md` A3 동작 메모, REQ-32, `api-client` §2.1 | 아니오 |
-| D-11 | C8 성공 표시 | 같은 화면에 `box done` 「저장했어요」(role status), 이동 안 함 | 임시 | 알림 컴포넌트 없음(C-4) | **예**(Q-5) |
-| D-12 | C9 성공 표시 | 같은 화면에 `box done` 「비밀번호를 바꿨어요.」(임시 문구), 세 칸 비움, 이동 안 함 | 임시 | `screens.md` C9에 성공 문구·이동 없음. D-11과 같은 방식 | 아니오(Q-8) |
-| D-13 | 인증 상태의 사용자 갱신 | `AuthContextValue.replaceUser(user)` 추가 | 임시 | `reload()`는 `loading`을 거쳐 화면이 내려감(§3.2). O8 헤더 이름 등이 저장 값을 바로 반영 | 아니오 |
-| D-14 | 화면 검증 | 비밀번호 규칙은 domain(`checkPassword`, 코드 포인트·UTF-8 바이트), 필수·최소 길이는 버튼 비활성, 공백만·72바이트 초과·확인 불일치만 임시 문구, 이메일 형식은 서버 문구, 입력 칸 `maxLength`(이름·전화 100, 이메일 255, 코드 6) | 임시 | A1 방식(`auth.md` §3.1). pydantic 영문 오류(`error_handlers.py:53~62`)에 닿지 않게 막음 | 아니오(Q-8) |
-| D-15 | 보내기 전 정리 | 이름·전화·이메일 `trim()`, 비밀번호는 그대로 | 임시 | 서버는 이름·전화를 trim하지 않고 저장(`user.py:67~70`). 비밀번호 공백은 값(REQ-5) | 아니오 |
-| D-16 | 오류 매핑 | `EMAIL_DUPLICATED`·`INVALID_RESET_CODE`·`CURRENT_PASSWORD_MISMATCH`는 화면 정본 문구(칸 아래), 그 밖은 서버 `message`(폼 아래), 빈 문구는 임시 기본 문구 | 임시 | F11·F13, `content.md` "계정·보안 서버 오류는 합니다체 그대로", C-3 | 아니오 |
-| D-17 | 429 `ACCOUNT_LOCKED` | 서버 문구 그대로(남은 분 포함). `Retry-After`를 읽지 않고 `ApiError`도 바꾸지 않음 | 임시 | 서버가 `ceil(Retry-After/60)`분을 문구에 넣음(`exceptions.py:24~29`). 헤더 읽기는 CORS 노출 설정이 없어 배포에서 불안정(C-8) | 아니오(Q-9) |
-| D-18 | C8·C9의 401 | 유스케이스가 `session.clear()` 후 throw → 인증 상태 `anonymous` → `AccountLayout`이 `/login`(+`from`) | 임시 | `api-client` §2.1·§3, `auth.md` N-5가 제안한 방식을 이 화면들에 먼저 적용 | 아니오 |
-| D-19 | CtaBar 배치 | `<form style={{display:'contents'}}>`가 `.body`와 `.cta`를 감쌈. 주 버튼은 `.cta`와 `.dk` 두 벌 | 임시 | `wireframe.html:757·762`(`.dk` + `.cta`), `layout.md` 반응형. 새 클래스 없음(F12) | 아니오 |
-| D-20 | 하위 화면 AppBar | ← 링크(접근 이름 「뒤로」, 임시) + `h1.t` 제목 | 임시 | `AppBar` README. 「닫기」(`auth.md` D-9)와 같은 방식 | 아니오 |
-| D-21 | RolePicker 위치·접근성 | `features/auth/presentation/SignupRolePicker`(공개 안 함), `radiogroup` + `role="radio"` 버튼, 문구·아이콘은 와이어프레임 | 임시 | 업무(역할)를 아는 부품이라 `shared/ui`가 아님(`design-system-usage` §3), A2 전용 | 아니오 |
-| D-22 | 상호 라벨 | A2 상점주 「상호(상점명으로 쓰임) *」, C8 상점주 「상호 (변경 불가)」 읽기 전용, 와이어프레임의 「상호 변경은 고객센터에 문의해 주세요.」는 넣지 않음 | 임시 | `screens.md` A2, `Input` README 필수·변경 불가 규칙, C-5·C-6 | 아니오(Q-6, Q-12) |
-| D-23 | O8 메뉴 | 「내 정보 (전화번호)」(→ C8), 「비밀번호 변경」(→ C9), 「로그아웃」 순서. 행은 `Link` + `state.from`. 상점주만 안내 한 줄. PC는 계속 시트 | 임시 | `wireframe.html:283~286`, `layout.md`(O8 → C8·C9·C10). `auth.md` D-3 대체 | 아니오 |
-| D-24 | A3 단계·이메일 | 첫 요청 성공 뒤 2단계 표시, 이메일을 고치면 2단계를 닫고 코드를 비움, 확인·다시 받기는 보낸 이메일로, 60초 안내 없음 | 임시 | `screens.md` A3 "1단계를 보내면 2단계가 열림". 다른 이메일의 코드로 확인하는 실수 방지 | 아니오(Q-10) |
-| D-25 | 가입 성공·로그인 실패 | `/login`으로 `replace`, `state = { from, notice: 'signupLoginFailed' }`, A1에 임시 문구 「가입했어요. 로그인해 주세요.」 | 임시 | 계정은 생겼으므로 A2에 머물면 다시 가입하다 409가 남 | 아니오(Q-8) |
-| D-26 | entities | 새로 만들지 않음. `User`·`AccountGateway`는 `features/auth`. C3(결제 포인트)·C11 설계 때 `entities/user`(잔액·포인트 내역 포트) 내림을 검토 | 임시 | `fsd-structure` §4 "미리 entities를 만들지 않습니다", `auth.md` D-5 | 아니오(Q-14) |
-| D-27 | C8 진입 시 재조회 | 하지 않음(`useAuth`의 사용자 사용) | 임시 | 가드가 앱 시작·재로그인 때 `/users/me`로 확인함. 저장 응답이 최신 값을 줌 | 아니오 |
-| D-28 | 회원 탈퇴 | C7은 범위 밖(고객 C6 설계 때 후보). O8 상점주 탈퇴는 `open-issues` O8대로 넣지 않음 | 임시 | `screens.md` C6·C7·O8 | 아니오(Q-13) |
-| D-29 | 로그인 후 `/account/*` 복귀 | 안전한 `from`이 `/account/*`면 역할과 관계없이 복귀 | 임시 | C8·C9에서 세션이 끊겨 다시 로그인한 상점주가 `/owner/today`로 튕기지 않게 | 아니오 |
-| D-30 | DTO 변환 공유 | `infrastructure/userDto.ts`(`MeDto`, `toUser`)로 옮겨 `HttpAuthGateway`·`HttpAccountGateway`가 함께 씀 | 임시 | `PATCH /users/me` 응답이 `GET /users/me`와 같음(reference §8). 같은 변환을 두 번 쓰지 않음 | 아니오 |
+| D-1 | 문서 배치 | 새 파일 `auth-account.md`(같은 slice `features/auth`), `auth.md`는 가리키기만 | 확정(위임, 2026-11-10) | `auth.md`가 1차 구현 반영본(436줄). 정본 하나 원칙: 겹치는 내용 없이 추가분만 | 아니오 |
+| D-2 | 이번 범위 | A2(고객·상점주), A3, C8, C9, O8 C8·C9 행, A1 링크·안내·429. 제외: C6, C7, C11, 고객 셸, 관리자 셸 | 확정(위임, 2026-11-10) | C6·C7·C11은 고객 셸·고객 가드가 먼저 필요. C7은 C6에서만 들어감(`screens.md` C6·C7), O8 상점주 탈퇴는 `open-issues` O8로 없음 | 아니오(확정, Q-1) |
+| D-3 | 경로 | `/signup`, `/signup?role=owner`, `/password-reset`, `/account/profile`, `/account/password`, `/account` → `/account/profile` | 확정(위임, 2026-11-10) | 뜻으로 짓기, 역할 무관 공용 화면 | 아니오(확정, Q-3) |
+| D-4 | C8·C9 가드 | 역할 무관 `app/layouts/AccountLayout`(`decideAccess(state,'ANY')`), TabBar 없음, ← 는 `resolvePostLoginPath(user, from)` | 확정(위임, 2026-11-10) | 화면 명세상 고객·상점주·관리자 공용(`screens.md` C8·C9). 셸마다 같은 page를 두 번 등록하지 않음 | 아니오(확정, Q-3) |
+| D-5 | 비로그인 전용(A2·A3) | A1과 같이 page 안에서 `authenticated` → `Navigate(resolvePostLoginPath)`, `loading` → 빈 프레임 | 확정(위임, 2026-11-10) | 기존 A1 방식과 일관. 새 레이아웃 없이 가입 직후 로그인 이동도 같은 한 곳에서 처리 | 아니오 |
+| D-6 | 상점주 가입 진입 | 쿼리 `?role=owner`로 미리 선택. 화면에서 다시 바꿀 수 있음 | 확정(위임, 2026-11-10) | 이후 C1 「입점 신청」(`wireframe.html:323`)도 같은 주소. 새로고침·공유해도 유지 | 아니오(Q-7) |
+| D-7 | A1 ↔ A2·A3 `from` 전달 | 링크 `state={{from}}`로 넘기고 A2·A3 ←·완료 이동도 `from`을 유지 | 확정(위임, 2026-11-10) | `screens.md` A2 "가입 후 이동은 A1과 같음"(원래 화면으로), `auth.md` D-1(`location.state`) | 아니오 |
+| D-8 | 포트 | 새 `AccountGateway`(application 포트) + `AccountGatewayToken` + `HttpAccountGateway`, `wireAuth` 한 줄 추가. `AuthGateway`는 그대로 | 확정(위임, 2026-11-10) | 기존 가짜(`FakeAuthGateway`)·테스트를 건드리지 않음. 인증 상태(로그인·세션)와 계정 관리 책임 분리 | 아니오 |
+| D-9 | C9 성공 후 세션 | 유지(`session.clear()` 안 함, 다시 로그인 안 함) | 확정(위임, 2026-11-10) | `screens.md` C9, `reference/auth.md` §9, `router.py:117~125`. `api-client` §2.1 표와 다름(C-1) | 아니오(확정, Q-4) |
+| D-10 | A3 성공 후 | `session.clear()` 후 `/login`으로 `replace` 이동, `state = { from, notice: 'passwordReset' }`, A1에 `box done` 「새 비밀번호로 로그인하세요」 | 확정(위임, 2026-11-10) | `screens.md` A3 동작 메모, REQ-32, `api-client` §2.1 | 아니오 |
+| D-11 | C8 성공 표시 | 같은 화면에 `box done` 「저장했어요」(role status), 이동 안 함 | 확정(위임, 2026-11-10) | 알림 컴포넌트 없음(C-4) | 아니오(확정, Q-5) |
+| D-12 | C9 성공 표시 | 같은 화면에 `box done` 「비밀번호를 바꿨어요.」(임시 문구), 세 칸 비움, 이동 안 함 | 확정(위임, 2026-11-10) | `screens.md` C9에 성공 문구·이동 없음. D-11과 같은 방식 | 아니오(Q-8) |
+| D-13 | 인증 상태의 사용자 갱신 | `AuthContextValue.replaceUser(user)` 추가 | 확정(위임, 2026-11-10) | `reload()`는 `loading`을 거쳐 화면이 내려감(§3.2). O8 헤더 이름 등이 저장 값을 바로 반영 | 아니오 |
+| D-14 | 화면 검증 | 비밀번호 규칙은 domain(`checkPassword`, 코드 포인트·UTF-8 바이트), 필수·최소 길이는 버튼 비활성, 공백만·72바이트 초과·확인 불일치만 임시 문구, 이메일 형식은 서버 문구, 입력 칸 `maxLength`(이름·전화 100, 이메일 255, 코드 6) | 확정(위임, 2026-11-10) | A1 방식(`auth.md` §3.1). pydantic 영문 오류(`error_handlers.py:53~62`)에 닿지 않게 막음 | 아니오(Q-8) |
+| D-15 | 보내기 전 정리 | 이름·전화·이메일 `trim()`, 비밀번호는 그대로 | 확정(위임, 2026-11-10) | 서버는 이름·전화를 trim하지 않고 저장(`user.py:67~70`). 비밀번호 공백은 값(REQ-5) | 아니오 |
+| D-16 | 오류 매핑 | `EMAIL_DUPLICATED`·`INVALID_RESET_CODE`·`CURRENT_PASSWORD_MISMATCH`는 화면 정본 문구(칸 아래), 그 밖은 서버 `message`(폼 아래), 빈 문구는 임시 기본 문구 | 확정(위임, 2026-11-10) | F11·F13, `content.md` "계정·보안 서버 오류는 합니다체 그대로", C-3 | 아니오 |
+| D-17 | 429 `ACCOUNT_LOCKED` | 서버 문구 그대로(남은 분 포함). `Retry-After`를 읽지 않고 `ApiError`도 바꾸지 않음 | 확정(위임, 2026-11-10) | 서버가 `ceil(Retry-After/60)`분을 문구에 넣음(`exceptions.py:24~29`). 헤더 읽기는 CORS 노출 설정이 없어 배포에서 불안정(C-8) | 아니오(Q-9) |
+| D-18 | C8·C9의 401 | 유스케이스가 `session.clear()` 후 throw → 인증 상태 `anonymous` → `AccountLayout`이 `/login`(+`from`) | 확정(위임, 2026-11-10) | `api-client` §2.1·§3, `auth.md` N-5가 제안한 방식을 이 화면들에 먼저 적용 | 아니오 |
+| D-19 | CtaBar 배치 | `<form style={{display:'contents'}}>`가 `.body`와 `.cta`를 감쌈. 주 버튼은 `.cta`와 `.dk` 두 벌 | 확정(위임, 2026-11-10) | `wireframe.html:757·762`(`.dk` + `.cta`), `layout.md` 반응형. 새 클래스 없음(F12) | 아니오 |
+| D-20 | 하위 화면 AppBar | ← 링크(접근 이름 「뒤로」, 임시) + `h1.t` 제목 | 확정(위임, 2026-11-10) | `AppBar` README. 「닫기」(`auth.md` D-9)와 같은 방식 | 아니오 |
+| D-21 | RolePicker 위치·접근성 | `features/auth/presentation/SignupRolePicker`(공개 안 함), `radiogroup` + `role="radio"` 버튼, 문구·아이콘은 와이어프레임 | 확정(위임, 2026-11-10) | 업무(역할)를 아는 부품이라 `shared/ui`가 아님(`design-system-usage` §3), A2 전용 | 아니오 |
+| D-22 | 상호 라벨 | A2 상점주 「상호(상점명으로 쓰임) *」, C8 상점주 「상호 (변경 불가)」 읽기 전용, 와이어프레임의 「상호 변경은 고객센터에 문의해 주세요.」는 넣지 않음 | 확정(위임, 2026-11-10) | `screens.md` A2, `Input` README 필수·변경 불가 규칙, C-5·C-6 | 아니오(Q-6, Q-12) |
+| D-23 | O8 메뉴 | 「내 정보 (전화번호)」(→ C8), 「비밀번호 변경」(→ C9), 「로그아웃」 순서. 행은 `Link` + `state.from`. 상점주만 안내 한 줄. PC는 계속 시트 | 확정(위임, 2026-11-10) | `wireframe.html:283~286`, `layout.md`(O8 → C8·C9·C10). `auth.md` D-3 대체 | 아니오 |
+| D-24 | A3 단계·이메일 | 첫 요청 성공 뒤 2단계 표시, 이메일을 고치면 2단계를 닫고 코드를 비움, 확인·다시 받기는 보낸 이메일로, 60초 안내 없음 | 확정(위임, 2026-11-10) | `screens.md` A3 "1단계를 보내면 2단계가 열림". 다른 이메일의 코드로 확인하는 실수 방지 | 아니오(Q-10) |
+| D-25 | 가입 성공·로그인 실패 | `/login`으로 `replace`, `state = { from, notice: 'signupLoginFailed' }`, A1에 임시 문구 「가입했어요. 로그인해 주세요.」 | 확정(위임, 2026-11-10) | 계정은 생겼으므로 A2에 머물면 다시 가입하다 409가 남 | 아니오(Q-8) |
+| D-26 | entities | 새로 만들지 않음. `User`·`AccountGateway`는 `features/auth`. C3(결제 포인트)·C11 설계 때 `entities/user`(잔액·포인트 내역 포트) 내림을 검토 | 확정(위임, 2026-11-10) | `fsd-structure` §4 "미리 entities를 만들지 않습니다", `auth.md` D-5 | 아니오(Q-14) |
+| D-27 | C8 진입 시 재조회 | 하지 않음(`useAuth`의 사용자 사용) | 확정(위임, 2026-11-10) | 가드가 앱 시작·재로그인 때 `/users/me`로 확인함. 저장 응답이 최신 값을 줌 | 아니오 |
+| D-28 | 회원 탈퇴 | C7은 범위 밖(고객 C6 설계 때 후보). O8 상점주 탈퇴는 `open-issues` O8대로 넣지 않음 | 확정(위임, 2026-11-10) | `screens.md` C6·C7·O8 | 아니오(Q-13) |
+| D-29 | 로그인 후 `/account/*` 복귀 | 안전한 `from`이 `/account/*`면 역할과 관계없이 복귀 | 확정(위임, 2026-11-10) | C8·C9에서 세션이 끊겨 다시 로그인한 상점주가 `/owner/today`로 튕기지 않게 | 아니오 |
+| D-30 | DTO 변환 공유 | `infrastructure/userDto.ts`(`MeDto`, `toUser`)로 옮겨 `HttpAuthGateway`·`HttpAccountGateway`가 함께 씀 | 확정(위임, 2026-11-10) | `PATCH /users/me` 응답이 `GET /users/me`와 같음(reference §8). 같은 변환을 두 번 쓰지 않음 | 아니오 |
 | D-31 | 이어받는 확정값 | 토큰 `localStorage`(`auth.md` D-11), 경로 상수 `shared/lib/routes.ts`(`app-shell.md` D-17), `location.state` 복귀(`auth.md` D-1), Context 위치(`auth.md` D-14), 역할별 도착지(`auth.md` D-6 임시) | 확정(이전 결정) | 다시 묻지 않음(`frontend-orchestration.md` §6) | |
 
 ## 10. 정책·보안 메모
@@ -644,21 +644,21 @@ domain 107(passwordRule 18, signupInput 20, passwordReset 12, profileInput 15, p
 
 ## 12. 질문 목록 (추천안 포함)
 
-| Q | 질문 | 추천안 | 막는가 |
+| Q | 질문 | 추천안 | 상태 |
 | --- | --- | --- | --- |
-| Q-1 | 이번 범위(D-2): A2(고객·상점주)·A3·C8·C9·O8 행·A1 연결로 하고 C6·C7·C11·고객 셸은 다음 고객 화면 설계로 미룰지 | 그렇게 한다 | 예 |
-| Q-2 | 설계안을 새 파일 `auth-account.md`로 둘지, `auth.md`에 합칠지(D-1) | 새 파일 | 아니오 |
-| Q-3 | C8·C9를 역할 무관 `/account/profile`·`/account/password` + `AccountLayout`으로 둘지, 셸마다(`/owner/account/*`, 이후 `/me/*`) 따로 둘지(D-3·D-4) | 역할 무관 공용 경로 | 예 |
-| Q-4 | C9 성공 뒤 이 기기 로그인을 유지할지(화면·API 명세) — 유지한다면 `api-client` §2.1 표의 "비밀번호 변경 → `session.clear()`"를 "재설정만 `clear()`"로 고칠지(C-1, D-9) | 유지, 스킬 표 수정(오케스트레이터) | 예 |
-| Q-5 | C8 저장 뒤 표시(C-4, D-11): (a) 같은 화면 「저장했어요」(`box done`) 후 머묾 (b) 알림 없이 이전 화면으로 이동 (c) 디자인 시스템에 알림 컴포넌트를 먼저 추가 | (a) | 예 |
-| Q-6 | C8 상점주 상호 칸 라벨과 안내(C-5·C-6, D-22): 라벨 「상호 (변경 불가)」로 할지, 와이어프레임의 「상호 변경은 고객센터에 문의해 주세요.」를 넣을지(고객센터가 있는지) | 라벨 「상호 (변경 불가)」, 안내는 고객센터 확인 전까지 뺌 | 아니오 |
-| Q-7 | 상점주 가입 미리 선택을 쿼리(`/signup?role=owner`)로 할지 `location.state`로 할지(D-6) | 쿼리 | 아니오 |
-| Q-8 | 임시 문구 7개(§3.1 표의 **임시**, D-12·D-14·D-20·D-25)를 해요체 임시값으로 구현할지 | 임시값으로 구현, content.md 확정 시 교체(M-1) | 아니오 |
-| Q-9 | 429 잠금 문구를 서버 문구 그대로 쓸지, `Retry-After`로 화면이 직접 계산할지(C-8, D-17). 직접 계산하려면 `ApiError` 확장과 배포 시 CORS 노출 헤더(백엔드) 필요 | 서버 문구 | 아니오 |
-| Q-10 | A3 「코드 다시 받기」에 60초 재요청 간격을 화면에 표시(카운트다운·안내)할지(D-24) | 이번에는 안 함(M-8) | 아니오 |
-| Q-11 | 이름이 빈 기존 상점주는 상호 칸이 잠겨 C8에서 전화번호를 저장할 수 없다(C-9). 화면 안내를 둘지, 백엔드·디자인 규칙을 바꿀지 | 이번에는 버튼 비활성만, 규칙은 Auth 담당에게 확인 | 아니오 |
-| Q-12 | A2 상점주 이름 라벨에 필수 표시를 붙일지: 「상호(상점명으로 쓰임) *」(D-22) | 붙인다(`Input` README 필수 규칙) | 아니오 |
-| Q-13 | C7 회원 탈퇴를 이번 범위에 넣을지(D-28). 진입점이 C6뿐이고 고객 셸이 없다 | 다음 고객 화면 설계에 넣음 | 아니오 |
-| Q-14 | C11·포인트를 위한 entities·API 확장을 미리 만들지(D-26, §11) | 만들지 않음, 메모만 | 아니오 |
-| Q-15 | 범위 밖 추가(C-11): O8 상점주 안내 한 줄, `userDto.ts` 리팩터, `replaceUser`를 넣을지 | 넣는다(셋 다 작고 이번 화면에 필요하거나 와이어프레임에 있음) | 아니오 |
-| Q-16 | C-2(A3 메일 발송 "확인 필요"가 낡음)를 디자인 문서(`screens.md`·`open-issues.md`)에 반영할지 | 디자인 시스템 담당에게 갱신 요청(프론트는 문서를 고치지 않음) | 아니오 |
+| Q-1 | 이번 범위(D-2): A2(고객·상점주)·A3·C8·C9·O8 행·A1 연결로 하고 C6·C7·C11·고객 셸은 다음 고객 화면 설계로 미룰지 | 그렇게 한다 | 확정: 추천안 |
+| Q-2 | 설계안을 새 파일 `auth-account.md`로 둘지, `auth.md`에 합칠지(D-1) | 새 파일 | 확정: 추천안 |
+| Q-3 | C8·C9를 역할 무관 `/account/profile`·`/account/password` + `AccountLayout`으로 둘지, 셸마다(`/owner/account/*`, 이후 `/me/*`) 따로 둘지(D-3·D-4) | 역할 무관 공용 경로 | 확정: 추천안 |
+| Q-4 | C9 성공 뒤 이 기기 로그인을 유지할지(화면·API 명세) — 유지한다면 `api-client` §2.1 표의 "비밀번호 변경 → `session.clear()`"를 "재설정만 `clear()`"로 고칠지(C-1, D-9) | 유지, 스킬 표 수정(오케스트레이터) | 확정: 추천안 |
+| Q-5 | C8 저장 뒤 표시(C-4, D-11): (a) 같은 화면 「저장했어요」(`box done`) 후 머묾 (b) 알림 없이 이전 화면으로 이동 (c) 디자인 시스템에 알림 컴포넌트를 먼저 추가 | (a) | 확정: 추천안 |
+| Q-6 | C8 상점주 상호 칸 라벨과 안내(C-5·C-6, D-22): 라벨 「상호 (변경 불가)」로 할지, 와이어프레임의 「상호 변경은 고객센터에 문의해 주세요.」를 넣을지(고객센터가 있는지) | 라벨 「상호 (변경 불가)」, 안내는 고객센터 확인 전까지 뺌 | 확정: 추천안 |
+| Q-7 | 상점주 가입 미리 선택을 쿼리(`/signup?role=owner`)로 할지 `location.state`로 할지(D-6) | 쿼리 | 확정: 추천안 |
+| Q-8 | 임시 문구 7개(§3.1 표의 **임시**, D-12·D-14·D-20·D-25)를 해요체 임시값으로 구현할지 | 임시값으로 구현, content.md 확정 시 교체(M-1) | 확정: 추천안 |
+| Q-9 | 429 잠금 문구를 서버 문구 그대로 쓸지, `Retry-After`로 화면이 직접 계산할지(C-8, D-17). 직접 계산하려면 `ApiError` 확장과 배포 시 CORS 노출 헤더(백엔드) 필요 | 서버 문구 | 확정: 추천안 |
+| Q-10 | A3 「코드 다시 받기」에 60초 재요청 간격을 화면에 표시(카운트다운·안내)할지(D-24) | 이번에는 안 함(M-8) | 확정: 추천안 |
+| Q-11 | 이름이 빈 기존 상점주는 상호 칸이 잠겨 C8에서 전화번호를 저장할 수 없다(C-9). 화면 안내를 둘지, 백엔드·디자인 규칙을 바꿀지 | 이번에는 버튼 비활성만, 규칙은 Auth 담당에게 확인 | 확정: 추천안 |
+| Q-12 | A2 상점주 이름 라벨에 필수 표시를 붙일지: 「상호(상점명으로 쓰임) *」(D-22) | 붙인다(`Input` README 필수 규칙) | 확정: 추천안 |
+| Q-13 | C7 회원 탈퇴를 이번 범위에 넣을지(D-28). 진입점이 C6뿐이고 고객 셸이 없다 | 다음 고객 화면 설계에 넣음 | 확정: 추천안 |
+| Q-14 | C11·포인트를 위한 entities·API 확장을 미리 만들지(D-26, §11) | 만들지 않음, 메모만 | 확정: 추천안 |
+| Q-15 | 범위 밖 추가(C-11): O8 상점주 안내 한 줄, `userDto.ts` 리팩터, `replaceUser`를 넣을지 | 넣는다(셋 다 작고 이번 화면에 필요하거나 와이어프레임에 있음) | 확정: 추천안 |
+| Q-16 | C-2(A3 메일 발송 "확인 필요"가 낡음)를 디자인 문서(`screens.md`·`open-issues.md`)에 반영할지 | 디자인 시스템 담당에게 갱신 요청(프론트는 문서를 고치지 않음) | 확정: 추천안 |

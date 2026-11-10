@@ -66,5 +66,13 @@ export function useAuthController(): AuthContextValue {
     }
   }, [auth, session]);
 
-  return useMemo(() => ({ state, login, logout, reload }), [state, login, logout, reload]);
+  const replaceUser = useCallback((user: User): void => {
+    void user;
+    throw new Error('not implemented: replaceUser');
+  }, []);
+
+  return useMemo(
+    () => ({ state, login, logout, reload, replaceUser }),
+    [state, login, logout, reload, replaceUser],
+  );
 }

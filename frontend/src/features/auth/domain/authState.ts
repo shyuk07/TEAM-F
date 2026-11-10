@@ -9,7 +9,7 @@ export type AuthState =
 export type AccessDecision =
   'loading' | 'allow' | 'login' | 'login-without-from' | 'home' | 'error';
 
-export function decideAccess(state: AuthState, required: Role): AccessDecision {
+export function decideAccess(state: AuthState, required: Role | 'ANY'): AccessDecision {
   switch (state.status) {
     case 'loading':
       return 'loading';

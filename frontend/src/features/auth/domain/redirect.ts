@@ -1,7 +1,9 @@
 import { ROUTES } from '@/shared/lib/routes';
 import { isOwnerPath, type User } from './user';
 
-export type LoginLocationState = { from: string };
+export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
+
+export type LoginLocationState = { from?: string; notice?: LoginNotice };
 
 function hasControlChar(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
@@ -26,6 +28,16 @@ export function readFrom(state: unknown): string | null {
   if (typeof state !== 'object' || state === null) return null;
   const from = (state as { from?: unknown }).from;
   return typeof from === 'string' && isSafeInternalPath(from) ? from : null;
+}
+
+export function readLoginNotice(state: unknown): LoginNotice | null {
+  void state;
+  throw new Error('not implemented: readLoginNotice');
+}
+
+export function isAccountPath(path: string): boolean {
+  void path;
+  throw new Error('not implemented: isAccountPath');
 }
 
 export function loginRedirectState(
