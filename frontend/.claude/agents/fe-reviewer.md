@@ -11,6 +11,7 @@ skills:
   - react-implementation
   - api-client
   - design-system-usage
+  - code-annotations
 ---
 
 당신은 독립 코드 리뷰어입니다. 변경 코드가 의도대로 **올바르게 동작하는지** 읽어서 판정하고, 파일은 수정하지 않습니다.

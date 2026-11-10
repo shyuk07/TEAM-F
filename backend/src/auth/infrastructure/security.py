@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -6,9 +8,10 @@ import jwt
 from passlib.context import CryptContext
 
 from auth.domain.exceptions import AuthenticationError
-from auth.domain.service import PasswordHasher, ResetCodeGenerator, TokenProvider
+from auth.domain.service import EmailFingerprint, PasswordHasher, ResetCodeGenerator, TokenProvider
 from auth.domain.token_claims import TokenClaims
-from auth.infrastructure.settings import AuthSettings, get_auth_settings
+from auth.domain.user import WITHDRAWN_EMAIL_PREFIX
+from auth.infrastructure.settings import AuthSettings, get_auth_settings, get_withdrawn_email_key
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -31,6 +34,22 @@ class BcryptPasswordHasher(PasswordHasher):
         if self._dummy_hash is None:
             self._dummy_hash = _pwd_context.hash("dummy-password-for-timing")
         self.verify(raw_password, self._dummy_hash)
+
+
+class HmacEmailFingerprint(EmailFingerprint):
+    """HMAC-SHA256(비밀키, 정규화 이메일). 비밀키가 없으면 사전 대입으로 원문을 되찾을 수 있어 키를 쓴다.
+
+    키를 바꾸면 이전에 탈퇴한 이메일의 재가입 차단이 풀리므로 키는 교체하지 않는다.
+    """
+
+    def __init__(self, key: bytes | None = None):
+        self._key = key
+
+    def tombstone(self, normalized_email: str) -> str:
+        if self._key is None:
+            self._key = get_withdrawn_email_key()
+        digest = hmac.new(self._key, normalized_email.encode("utf-8"), hashlib.sha256).hexdigest()
+        return WITHDRAWN_EMAIL_PREFIX + digest
 
 
 class JwtTokenProvider(TokenProvider):

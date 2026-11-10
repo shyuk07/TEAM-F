@@ -58,11 +58,10 @@ async def assert_all_401(c, token, pid, refund_id):
         assert pid not in r.text and refund_id not in r.text  # 기록 정보가 새지 않음
 
 
-async def records_kept(c, pid, refund_id, email="me@test.com"):
-    """탈퇴해도 결제·환불·예약 기록은 지우지 않는다(보존 원칙)."""
+async def records_kept(c, pid, refund_id, uid):
+    """탈퇴해도 결제·환불·예약 기록은 지우지 않는다(보존 원칙). uid는 탈퇴 전에 구한다(탈퇴하면 이메일 원문 파기)."""
     assert await scalar(c, "SELECT count(*) FROM payments WHERE id = :i", i=uuid.UUID(pid)) == 1
     assert await scalar(c, "SELECT count(*) FROM refunds WHERE id = :i", i=uuid.UUID(refund_id)) == 1
-    uid = await user_id(c, email)
     assert await scalar(c, "SELECT count(*) FROM pickup_reservations WHERE user_id = :u", u=uid) == 2
 
 
@@ -75,12 +74,13 @@ async def assert_login_rejected(c, email="me@test.com"):
 async def test_self_withdrawal_blocks_viewing_own_history(client):
     me, pid, refund_id = await history(client)
     await assert_all_200(client, me, pid, refund_id)  # 탈퇴 전: 본인 조회 가능
+    uid = await user_id(client, "me@test.com")
 
     r = await client.post("/v1/users/me/withdraw", json={"password": "password123"}, headers=bearer(me))
     assert r.status_code == 200 and r.json()["status"] == "WITHDRAWN", r.text
 
     await assert_all_401(client, me, pid, refund_id)  # 탈퇴 후: 기존 토큰 401
-    await records_kept(client, pid, refund_id)
+    await records_kept(client, pid, refund_id, uid)
     await assert_login_rejected(client)
 
 
@@ -89,12 +89,12 @@ async def test_admin_forced_withdrawal_blocks_viewing_own_history(client):
     await assert_all_200(client, me, pid, refund_id)
 
     admin = await admin_headers(client)
-    uid = str(await user_id(client, "me@test.com"))
-    r = await withdraw(client, admin, uid)
+    uid = await user_id(client, "me@test.com")
+    r = await withdraw(client, admin, str(uid))
     assert r.status_code == 200, r.text
 
     await assert_all_401(client, me, pid, refund_id)
-    await records_kept(client, pid, refund_id)
+    await records_kept(client, pid, refund_id, uid)
     await assert_login_rejected(client)
 
 

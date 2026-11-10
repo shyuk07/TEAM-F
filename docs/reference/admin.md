@@ -388,6 +388,8 @@
 | `page` | integer | 1 | 페이지 (1부터) |
 | `size` | integer | 20 | 페이지 크기, 1~100 |
 
+> 탈퇴 회원의 `email`은 원문 대신 `withdrawn:<16진수 64자>`이고 `name`·`phone`은 `null`이다(개인정보 파기, requirements/auth.md REQ-35-2). 원래 이메일로 검색해도 찾을 수 없다.
+
 **응답**
 ```json
 {

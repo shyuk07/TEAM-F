@@ -84,7 +84,7 @@ export function canReserve(o: Offer, now: Date): boolean {
 | `OfferRepository` 인터페이스(`findNearby`, `findById`) | `entities/offer/domain` (domain 포트) | 도메인 데이터 접근의 추상. reservations도 씀 |
 | `GET /v1/offers` 호출과 응답 → `Offer[]` 변환 (`HttpOfferRepository`) | `features/offers/infrastructure` | offer를 소유한 영역. 서버 형식을 아는 유일한 곳 |
 | `StockAdjustment` 포트(재고 조정, O10) | `features/offers/domain` | offers 영역만 씀. 공유하지 않으면 entities로 내리지 않음 |
-| `SessionStore` 인터페이스(`save`, `clear`, `hasSession`) | `entities/session/application` (application 포트) | 도메인 규칙과 무관한 기술 기능. auth·app 인증 Context 등이 씀 |
+| `SessionStore` 인터페이스(`save`, `clear`, `hasSession`, `subscribe`) | `entities/session/application` (application 포트) | 도메인 규칙과 무관한 기술 기능. auth 영역과 그 인증 Context 등이 씀 |
 | `localStorage` 사용 (`LocalSessionStore`) | `features/auth/infrastructure` | session을 소유한 영역. 브라우저 기술 |
 | `reserveOffer(deps, input)` 유스케이스 | `features/reservations/application` | 흐름. 포트만 받음 |
 | `useNearbyOffers()`가 로딩·에러·데이터를 돌려줌 | `features/offers/application` | 비동기 흐름. 포트는 `useDep(토큰)`으로 받음 |
@@ -107,6 +107,8 @@ export function canReserve(o: Offer, now: Date): boolean {
 9. 결정 표: `D-번호 | 항목 | 값 | 임시/확정 | 근거`. 설계자가 정한 값은 "임시", 사용자가 정한 값만 "확정"
 10. 정합 이슈: `C-번호 | 내용 | 양쪽 근거(파일:절)`. 명세 ↔ 백엔드 코드, 화면 명세 ↔ API 명세, 다른 slice 설계안과의 불일치, 요청 범위를 넘은 추가
 11. 차단 이슈와 질문 목록: 명세·디자인 문서의 "확인 필요", 백엔드에 없는 엔드포인트, `open-issues.md` 항목
+12. 테스트 목록: Red를 쓸 대상별 테스트 이름 후보와 기대 결과(`tdd-workflow` §2)
+13. 남길 작업 주석: 이번 범위에서 일부러 미루는 것(예: 자리만 둔 가드)과 그 태그·`언제:`(`code-annotations` §1~§3)
 
 D-번호·C-번호는 설계안 파일 안에서 1부터 매기고, 한 번 매긴 번호는 바꾸거나 다시 쓰지 않습니다. 다른 파일에서 가리킬 때는 `<slice>.md D-3`처럼 파일명과 함께 씁니다.
 
@@ -125,11 +127,13 @@ D-번호·C-번호는 설계안 파일 안에서 1부터 매기고, 한 번 매�
 | `wire_dependencies()` | `app/container.ts`의 `createContainer()` |
 | `Depends(provide_*)` | `useDep(토큰)` |
 
-### 6.1 DI 도구 — `shared/lib/di.tsx` (업무를 모름, 하나만 둠)
+### 6.1 DI 도구 — `shared/lib/di.ts` + `shared/lib/DepsProvider.tsx` (업무를 모름, 한 벌만 둠)
 
-```tsx
-// shared/lib/di.tsx
-import { createContext, useContext, type ReactNode } from 'react'
+컴포넌트(`DepsProvider`)는 따로 `DepsProvider.tsx`에 둡니다. 한 파일이 컴포넌트와 함수를 함께 내보내면 Fast Refresh가 깨지고 ESLint `react-refresh/only-export-components`에 걸립니다. 규칙을 끄지 않고 파일을 나눕니다.
+
+```ts
+// shared/lib/di.ts
+import { createContext, useContext } from 'react'
 
 export type Token<T> = { readonly key: symbol; readonly name: string; readonly _type?: T }
 export function createToken<T>(name: string): Token<T> {
@@ -155,11 +159,7 @@ export class Container {
   }
 }
 
-const DepsContext = createContext<Container | null>(null)
-
-export function DepsProvider({ container, children }: { container: Container; children: ReactNode }) {
-  return <DepsContext.Provider value={container}>{children}</DepsContext.Provider>
-}
+export const DepsContext = createContext<Container | null>(null)
 
 export function useDep<T>(token: Token<T>): T {
   const container = useContext(DepsContext)
@@ -167,6 +167,17 @@ export function useDep<T>(token: Token<T>): T {
   return container.get(token)
 }
 ```
+
+```tsx
+// shared/lib/DepsProvider.tsx
+import type { ReactNode } from 'react'
+import { DepsContext, type Container } from './di'
+
+export function DepsProvider({ container, children }: { container: Container; children: ReactNode }) {
+  return <DepsContext.Provider value={container}>{children}</DepsContext.Provider>
+}
+```
+- 가져오는 곳: 토큰·`bind`·`Container`·`useDep`은 `@/shared/lib/di`, `DepsProvider`는 `@/shared/lib/DepsProvider`.
 - `shared`는 업무를 모르므로 어떤 포트·토큰도 import하지 않습니다. slice별 타입은 토큰의 제네릭(`Token<OfferRepository>`)이 들고 다닙니다.
 - **토큰 하나는 정확히 한 영역이 등록합니다.** 두 번 등록하면 앱 시작 때 "의존성 중복 등록" 오류가 납니다.
 - 컨테이너는 앱 시작 때 한 번 만들고 바꾸지 않습니다. 렌더 중에 만들지 않습니다.
@@ -191,11 +202,12 @@ export interface OfferRepository {
 ### 6.3 application 포트와 토큰
 
 ```ts
-// entities/session/application/ports.ts  (auth 영역과 app 인증 Context 등이 함께 씀)
+// entities/session/application/ports.ts  (auth 영역과 그 인증 Context 등이 함께 씀)
 export interface SessionStore {
   save(accessToken: string): void
   clear(): void
   hasSession(): boolean
+  subscribe(listener: () => void): () => void // 다른 탭의 로그인·로그아웃 (api-client §2.1 onTokenChange)
 }
 
 // entities/session/application/tokens.ts
@@ -313,6 +325,8 @@ export function wireOffers(): Binding[] {
 
 ### 6.7 앱 조립 — `app/container.ts`
 
+아래는 7개 영역이 모두 생긴 뒤의 모습입니다. **처음에는 `new Container([])`로 시작하고, 영역의 `wiring.ts`를 만들 때 그 영역의 import와 `...wire<영역>()` 한 줄을 추가합니다.** 아직 없는 영역을 import하면 타입 검사가 깨집니다. 줄을 추가할 때 `tests/app/container.test.ts`의 토큰 목록도 같은 커밋에서 늘립니다.
+
 ```ts
 // app/container.ts
 import { Container } from '@/shared/lib/di'
@@ -336,14 +350,14 @@ export function createContainer(): Container {
   ])
 }
 
-// main.tsx
+// main.tsx  (DepsProvider는 '@/shared/lib/DepsProvider'에서 import)
 const container = createContainer()
 createRoot(document.getElementById('root')!).render(
   <DepsProvider container={container}><App /></DepsProvider>,
 )
 ```
 - 영역은 7개로 고정이므로 이 파일은 영역이 생길 때만 바뀝니다. 순서는 상관없습니다.
-- 등록을 빠뜨리면 그 포트를 쓰는 화면이 처음 렌더될 때 "의존성 미등록: <이름>" 오류가 납니다. `app/container.test.ts`(§6.8)와 E2E로 잡습니다.
+- 등록을 빠뜨리면 그 포트를 쓰는 화면이 처음 렌더될 때 "의존성 미등록: <이름>" 오류가 납니다. `tests/app/container.test.ts`(§6.8)와 E2E로 잡습니다.
 
 ### 6.8 테스트 — 가짜 구현체를 넣는다
 
@@ -367,7 +381,7 @@ for (const token of [SessionStoreToken, OfferRepositoryToken /* entities 토큰 
 ```
 - application·presentation 테스트에서 `vi.mock`으로 모듈을 바꾸지 않습니다. 포트에 가짜 구현체를 넣습니다.
 - `vi.mock`은 infrastructure 테스트에서 `shared/api`를 바꿀 때만 씁니다.
-- 가짜 구현체는 테스트 파일 안이나 같은 계층의 `*.fake.ts`에 둡니다. 운영 코드에서 import하지 않습니다.
+- 가짜 구현체는 테스트 파일 안이나 `tests/<계층>/<slice>/fakes/*.fake.ts`에 둡니다(`react-implementation` §7). 운영 코드에서 import하지 않습니다.
 
 ### 6.9 새 포트 체크리스트
 1. 위치를 정한다: 도메인 데이터 접근이면 domain, 유스케이스 전용 기술 기능이면 application (§6.3)
@@ -375,6 +389,6 @@ for (const token of [SessionStoreToken, OfferRepositoryToken /* entities 토큰 
 3. `interface`를 만들고, 같은 slice의 `application/tokens.ts`에 토큰을 만든다
 4. 소유 영역의 infrastructure에 `implements` 구현체를 만든다
 5. 소유 영역의 `wiring.ts`에서 `bind`한다 (토큰당 한 곳)
-6. entities 포트면 `fsd-structure` §1.1 "구현을 맡는 entities"에 적고 `app/container.test.ts`의 토큰 목록에 추가한다
+6. entities 포트면 `fsd-structure` §1.1 "구현을 맡는 entities"에 적고 `tests/app/container.test.ts`의 토큰 목록에 추가한다
 7. 다른 slice가 쓸 포트면 `index.ts`에서 포트 타입과 토큰을 내보낸다 (구현체·wiring은 내보내지 않음)
 8. `node .claude/skills/layer-check/check_layers.mjs`가 0건인지 확인한다

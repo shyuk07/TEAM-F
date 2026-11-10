@@ -18,14 +18,14 @@
 | 상황 | 에이전트 | 쓰기 범위 | 병렬 |
 | --- | --- | --- | --- |
 | 화면·slice 설계, 구조 점검 | `fe-architect` | `../docs/design/frontend/<slice>.md`, `fsd-structure` §7 대응표 | 설계는 slice가 다르면 가능. 대응표는 한 번에 한 명 |
-| slice 구현·수정 | `fe-developer` | 맡은 slice와 그 테스트(features면 `wiring.ts` 포함), `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄 | 영역(slice)이 다를 때. entities 포트를 바꾸면 그 포트를 쓰는 영역은 순차 |
+| slice 구현·수정 | `fe-developer` | 맡은 slice(features면 `wiring.ts` 포함)와 `tests/` 아래 그 slice 경로의 테스트, `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄 | 영역(slice)이 다를 때. entities 포트를 바꾸면 그 포트를 쓰는 영역은 순차 |
 | 변경 코드 정확성 리뷰 | `fe-reviewer` | 없음 (읽기 전용, npm·서버 실행 안 함) | 가능 |
-| 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
+| 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `tests/<계층>/<slice>/**/*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
 
 선택 순서:
 1. 설계안이 없거나 결정 표에 차단 항목이 남아 있으면 `fe-architect`. 구현자를 부르지 않는다.
 2. 아래 계층부터 진행한다: `shared` → `entities` → `features` → `widgets` → `pages` → `app/router`. 위 계층은 아래 계층의 공개 API가 있어야 만든다.
-3. 테스트를 먼저 쓰려면 구현 전에 `fe-qa`에게 Red 테스트를 맡기고, 모두 실패하는지 확인한 뒤 `fe-developer`에게 넘긴다.
+3. 기능 코드는 `tdd-workflow` 순서로 맡긴다: 골격(`fe-developer`) → Red(`fe-qa`) → Red 확인(오케스트레이터) → Green·Refactor(`fe-developer`). 생략할 수 있는 작업은 `tdd-workflow` §6.
 4. 구현이 끝나면 `check_layers.mjs`(자동) + `fe-architect`(구조 정독) + `fe-reviewer`(정확성) → `fe-qa`(실행) 순으로 점검한다.
    - `fe-architect` 구조 점검과 `fe-reviewer`는 읽기 전용이라 함께 돌릴 수 있다.
    - `npm ci`·`npm install`·서버를 쓰는 에이전트는 한 번에 하나만 돌린다. 같은 `node_modules`와 포트를 쓴다.
@@ -53,9 +53,11 @@
 4. 미해결 이슈: ID와 이번 작업에서의 처리 방식(건드리지 않음 / 임시값 사용 / 보고만)
 5. 다른 에이전트의 의견: 원문 인용과 출처(파일:절 또는 "◯◯ 에이전트 보고")
 6. 쓰기 허용 범위와 금지 범위
-7. 지킬 규칙(`F1~F18 준수`처럼 ID로)과 완료 조건, 보고 형식 (해당 에이전트 명세의 형식)
+7. 지킬 규칙(`F1~F19 준수`처럼 ID로)과 완료 조건, 보고 형식 (해당 에이전트 명세의 형식)
 8. 리뷰 발주에는 diff 범위(예: `git diff origin/main...HEAD -- .`)와 변경 의도
 9. 서버를 띄우는 발주에는 `--state-dir`(scratchpad)과 `--port`
+10. 범위에 걸린 작업 주석: `annotations.mjs list --match <영역·화면 ID>` 결과 원문과 처리 방식(이번에 고침 / 그대로 둠). `FIXME`를 그대로 두면 사용자 확인을 받은 이유를 적는다(`code-annotations` §4)
+11. TDD 단계: 이번 발주가 `tdd-workflow`의 몇 단계인지, 또는 "TDD 생략: <이유>"
 
 ### 3.3 보고 수신
 1. `git status --short`로 허용 범위 밖 변경이 없는지 확인한다.
@@ -80,10 +82,10 @@
 | `src/features/<영역>/wiring.ts` | 그 영역을 맡은 `fe-developer` (영역 7개는 `fsd-structure` §1.1) |
 | `src/entities/<개체>/**` | 그 개체를 소유한 영역(`fsd-structure` §1.1)의 `fe-developer`. 다른 영역이 바꿔야 하면 오케스트레이터가 소유 영역 담당에게 발주 |
 | `src/app/container.ts` | 각 developer는 자기 영역의 `wire*()` 한 줄씩. 토큰 중복 등록 조정은 오케스트레이터 |
-| `src/shared/lib/di.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
-| `src/<계층>/<slice>/**/*.test.ts(x)` | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
+| `src/shared/lib/di.ts`, `src/shared/lib/DepsProvider.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
+| `tests/<계층>/<slice>/**` (테스트·가짜 구현체, `react-implementation` §7) | Red 테스트는 발주받은 `fe-qa`. Green·Refactor 단계의 `fe-developer`는 테스트를 추가만 한다(기존 테스트 수정은 `tdd-workflow` §5 절차) |
 | `src/app/router/**` | 각 developer는 자기 라우트 한 줄씩. 순서·레이아웃 조정은 오케스트레이터가 발주 |
-| `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html` | 발주서에 명시한 `fe-developer`만 |
+| `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html`, `tests/setup.ts` | 발주서에 명시한 `fe-developer`만 |
 | `src/app/styles/tokens.css`, `bundle.css` | `sync_styles.mjs copy`로만 갱신. 사용자 요청 시 `fe-developer` |
 | `package.json`, `package-lock.json`, `vite.config.ts`, `tsconfig*.json`, ESLint·Prettier·Playwright 설정 | 사용자 승인 후 발주서에 명시한 `fe-developer`만 |
 | `e2e/**` | 발주받은 `fe-qa` |
@@ -96,14 +98,16 @@
 
 ```text
 1. 범위 확정     사용자 ─ 화면 ID, 역할(고객·상점주·관리자), 이번 차수 범위
-2. 설계          fe-architect → ../docs/design/frontend/<slice>.md, 대응표
+                 오케스트레이터 ─ annotations.mjs list로 범위에 걸린 FIXME·TODO 확인
+2. 설계          fe-architect → ../docs/design/frontend/<slice>.md(테스트 목록 포함), 대응표
 3. 설계 검토     오케스트레이터 ─ git status, 차단·정합·결정 항목 정리 → 사용자 결정
 4. 설계 갱신     결정 반영이 있으면 fe-architect
-5. Red 테스트    (선택) fe-qa → 모두 실패 확인
-6. 구현          fe-developer ─ 아래 계층부터, 독립 slice는 병렬
-7. 점검          check_layers.mjs + fe-architect(구조) + fe-reviewer(정확성)
-8. 검증          fe-qa (qa-verification / pre-merge-check)
-9. 보고·커밋     사용자 요청 시에만
+5. 골격          fe-developer ─ 공개 API·시그니처만 (tdd-workflow §3)
+6. Red 테스트    fe-qa → 케이스 단위 실패 확인, 오케스트레이터 재실행 (tdd-workflow §4)
+7. Green·Refactor fe-developer ─ 아래 계층부터, 독립 slice는 병렬
+8. 점검          check_layers.mjs + fe-architect(구조) + fe-reviewer(정확성)
+9. 검증          fe-qa (qa-verification / pre-merge-check)
+10. 보고·커밋    사용자 요청 시에만
 ```
 
 ## 6. 설계 단계에서 확인할 것

@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -37,6 +39,30 @@ def get_auth_settings() -> AuthSettings:
     if minutes <= 0:
         raise RuntimeError("ACCESS_TOKEN_EXPIRE_MINUTES는 1 이상이어야 합니다.")
     return AuthSettings(secret_key=secret, algorithm=algorithm, access_token_expire_minutes=minutes)
+
+
+_WITHDRAWN_EMAIL_KEY_LABEL = b"lastcall:withdrawn-email:v1"
+
+
+def get_withdrawn_email_key(env: Mapping[str, str] | None = None) -> bytes:
+    """탈퇴 이메일 해시 키. WITHDRAWN_EMAIL_HASH_KEY가 있으면 그 값, 없으면 JWT_SECRET_KEY에서 용도 분리로 만든다.
+
+    오류 메시지에 값을 넣지 않는다. 키를 바꾸면 기존 탈퇴 이메일의 재가입 차단이 풀린다.
+    """
+    if env is None:
+        load_dotenv()
+        env = os.environ
+    own = env.get("WITHDRAWN_EMAIL_HASH_KEY") or ""
+    if own:
+        if len(own) < MIN_SECRET_LENGTH:
+            raise RuntimeError(f"WITHDRAWN_EMAIL_HASH_KEY는 {MIN_SECRET_LENGTH}자 이상이어야 합니다.")
+        if own.startswith(PLACEHOLDER_PREFIX):
+            raise RuntimeError("WITHDRAWN_EMAIL_HASH_KEY가 .env.example의 예시값입니다. 임의의 값으로 바꾸세요.")
+        return own.encode("utf-8")
+    base = get_auth_settings().secret_key if env is os.environ else (env.get("JWT_SECRET_KEY") or "")
+    if len(base) < MIN_SECRET_LENGTH or base.startswith(PLACEHOLDER_PREFIX):
+        raise RuntimeError("탈퇴 이메일 해시 키를 만들 수 없습니다. JWT_SECRET_KEY를 확인하세요.")
+    return hmac.new(base.encode("utf-8"), _WITHDRAWN_EMAIL_KEY_LABEL, hashlib.sha256).digest()
 
 
 @dataclass(frozen=True)

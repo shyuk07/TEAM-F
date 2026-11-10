@@ -16,7 +16,7 @@ from auth.infrastructure.repositories import (
     SqlAlchemyTokenBlacklistRepository,
     SqlAlchemyUserRepository,
 )
-from auth.infrastructure.security import BcryptPasswordHasher, JwtTokenProvider
+from auth.infrastructure.security import BcryptPasswordHasher, HmacEmailFingerprint, JwtTokenProvider
 from auth.infrastructure.settings import get_auth_settings
 from main import app, seed_admin
 from auth.infrastructure.clock import SystemClock
@@ -35,6 +35,7 @@ def auth_service(db):
         JwtTokenProvider(),
         SystemClock(),
         SqlAlchemyPasswordResetCodeRepository(db),
+        HmacEmailFingerprint(),
     )
 
 

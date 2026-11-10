@@ -18,6 +18,16 @@ class PasswordHasher(ABC):
         """사용자가 없을 때도 verify와 같은 비용을 쓰게 하는 타이밍 방어. 결과는 버린다."""
 
 
+class EmailFingerprint(ABC):
+    """탈퇴 회원 이메일의 대체값(비밀키 해시). 원문을 지우고도 재가입 차단(REQ-4·REQ-35)을 지킨다.
+
+    같은 정규화 이메일은 항상 같은 값, 값에는 '@'가 없어 실제 이메일과 겹치지 않는다.
+    """
+
+    @abstractmethod
+    def tombstone(self, normalized_email: str) -> str: ...
+
+
 class Clock(ABC):
     """현재 시각(tz-aware UTC). 정지 만료 판정에 쓴다 (D33)."""
 
