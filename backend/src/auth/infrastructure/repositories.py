@@ -93,15 +93,20 @@ class SqlAlchemyUserRepository(UserRepository):
             if model is None:
                 raise UserNotFoundError("저장할 회원을 찾을 수 없습니다.")
             model.users_point = user.users_point
+            model.email = user.email  # 탈퇴 시 대체값으로 바뀐다(개인정보 B안)
             model.name = user.name
             model.phone = user.phone
+            model.business_number = user.business_number
             model.password_hash = user.password_hash
             model.token_version = user.token_version
             model.token_keep_jti = user.token_keep_jti
             model.failed_login_count = user.failed_login_count
             model.login_locked_until = user.login_locked_until
             self._write_status(model, user)
-            await self.session.flush()
+            try:
+                await self.session.flush()
+            except IntegrityError as err:
+                raise EmailDuplicatedError() from err
         return user
 
     async def find_all(self, query: UserListQuery, now: datetime) -> list[User]:

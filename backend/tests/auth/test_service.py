@@ -15,7 +15,7 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.service import PasswordHasher
 from auth.domain.user import Role, User
-from auth.infrastructure.security import JwtTokenProvider
+from auth.infrastructure.security import HmacEmailFingerprint, JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
 from tests.auth.fakes import FakeClock, FakeCodes
 
@@ -122,7 +122,8 @@ def build(race=False):
     db = FakeSession()
     parts = dict(users=FakeUsers(race), point_logs=FakeLogs(), blacklist=FakeBlacklist(),
                  hasher=FakeHasher(), tokens=JwtTokenProvider(AuthSettings(secret_key="k" * 40)),
-                 clock=FakeClock(), codes=FakeCodes())
+                 clock=FakeClock(), codes=FakeCodes(),
+                 email_fingerprint=HmacEmailFingerprint(b"t" * 32))
     return AuthApplicationService(db, **parts), db, parts
 
 

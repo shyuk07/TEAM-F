@@ -314,11 +314,12 @@ async def test_withdrawn_token_logout_is_401(client):
 
 
 # ── 탈퇴: 환불 -> 포인트 복구 -> 소멸 (자진·admin 공통 순서) ──
-async def point_logs(c, email):
+async def point_logs(c, uid):
+    """회원 ID로 찾는다(탈퇴하면 이메일 원문이 파기되어 이메일로는 찾을 수 없다, 개인정보 B안)."""
     async with c.session_factory() as s:
         rows = (await s.execute(text(
-            "SELECT p.point_type, p.amount, p.balance_after FROM point_log p JOIN users u ON u.id = p.user_id "
-            "WHERE u.email = :e ORDER BY p.created_at, p.id"), {"e": email})).all()
+            "SELECT point_type, amount, balance_after FROM point_log "
+            "WHERE user_id = :u ORDER BY created_at, id"), {"u": uid})).all()
     return [tuple(r) for r in rows]
 
 
@@ -338,8 +339,8 @@ async def assert_refunded_then_expired(c, email, rid, uid):
     assert await status_of(c, rid) == "CANCELLED"
     assert await scalar(c, "SELECT count(*) FROM refunds") == 1
     assert await scalar(c, "SELECT status FROM users WHERE id = :i", i=uid) == "WITHDRAWN"
-    assert await balance(c, email) == 0
-    logs = await point_logs(c, email)
+    assert await scalar(c, "SELECT users_point FROM users WHERE id = :i", i=uid) == 0
+    logs = await point_logs(c, uid)
     types = [t for t, _, _ in logs]
     # 환불의 복구(+1000)와 회수(-50)가 소멸보다 먼저, 소멸량은 복구된 잔액 전체
     assert types == ["USE", "EARN", "RESTORE", "REVOKE", "EXPIRE"], logs

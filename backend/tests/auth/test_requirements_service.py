@@ -152,8 +152,10 @@ def test_payments_facing_signatures_unchanged():
     init = list(inspect.signature(AuthApplicationService.__init__).parameters)
     assert init == [
         "self", "session", "users", "point_logs", "blacklist", "hasher", "tokens", "clock", "codes",
+        "email_fingerprint",  # 개인정보 B안(2026-11-10): 탈퇴 이메일 대체값. container 한 곳에서만 만든다
     ]
-    assert inspect.signature(AuthApplicationService.__init__).parameters["codes"].default is inspect.Parameter.empty
+    for required in ("codes", "email_fingerprint"):
+        assert inspect.signature(AuthApplicationService.__init__).parameters[required].default is inspect.Parameter.empty
     assert list(inspect.signature(AuthApplicationService.withdraw_user).parameters) == [
         "self", "user_id", "reason", "now", "commit",
     ]
