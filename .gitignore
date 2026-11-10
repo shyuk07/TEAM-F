@@ -3,13 +3,26 @@
 
 # 환경변수
 .env
+.env.local
+.env.*.local
 
 # Python 임시 파일
 __pycache__/
 *.pyc
 
+# Node 의존성·빌드 결과 (frontend)
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
 # 테스트 임시 파일
 .pytest_cache/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
 
 # 에디터 설정
 .idea/
