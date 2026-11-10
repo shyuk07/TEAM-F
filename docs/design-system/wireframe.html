@@ -1,0 +1,984 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>마감 직전 와이어프레임</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: 모바일 우선. PC 모드에서 고객 화면은 브라우저 가운데 420px 그대로, 상점주·관리자 화면은 창 전체 폭(720px+ 규칙으로 표 배치) */
+:root{
+  --bg:#f3f3f1; --paper:#ffffff; --fg:#1d1d1b; --muted:#56564f; --line:#c9c9c3; --fill:#ececE7;
+  --accent:#c2410c; /* AA 대비(흰 바탕 5.2:1). 결제·마감 임박·오류에만 */
+  --ok:#2b7a3a;
+  --sans:"IBM Plex Sans KR",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --r:6px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--paper:#1f1f1d;--fg:#ececE8;--muted:#a8a8a0;--line:#3d3d39;--fill:#2b2b28;--accent:#ff8a50;--ok:#5cc46f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161615;--paper:#1f1f1d;--fg:#ececE8;--muted:#a8a8a0;--line:#3d3d39;--fill:#2b2b28;--accent:#ff8a50;--ok:#5cc46f;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--sans);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:var(--s5) 48px}
+h1,h2{margin:0;text-wrap:balance}
+.page{max-width:1120px;margin:0 auto;display:grid;gap:var(--s5)}
+.intro h1{font-size:26px}
+.intro p{color:var(--muted);max-width:68ch;margin:var(--s2) 0 0}
+.ctrl{display:flex;flex-wrap:wrap;gap:var(--s3);position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding-block:var(--s2);z-index:5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{font:inherit;border:0;background:var(--paper);color:var(--fg);padding:8px 14px;cursor:pointer;min-height:40px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--paper)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tok{display:flex;flex-wrap:wrap;gap:var(--s2);font:12px var(--mono);color:var(--muted);align-items:center}
+.tok span{display:flex;align-items:center;gap:6px}
+.tok i{width:14px;height:14px;border-radius:3px;border:1px solid var(--line)}
+.role-h{font-size:13px;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:var(--s2);margin-top:var(--s4)}
+.screens{display:grid;gap:var(--s5);grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr))}
+body.desk .screens{grid-template-columns:1fr}
+.screen{display:grid;gap:var(--s2);align-content:start;min-width:0}
+.sh{display:flex;gap:var(--s2);align-items:baseline;flex-wrap:wrap}
+.sh .no{font:12px var(--mono);color:var(--accent)}
+.sh h2{font-size:16px}
+.sh code{font:11px var(--mono);color:var(--muted)}
+.devwrap{overflow-x:auto}
+.dev{width:100%;max-width:360px;border:1.5px solid var(--fg);border-radius:18px;background:var(--paper);overflow:hidden}
+body.desk .dev{width:1040px;max-width:none;border-radius:8px;background:var(--fill)}
+body.desk .dev::before{content:"●  ●  ●     lastcall.kr";display:block;font:11px var(--mono);color:var(--muted);padding:8px 14px;background:var(--paper);border-bottom:1px solid var(--line)}
+body.desk [data-role~="c"] .app{width:420px;margin:0 auto;border-inline:1px solid var(--line)}
+.notes{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;max-width:68ch}
+
+/* ===== 앱 내부 ===== */
+.app{container:app/inline-size;display:flex;flex-direction:column;min-height:620px;font-size:13px;background:var(--paper)}
+.bar{display:flex;align-items:center;gap:var(--s2);padding:var(--s3) var(--s4);border-bottom:1px solid var(--line)}
+.logo{font-weight:700}
+.sp{flex:1}
+.nav{display:none;gap:var(--s4);color:var(--muted)}
+.nav b{color:var(--fg)}
+.chip{display:inline-flex;align-items:center;justify-content:center;gap:4px;border:1px solid var(--line);border-radius:99px;padding:0 14px;min-height:44px;font-size:13px;white-space:nowrap}
+.chip.on{background:var(--fg);color:var(--paper);border-color:var(--fg)}
+.tag{font-size:11px;font-weight:600;border:1px solid currentColor;border-radius:4px;padding:1px 6px;white-space:nowrap}
+.tag.hot{color:var(--accent)} .tag.ok{color:var(--ok)} .tag.mute{color:var(--muted)}
+.code-tag{font:11px var(--mono);color:var(--muted)}
+.body{flex:1;padding:var(--s4);display:grid;gap:var(--s3);align-content:start}
+.row{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap}
+.scroll{display:flex;gap:var(--s2);overflow-x:auto}
+.ph{background:repeating-linear-gradient(45deg,var(--fill) 0 6px,transparent 6px 12px);border:1px dashed var(--line);border-radius:var(--r);display:grid;place-items:center;color:var(--muted);font-size:11px;min-height:56px}
+.box{border:1px solid var(--line);border-radius:var(--r);padding:var(--s3);display:grid;gap:var(--s2);min-width:0;align-content:start}
+.card{display:grid;grid-template-columns:76px 1fr;gap:var(--s3);border-bottom:1px solid var(--line);padding-bottom:var(--s3)}
+.card .ph{min-height:76px}
+.t{font-weight:600}
+.m{color:var(--muted);font-size:12px}
+.price{display:flex;gap:6px;align-items:baseline;font-variant-numeric:tabular-nums}
+.price s{color:var(--muted);font-size:11px}
+.price .pct{color:var(--accent);font-weight:700}
+.cd{color:var(--accent);font-size:12px;font-weight:600}
+.in{border:1px solid var(--line);border-radius:var(--r);padding:0 12px;min-height:44px;display:flex;align-items:center;color:var(--muted);background:var(--paper)}
+.lbl{font-size:12px;color:var(--muted)}
+.err{color:var(--accent);font-size:12px}
+.warn{border:1px solid var(--accent);border-radius:var(--r);padding:var(--s2) var(--s3);color:var(--accent);font-size:12px}
+.kv{display:flex;justify-content:space-between;gap:var(--s2);font-variant-numeric:tabular-nums}
+.kv.tot{font-weight:700;border-top:1px solid var(--line);padding-top:var(--s2)}
+.code{font:600 26px var(--mono);letter-spacing:.15em;text-align:center}
+.btn{min-height:48px;border-radius:999px;padding:0 20px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:700;border:1.5px solid var(--line);background:var(--paper)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.dark{background:var(--fg);border-color:var(--fg);color:var(--paper)}
+.btn.sm{min-height:40px;padding:0 16px;font-size:13px;font-weight:600;border:0;background:var(--fill);display:inline-flex}
+.btn.sm.pri{background:var(--accent);color:#fff}
+.btn.split2{justify-content:space-between}
+.link{color:var(--muted);font-size:12px;text-decoration:underline;text-align:center}
+.cta{margin-top:auto;display:flex;gap:var(--s2);align-items:center;padding:var(--s3) var(--s4);border-top:1px solid var(--line);background:var(--paper);box-shadow:0 -6px 14px rgb(0 0 0 / .07)}
+.cta .btn{flex:1}
+.step{display:flex;align-items:center;gap:14px;min-height:48px;padding:0 14px;border:1.5px solid var(--line);border-radius:999px;font-weight:700}
+.tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-top:1px solid var(--line);text-align:center;font-size:12.5px;color:var(--muted)}
+.acct{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;background:var(--fill);font-size:12px;font-weight:700}
+.sk{background:var(--fill);border-radius:4px;height:12px}
+.sel{outline:2px solid var(--fg);outline-offset:-2px;border-radius:var(--r);padding-inline:var(--s2)}
+.tabs span,.tabs b{padding:12px 0}
+.tabs b{color:var(--fg)}
+.list{display:grid}
+.li{display:flex;justify-content:space-between;align-items:center;gap:var(--s2);min-height:52px;border-bottom:1px solid var(--line)}
+.tr{display:grid;grid-template-columns:1fr auto;gap:var(--s2);padding:var(--s2) 0;border-bottom:1px solid var(--line);align-items:center;min-height:52px}
+.tr .hide{display:none}
+.tr.th{min-height:0}
+.tr.th .lbl:not(:first-child){display:none}
+.split,.grid{display:grid;gap:var(--s3);min-width:0}
+.sheet{border:1px solid var(--line);border-radius:16px 16px 0 0;padding:var(--s4);display:grid;gap:var(--s3);box-shadow:0 -8px 24px rgb(0 0 0 / .12);background:var(--paper)}
+.dim{background:repeating-linear-gradient(0deg,var(--fill) 0 2px,transparent 2px 6px);flex:1;display:flex;flex-direction:column;justify-content:flex-end}
+.empty{display:grid;justify-items:center;gap:var(--s2);text-align:center;padding:var(--s5) var(--s3)}
+.empty .ic{width:56px;height:56px;border-radius:50%;background:var(--fill)}
+.pick{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.pcard{border:1.5px solid var(--line);border-radius:16px;padding:16px 8px;display:grid;justify-items:center;gap:6px;text-align:center;min-width:0}
+.pcard.on{border-color:var(--accent);outline:3px solid color-mix(in srgb,var(--accent) 22%,transparent)}
+.pcard .ic{width:56px;height:56px;border-radius:50%;background:var(--fill);display:grid;place-items:center}
+.pcard.on .ic{color:var(--accent)}
+.pcard svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.dk{display:none}
+.photo{aspect-ratio:4/3;width:100%;max-width:100%;position:relative}
+.photo .pbar{position:absolute;left:12px;right:12px;bottom:12px;height:6px;border-radius:3px;background:var(--paper);overflow:hidden}
+.photo .pbar i{display:block;height:100%;background:var(--fg)}
+
+/* 넓은 화면(상점주·관리자 PC) */
+@container app (min-width:720px){
+  .nav{display:flex}
+  .tabs{display:none}
+  .body{padding:var(--s5)}
+  .split{grid-template-columns:300px 1fr}
+  .split.r{grid-template-columns:1fr 340px}
+  .split.h{grid-template-columns:1fr 1fr}
+  .tr{grid-template-columns:1.4fr 1fr 1fr 1fr auto}
+  .tr .hide{display:block}
+  .tr.th .lbl:not(:first-child){display:block}
+  .mob{display:none}
+  .cta{display:none}
+  .dk{display:flex}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="page">
+  <div class="intro">
+    <h1>마감 직전 · 와이어프레임</h1>
+    <p>고객·상점주·관리자 37개 화면. 탭·메뉴에서 갈 수 있는 모든 항목에 화면이 있습니다(화면 번호로 연결 표시). 앱은 로그인 없이 홈(C1)으로 열리고, "예약하고 결제"를 누를 때만 로그인합니다. PC에서 고객 화면은 브라우저 가운데 모바일 폭 그대로, 상점주·관리자 화면은 창 전체 폭의 표 배치입니다.</p>
+    <p>버튼 규칙: 주요 버튼은 48px 알약형, 모바일에서는 하단 고정 바(금액은 버튼 오른쪽). 탭하는 칩·입력은 44px 이상. 되돌리기 어려운 동작은 확인 화면 + 진한 버튼 + 왼쪽 "취소". 상태는 고객·상점주에게 한국어로만, 관리자 화면에만 코드 병기.</p>
+  </div>
+
+  <div class="ctrl">
+    <div class="seg" role="group" aria-label="화면 크기">
+      <button id="b-mob" aria-pressed="true">모바일 360</button>
+      <button id="b-desk" aria-pressed="false">PC 브라우저</button>
+    </div>
+    <div class="seg" role="group" aria-label="역할">
+      <button data-r="c" aria-pressed="true">고객</button>
+      <button data-r="o" aria-pressed="false">상점주</button>
+      <button data-r="a" aria-pressed="false">관리자</button>
+    </div>
+    <div class="tok">
+      <span><i style="background:var(--fg)"></i>fg</span>
+      <span><i style="background:var(--fill)"></i>fill</span>
+      <span><i style="background:var(--accent)"></i>accent</span>
+      <span><i style="background:var(--ok)"></i>ok</span>
+      <span>터치 44px+ · 버튼 48px</span>
+    </div>
+  </div>
+
+  <!-- ================= 공통 ================= -->
+  <div class="role-h" data-role="c o a">공통 · 로그인·계정 (모든 역할)</div>
+  <div class="screens" data-role="c o a">
+
+    <section class="screen">
+      <div class="sh"><span class="no">A1</span><h2>로그인</h2><code>POST /v1/auth/login {email, password}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>✕</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="t" style="font-size:20px">로그인</div>
+          <div class="m">예약을 이어가려면 로그인하세요. <span class="code-tag">(C2에서 왔을 때만)</span></div>
+          <div class="lbl">이메일</div><div class="in">name@example.com</div>
+          <div class="lbl">비밀번호</div><div class="in">••••••••</div>
+          <div class="err">이메일 또는 비밀번호가 올바르지 않습니다.</div>
+          <div class="btn pri">로그인</div>
+          <div class="link">비밀번호 재설정</div>
+        </div>
+        <div class="cta" style="flex-direction:column;align-items:stretch;gap:6px"><span class="m" style="text-align:center">계정이 없나요?</span><div class="btn">회원가입</div><span class="link">사장님이신가요? 입점 신청</span></div>
+      </div></div></div>
+      <ul class="notes"><li>제목은 "로그인" 고정, 들어온 경로에 따라 아래 한 줄만 바뀜: C2 → "예약을 이어가려면…", 내 예약·마이 탭 → "예약 내역을 보려면…", 홈 상단 링크 → 문구 없음.</li><li>역할 선택 없음. 로그인 뒤 계정 역할로 이동: 고객은 원래 보던 화면(또는 C1), 상점주는 O0/O1, 관리자는 M1.</li><li>상점주·관리자는 홈 상단 "로그인"으로 들어옴.</li></ul>
+    </section>
+
+    <section class="screen" data-role="c o">
+      <div class="sh"><span class="no">A2</span><h2>회원가입</h2><code>POST /v1/auth/signup {email, password, name, phone, role}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">회원가입</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="lbl">어떻게 이용하시나요? *</div>
+          <div class="pick">
+            <div class="pcard on"><div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg></div><b>일반 고객</b><span class="m">할인을 예약하고 픽업</span></div>
+            <div class="pcard"><div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v10h16V10"/><path d="M3 10l2-6h14l2 6"/><path d="M3 10a3 3 0 0 0 6 0a3 3 0 0 0 6 0a3 3 0 0 0 6 0"/><path d="M10 20v-5h4v5"/></svg></div><b>상점주</b><span class="m">할인을 올리고 픽업 관리</span></div>
+          </div>
+          <div class="m">한 계정은 한 가지 유형이에요. 상점주는 관리자 승인 후 상점을 열 수 있어요.</div>
+          <div class="lbl">이름 *</div><div class="in">김고객</div>
+          <div class="lbl">이메일 *</div><div class="in">name@example.com</div>
+          <div class="err">이미 가입된 이메일입니다.</div>
+          <div class="lbl">비밀번호 * (8자 이상)</div><div class="in">••••••••</div>
+          <div class="lbl">전화번호 *</div><div class="in">010-0000-0000</div>
+        </div>
+        <div class="cta"><div class="btn pri">가입하기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>역할은 여기서만 고름. 상점주를 고르면 "이름" 라벨이 "상호(상점명으로 쓰임)"로 바뀜.</li><li>가입 응답에는 토큰이 없으므로 성공 후 같은 이메일·비밀번호로 로그인 API를 바로 호출.</li><li>가입 후 이동은 A1과 같음: 고객은 가입 전에 있던 화면으로(C2에서 왔으면 같은 수량으로 예약 이어가기), 상점주는 O0(승인 대기).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">A3</span><h2>비밀번호 재설정</h2><code>POST /v1/auth/password-reset/request · /confirm</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">비밀번호 재설정</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="lbl">1단계 · 코드 받기</div>
+          <div class="box"><div class="lbl">가입한 이메일</div><div class="in">name@example.com</div><div class="btn">코드 보내기</div>
+            <div class="m">가입된 이메일이면 6자리 코드를 보내요.</div></div>
+          <div class="lbl">2단계 · 새 비밀번호</div>
+          <div class="box"><div class="lbl">6자리 코드</div><div class="in" style="font-family:var(--mono);letter-spacing:.2em">482913</div>
+            <div class="lbl">새 비밀번호 (8자 이상)</div><div class="in">••••••••</div>
+            <div class="err">코드가 맞지 않거나 만료됐어요. 코드를 다시 받아 주세요.</div>
+            <div class="link" style="text-align:left">코드 다시 받기</div></div>
+        </div>
+        <div class="cta"><div class="btn pri">비밀번호 바꾸기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>A1 "비밀번호 재설정"에서 들어옴. 1단계를 보내면 2단계가 열림. 완료 후 A1로, "새 비밀번호로 로그인하세요".</li><li>가입 여부와 상관없이 같은 안내(204)로 이메일 존재 여부를 드러내지 않음. 코드 오류·만료·횟수 초과는 모두 같은 오류 문구(INVALID_RESET_CODE).</li><li>현재 코드는 서버 로그로만 남고 이메일로 보내지 않음(reset_notifier.py) → 메일 발송 <b>확인 필요</b>.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C8</span><h2>프로필 변경</h2><code>PATCH /v1/users/me {name?, phone?}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">프로필 변경</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="lbl">이메일 (변경 불가)</div><div class="in" style="background:var(--fill)">name@example.com</div>
+          <div class="lbl">이름</div><div class="in">김고객</div>
+          <div class="box" style="background:var(--fill)"><div class="lbl">상점주로 열었을 때</div><div class="in" style="background:var(--fill)">망원베이커리 🔒</div><div class="m">상호 변경은 고객센터에 문의해 주세요.</div></div>
+          <div class="lbl">전화번호</div><div class="in">010-0000-0000</div>
+        </div>
+        <div class="cta"><div class="btn pri">저장</div></div>
+      </div></div></div>
+      <ul class="notes"><li>C6과 O8(상점주·관리자 계정 메뉴)이 같은 화면을 씀. 저장 후 "저장했어요" 알림 + 이전 화면.</li><li>상점주는 "상호" 칸을 잠금: 상점은 개설할 때 이름을 복사해 두므로, 바꾸면 계정 이름과 상점명이 달라짐. 상호 변경 규칙이 정해질 때까지 전화번호만 수정(<b>확인 필요</b>).</li><li>바꾼 값만 보냄(PATCH). 아무것도 안 바꾸면 저장 버튼 비활성.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C9</span><h2>비밀번호 변경</h2><code>POST /v1/users/me/password {current_password, new_password}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">비밀번호 변경</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="lbl">현재 비밀번호</div><div class="in">••••••••</div>
+          <div class="err">현재 비밀번호가 일치하지 않습니다.</div>
+          <div class="lbl">새 비밀번호 (8자 이상)</div><div class="in">••••••••</div>
+          <div class="lbl">새 비밀번호 확인</div><div class="in">••••••••</div>
+          <div class="m">바꿔도 이 기기는 로그인이 유지되고, 다른 기기에서는 로그아웃돼요.</div>
+        </div>
+        <div class="cta"><div class="btn pri">비밀번호 바꾸기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>성공(204) 후 지금 쓰는 토큰(변경에 쓴 기기)은 유지되고, 다른 기기의 토큰만 무효(401 TOKEN_REVOKED)가 됨 → 이 기기는 다시 로그인하지 않음. 비밀번호 재설정(A3)은 모든 토큰이 무효(REQ-24, REQ-32). "확인" 칸은 화면에서만 비교.</li><li>고객·상점주·관리자 공용.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C10</span><h2>로그아웃 확인</h2><code>POST /v1/auth/logout</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">마이</span><span class="sp"></span></div>
+        <div class="dim">
+          <div class="sheet">
+            <div class="t" style="font-size:17px">로그아웃할까요?</div>
+            <div class="m">진행 중인 예약은 그대로 남아요. 다시 로그인하면 볼 수 있어요.</div>
+            <div class="btn dark">로그아웃</div>
+            <div class="btn">취소</div>
+          </div>
+        </div>
+        <div class="tabs"><span>홈</span><span>내 예약</span><b>마이</b></div>
+      </div></div></div>
+      <ul class="notes"><li>로그아웃 후 C1(비로그인 홈). 상점주·관리자는 A1로.</li><li>고객·상점주·관리자 공용.</li></ul>
+    </section>
+  </div>
+
+  <div class="role-h" data-role="o a">상점주·관리자 공통</div>
+  <div class="screens" data-role="o a">
+
+    <section class="screen">
+      <div class="sh"><span class="no">O8</span><h2>계정 메뉴</h2><code>헤더 "계정" 버튼 (상점주·관리자 공용)</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">망원베이커리</span><span class="sp"></span><span class="acct" style="outline:2px solid var(--fg)">계정</span></div>
+        <div class="dim">
+          <div class="sheet">
+            <div><div class="t">망원베이커리</div><div class="m">owner1@example.com · 상점주</div></div>
+            <div class="list">
+              <div class="li"><span>내 정보 (전화번호)</span><span class="m">C8 ›</span></div>
+              <div class="li"><span>비밀번호 변경</span><span class="m">C9 ›</span></div>
+              <div class="li"><span>로그아웃</span><span class="m">C10 ›</span></div>
+            </div>
+            <div class="m">상점 정보·폐점은 매장 탭(O4)에 있어요.</div>
+          </div>
+        </div>
+        <div class="tabs"><span>오늘</span><span>할인</span><span>매장</span></div>
+      </div></div></div>
+      <ul class="notes"><li>모바일은 바텀시트, PC는 계정 버튼 아래 드롭다운. 관리자도 같은 메뉴(상점 줄 없음).</li><li>상점주 회원 탈퇴는 API가 있지만(POST /users/me/withdraw) 상점·예약 처리 규칙이 없어 메뉴에서 뺌 → <b>확인 필요</b>.</li></ul>
+    </section>
+  </div>
+
+  <!-- ================= 고객 ================= -->
+  <div class="role-h" data-role="c">고객 · 둘러보기 → 예약 → 픽업</div>
+  <div class="screens" data-role="c">
+
+    <section class="screen">
+      <div class="sh"><span class="no">C1</span><h2>홈 · 주변 할인 (비로그인 가능)</h2><code>GET /v1/offers</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">마감직전</span><span class="chip">망원동 · 3km</span><span class="sp"></span><span class="link">로그인</span></div>
+        <div class="body">
+          <div class="in">상품명 검색</div>
+          <div class="scroll"><span class="chip on">마감 임박</span><span class="chip">가까운 순</span><span class="chip">할인율</span><span class="chip">낮은 가격</span></div>
+          <div class="card"><div class="ph">사진</div><div><div class="m">망원베이커리 · 0.4km</div><div class="t">식빵 모둠 5종</div>
+            <div class="price"><span class="pct">50%</span><b>6,000원</b><s>12,000</s></div>
+            <div class="m">픽업 <b>오늘 18:00–20:00</b></div>
+            <div class="row"><span class="cd">판매 마감 42분 전</span><span class="m">남은 3개</span></div></div></div>
+          <div class="card"><div class="ph">사진</div><div><div class="m">한끼반찬 · 1.1km</div><div class="t">반찬 3종 세트</div>
+            <div class="price"><span class="pct">40%</span><b>7,200원</b><s>12,000</s></div>
+            <div class="m">픽업 <b>오늘 19:00–21:00</b></div>
+            <div class="row"><span class="cd">판매 마감 1시간 10분 전</span><span class="m">남은 8개</span></div></div></div>
+          <div class="card"><div class="ph">사진</div><div><div class="m">달콤제과 · 2.3km</div><div class="t">조각 케이크</div>
+            <div class="price"><span class="pct">30%</span><b>4,200원</b><s>6,000</s></div>
+            <div class="m">픽업 오늘 17:00–19:00</div>
+            <div class="row"><span class="tag mute">품절</span></div></div></div>
+        </div>
+        <div class="link" style="padding:var(--s2)">사장님이신가요? 입점 신청</div>
+        <div class="tabs"><b>홈</b><span>내 예약</span><span>마이</span></div>
+      </div></div></div>
+      <ul class="notes"><li>로그인 없이 열림(할인 조회는 공개 API). 상단 "로그인"은 선택 사항.</li><li>비로그인 상태에서 내 예약·마이 탭 → A1 로그인 → 로그인 후 누른 탭으로 돌아옴.</li><li>탭 바 바로 위 작은 고정 링크 "입점 신청" → A2(상점주 미리 선택). 목록 끝에 두지 않음(페이지 목록이라 끝까지 안 내려감). A1에도 같은 링크.</li><li>위치 칩 "망원동 · 3km" → C1a.</li><li>모든 카드: 픽업 시간대 + "판매 마감 N분 전" 한 가지 형식 + 남은 수량.</li><li>지도 탭은 목록 API에 좌표가 없어 제외. 위치 권한이 없으면 거리 숨김, "가까운 순" 비활성.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C1a</span><h2>위치 · 반경</h2><code>GET /v1/offers?lat&amp;lng&amp;radius_km</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">마감직전</span><span class="chip on">망원동 · 3km</span><span class="sp"></span></div>
+        <div class="dim">
+          <div class="sheet">
+            <div class="t" style="font-size:17px">어디서 찾을까요?</div>
+            <div class="btn">◎ 현재 위치 사용</div>
+            <div class="m">지금: 망원동 (현재 위치)</div>
+            <div class="lbl">반경</div>
+            <div class="scroll"><span class="chip">1km</span><span class="chip on">3km</span><span class="chip">5km</span><span class="chip">10km</span></div>
+            <div class="m">위치를 허용하지 않으면 거리 없이 전체 할인을 보여 줘요.</div>
+            <div class="btn pri">적용</div>
+          </div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li>API는 좌표(lat·lng)와 반경(0.1~20km, 기본 3)을 받음. 기본은 기기 위치.</li><li>주소를 입력해 위치를 바꾸려면 주소 → 좌표 변환이 고객용으로 필요(상점 개설용 카카오 변환만 있음) → <b>확인 필요</b>. 그 전까지는 현재 위치만.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C2</span><h2>할인 상세</h2><code>GET /v1/offers/{id}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">식빵 모둠 5종</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="ph" style="min-height:170px">상품 이미지</div>
+          <div class="m">망원베이커리 · 서울시 마포구 월드컵북로 1</div>
+          <div class="price"><span class="pct">50%</span><b style="font-size:20px">6,000원</b><s>12,000</s></div>
+          <div class="row"><span class="cd">판매 마감 42분 전</span><span class="m">남은 3개</span></div>
+          <div class="box"><div class="kv"><span class="lbl">픽업 시간</span><b>오늘 18:00–20:00</b></div>
+            <div class="kv"><span class="lbl">취소 가능</span><b>오늘 17:00까지 (이후 취소 불가)</b></div></div>
+          <div class="m">픽업 시간 안에 방문해 예약 코드를 보여 주세요. 시간이 지나면 수령할 수 없어요.</div>
+          <div class="m">한 번에 최대 5개까지 예약할 수 있어요.</div>
+          <div class="box" style="border-color:var(--accent)"><div class="err">이 상품에 결제하지 않은 예약이 이미 있어요. (오류 예시)</div><span class="btn sm pri" style="justify-self:start">결제 이어하기</span></div>
+        </div>
+        <div class="cta"><div class="step"><span>−</span><b>2</b><span>+</span></div><div class="btn pri split2"><span>예약하고 결제</span><span>12,000원</span></div></div>
+      </div></div></div>
+      <ul class="notes"><li>비로그인 상태에서 "예약하고 결제"를 누르면 A1 로그인으로. 로그인 후 이 화면으로 돌아와 같은 수량으로 이어감.</li><li>수량 상한 = min(남은 재고, 5). 예약 1건 최대 5개(R-REQ1). 5에 닿으면 + 비활성.</li><li>같은 할인에 결제 대기 예약이 이미 있으면 409 PENDING_RESERVATION_EXISTS(R-REQ28) → 오류 대신 "결제 이어하기"로 그 예약의 C3를 엶. 예약 ID를 내 예약 목록에서 찾아야 함.</li><li>품절·판매 종료면 버튼 비활성 + 사유. 폐점·정지 상점과 숨김 상품의 할인은 목록에서 빠짐(백엔드 반영됨).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C3</span><h2>결제</h2><code>POST /v1/payments {reservation_id, use_point}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">결제</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">식빵 모둠 5종 × 2</div><div class="m">망원베이커리 · 픽업 오늘 18:00–20:00</div></div>
+          <div class="box"><div class="lbl">포인트 사용 (100P 단위)</div>
+            <div class="row"><div class="in" style="flex:1">500</div><span class="chip">전액</span></div>
+            <div class="m">보유 1,240P</div></div>
+          <div class="box"><div class="kv"><span>상품 금액</span><span>12,000원</span></div>
+            <div class="kv"><span>포인트</span><span>−500원</span></div>
+            <div class="kv tot"><span>결제 금액</span><span>11,500원</span></div>
+            <div class="m">결제 후 115P 적립 (1%)</div></div>
+        </div>
+        <div class="cta"><div class="btn pri split2"><span>결제하기</span><span>11,500원</span></div></div>
+      </div></div></div>
+      <ul class="notes"><li>예약 생성 시 재고를 잡고 결제 대기 상태가 됨. 예약은 자동 만료되지 않음(설계 Q-2).</li><li>포인트는 결제 요청의 use_point로 보냄.</li><li>뒤로 가기 → C3a.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C3a</span><h2>결제 화면 나가기</h2><code>POST /v1/reservations/{id}/cancel</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">결제</span><span class="sp"></span></div>
+        <div class="dim">
+          <div class="sheet">
+            <div class="t" style="font-size:17px">결제를 그만할까요?</div>
+            <div class="m">결제하지 않으면 식빵 모둠 2개가 계속 묶여 다른 사람이 살 수 없어요.</div>
+            <div class="btn pri">결제 계속하기</div>
+            <div class="btn">예약 취소하고 나가기</div>
+            <div class="link">나중에 결제 (내 예약에 남음)</div>
+          </div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li>뒤로 가기는 실수로 누르는 경우가 많아 "결제 계속하기"가 주 버튼. 취소는 두 번째(테두리 버튼), "나중에 결제"는 링크.</li><li>결제 대기 예약 취소는 기존 API가 허용.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C4</span><h2>결제 완료</h2><code>결제 응답 → 예약 확정</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="sp"></span><span>✕</span></div>
+        <div class="body" style="text-align:center">
+          <span class="tag ok" style="justify-self:center">예약 확정</span>
+          <div class="t" style="font-size:20px">결제가 완료됐어요</div>
+          <div class="box" style="background:var(--fill)"><div class="lbl">매장에서 이 코드를 보여 주세요</div><div class="code">A12345</div><div class="m">식빵 모둠 5종 × 2 · <b>17:42 예약</b></div></div>
+          <div class="box" style="text-align:left"><div class="kv"><span class="lbl">픽업</span><b>오늘 18:00–20:00</b></div>
+            <div class="kv"><span class="lbl">매장</span><b>망원베이커리</b></div>
+            <div class="m">서울시 마포구 월드컵북로 1</div>
+            <div class="kv"><span class="lbl">취소 가능</span><b>17:00까지</b></div></div>
+          <div class="btn sm" style="justify-self:center">길찾기</div>
+        </div>
+        <div class="cta"><div class="btn pri">내 예약 보기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>픽업 코드는 영문 1자 + 숫자 5자(예: A12345). 코드 상자는 6자 기준.</li><li>코드가 결제 응답에 오는지, 예약 조회로 다시 받아야 하는지 <b>확인 필요</b>(이슈 18).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C5</span><h2>내 예약</h2><code>GET /v1/users/me/reservations</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">내 예약</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="scroll"><span class="chip on">진행 중</span><span class="chip">지난 예약</span></div>
+          <div class="box"><div class="row"><span class="tag ok">예약 확정</span><span class="sp"></span><span class="m">픽업 오늘 18:00–20:00</span></div>
+            <div class="t">식빵 모둠 5종 × 2 · 11,500원</div><div class="m">망원베이커리</div>
+            <div class="box" style="background:var(--fill);text-align:center"><div class="lbl">매장에서 보여 주세요</div><div class="code">A12345</div><div class="m">식빵 모둠 5종 × 2 · <b>17:42 예약</b></div></div>
+            <div class="row"><span class="btn sm">길찾기</span><span class="sp"></span><span class="link">예약 취소 · 17:00까지</span></div></div>
+          <div class="box"><div class="row"><span class="tag mute">매장 사정으로 취소됨</span></div><div class="t">바게트 × 2 · 5,000원</div>
+            <div class="m">매장이 판매를 중단해 예약이 취소됐어요. <b>전액 환불</b>됐으니 방문하지 않으셔도 돼요.</div></div>
+          <div class="box"><div class="row"><span class="tag hot">결제 대기</span></div><div class="t">반찬 3종 세트 × 1</div>
+            <div class="m">결제 전까지 재고 1개를 잡고 있어요.</div>
+            <div class="row"><span class="btn sm pri">결제 이어하기</span><span class="btn sm">예약 취소</span></div></div>
+          <div class="box"><div class="row"><span class="tag mute">픽업 시간 지남</span></div><div class="t">조각 케이크 × 1 · 4,200원</div>
+            <div class="m">어제 17:00–19:00에 수령하지 않았어요. 환불되지 않을 수 있어요(정책 <b>확인 필요</b>).</div></div>
+        </div>
+        <div class="tabs"><span>홈</span><b>내 예약</b><span>마이</span></div>
+      </div></div></div>
+      <ul class="notes"><li>코드 카드에 예약 시각(17:42 예약)을 함께 표시 → 상점주 O1 목록의 예약 시각과 바로 맞춰 볼 수 있음(백엔드 변경 없음).</li><li>매장 사정으로 취소된 예약(점주의 판매 중단, cancelled_by=STORE)은 — 관리자의 할인 정지·강제 폐점은 예약을 취소하지 않고 새 예약만 막음 — 원래 픽업 종료 시각까지 "진행 중" 탭에 남겨 둠. 알림 기능이 없어 고객이 앱을 열어야만 알 수 있음.</li><li>확정 예약의 취소는 길찾기와 떨어진 오른쪽 텍스트 링크 → C5a 확인. 링크에 마감 시각을 함께 표시.</li><li>취소 마감(픽업 시작 − 1시간)이 지나면 링크 대신 회색 문구 "취소 마감 지남 (17:00)", 누를 수 없음(E1 참고). 현재 백엔드 cancel()은 마감 시각을 검사하지 않음 → 서버 규칙 추가 <b>확인 필요</b>.</li><li>취소 구분은 예약 응답의 <b>cancelled_by</b>로 표시(<b>백엔드 반영됨 #44</b>, 내 예약 목록과 취소 응답에 들어감): CUSTOMER → "직접 취소", STORE → "매장 사정으로 취소됨", 그 외·null → "취소됨". SYSTEM(탈퇴 회원 예약)은 고객 화면에 나오지 않음.</li><li>미수령(노쇼): 픽업 종료 후에도 DB 상태는 "예약 확정"으로 남음 → "픽업 시간 지남"은 DB 상태가 아니라 화면이 계산해 표시(예약 확정 상태 + pickup_end가 지남). 환불·상태 전이 규칙은 백엔드에서 정해야 함(<b>확인 필요</b>).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C5a</span><h2>예약 취소 확인</h2><code>POST /v1/reservations/{id}/cancel</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">예약 취소</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">식빵 모둠 5종 × 2</div><div class="m">망원베이커리 · 픽업 오늘 18:00–20:00</div></div>
+          <div class="box"><div class="lbl">돌려받는 금액</div>
+            <div class="kv"><span>결제 수단으로 환불</span><b>11,500원</b></div>
+            <div class="kv"><span>사용한 포인트 복구</span><b>+500P</b></div>
+            <div class="kv"><span>적립 포인트 회수</span><b>−115P</b></div></div>
+          <div class="m">취소 마감(오늘 17:00) 전이라 전액 돌려받아요.</div>
+        </div>
+        <div class="cta"><div class="btn">돌아가기</div><div class="btn dark">예약 취소</div></div>
+      </div></div></div>
+      <ul class="notes"><li>환불액·포인트 복구(RESTORE)·회수(REVOKE)는 포인트 정책대로 계산해 보여 줌. 결제는 모의 결제라 수단 이름 대신 "결제 수단으로 환불".</li><li>규칙 하나로 통일: 취소 마감 전에는 전액 환불, 마감 후에는 취소 불가(C2와 같은 문구). 위약금은 쓰지 않음 → API의 cancel_policy 설명 문구도 맞춰야 함(이슈 23).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C5b</span><h2>내 예약 · 지난 예약</h2><code>GET /v1/users/me/reservations</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">내 예약</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="scroll"><span class="chip">진행 중</span><span class="chip on">지난 예약</span></div>
+          <div class="box"><div class="row"><span class="tag mute">픽업 완료</span><span class="sp"></span><span class="m">11/07</span></div><div class="t">조각 케이크 × 2 · 8,400원</div><div class="m">달콤제과 · 84P 적립</div></div>
+          <div class="box"><div class="row"><span class="tag mute">취소됨</span><span class="sp"></span><span class="m">11/05</span></div><div class="t">반찬 3종 세트 × 1 · 7,200원</div><div class="m">직접 취소 · 7,200원 환불</div></div>
+          <div class="box"><div class="row"><span class="tag mute">매장 사정으로 취소됨</span><span class="sp"></span><span class="m">11/03</span></div><div class="t">바게트 × 2 · 5,000원</div><div class="m">전액 환불</div></div>
+          <div class="box"><div class="row"><span class="tag mute">픽업 시간 지남</span><span class="sp"></span><span class="m">11/02</span></div><div class="t">식빵 모둠 5종 × 1 · 6,000원</div><div class="m">수령하지 않음 (환불 규칙 <b>확인 필요</b>)</div></div>
+          <div class="link">더 보기</div>
+        </div>
+        <div class="tabs"><span>홈</span><b>내 예약</b><span>마이</span></div>
+      </div></div></div>
+      <ul class="notes"><li>진행 중 = 결제 대기·예약 확정(픽업 전)·픽업 종료 전의 매장 취소. 지난 예약 = 픽업 완료·취소됨·픽업 시간 지남. 최신순.</li><li>취소 카드의 "직접 취소"·"매장 사정으로 취소됨"·"취소됨" 구분은 cancelled_by(C5 참고, <b>백엔드 반영됨 #44</b>). "픽업 시간 지남"은 DB 상태가 아니라 화면 계산(예약 확정 + pickup_end 지남), 노쇼 환불 규칙은 미결정.</li><li>예약 목록 API에 페이지 매개변수가 없음(명세 이슈 5) → "더 보기"는 API가 생기면. 그 전에는 전체를 받아 앱에서 나눔.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C6</span><h2>마이</h2><code>GET /v1/users/me · /points</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">마이</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">김고객</div><div class="m">name@example.com</div><div class="kv"><span>포인트</span><b>1,240P</b></div></div>
+          <div class="list">
+            <div class="li"><span>프로필 변경</span><span class="m">C8 ›</span></div>
+            <div class="li"><span>비밀번호 변경</span><span class="m">C9 ›</span></div>
+            <div class="li"><span>로그아웃</span><span class="m">C10 ›</span></div>
+          </div>
+          <div class="row"><span class="lbl" style="flex:1">최근 포인트 내역</span><span class="link">전체 보기 (C11)</span></div>
+          <div class="list">
+            <div class="li"><div><b>적립</b><div class="m">11/07 결제</div></div><b>+115P</b></div>
+            <div class="li"><div><b>사용</b><div class="m">11/07 결제</div></div><b>−500P</b></div>
+            <div class="li"><div><b>복구</b><div class="m">11/05 환불</div></div><b>+300P</b></div>
+          </div>
+          <div class="link">회원 탈퇴</div>
+        </div>
+        <div class="tabs"><span>홈</span><span>내 예약</span><b>마이</b></div>
+      </div></div></div>
+      <ul class="notes"><li>자주 쓰는 항목은 행, 드물고 위험한 탈퇴는 맨 아래 조용한 링크 → C7.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C7</span><h2>회원 탈퇴 확인</h2><code>POST /v1/users/me/withdraw {password}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">회원 탈퇴</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">탈퇴하면 이렇게 돼요</div>
+            <div class="kv"><span>진행 중 예약</span><b>1건 취소·환불</b></div>
+            <div class="kv"><span>남은 포인트</span><b class="cd">1,240P 소멸</b></div>
+            <div class="m">되돌릴 수 없어요.</div></div>
+          <div class="lbl">현재 비밀번호 *</div><div class="in">••••••••</div>
+          <div class="err">비밀번호가 일치하지 않습니다.</div>
+        </div>
+        <div class="cta"><div class="btn">취소</div><div class="btn dark">탈퇴하기</div></div>
+      </div></div></div>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">C11</span><h2>포인트 내역 전체</h2><code>GET /v1/users/me/points?page=0</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">포인트</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box" style="background:var(--fill)"><div class="lbl">보유 포인트</div><b style="font-size:22px">1,240P</b><div class="m">결제 금액의 1% 적립 · 100P 단위로 사용</div></div>
+          <div class="list">
+            <div class="li"><div><b>적립</b><div class="m">11/07 18:02 · 잔액 1,240P</div></div><b>+115P</b></div>
+            <div class="li"><div><b>사용</b><div class="m">11/07 17:58 · 잔액 1,125P</div></div><b>−500P</b></div>
+            <div class="li"><div><b>회수</b><div class="m">11/05 · 환불로 적립 취소</div></div><b>−72P</b></div>
+            <div class="li"><div><b>복구</b><div class="m">11/05 · 환불로 사용분 복구</div></div><b>+300P</b></div>
+            <div class="li"><div><b>지급</b><div class="m">11/01 · 이벤트 보상</div></div><b>+1,000P</b></div>
+          </div>
+          <div class="link">더 보기</div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li>종류는 한국어로만: 적립(EARN)·사용(USE)·복구(RESTORE)·회수(REVOKE)·지급(GRANT)·소멸(EXPIRE). 잔액(balance_after)이 없는 옛 내역은 잔액 생략.</li><li>페이지는 0부터, total_elements로 "더 보기" 표시 여부 판단.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">E1</span><h2>로딩 · 빈 상태 · 취소 마감</h2><code>상태 모음</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">상태 모음</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="lbl">로딩 (목록 공통)</div>
+          <div class="card"><div class="sk" style="height:76px"></div><div style="display:grid;gap:8px"><div class="sk" style="width:50%"></div><div class="sk" style="width:80%"></div><div class="sk" style="width:40%"></div></div></div>
+          <div class="lbl">취소 마감 지난 예약 카드</div>
+          <div class="box"><div class="row"><span class="tag ok">예약 확정</span></div><div class="t">식빵 모둠 5종 × 2</div><div class="row"><span class="btn sm">길찾기</span><span class="sp"></span><span class="m">취소 마감 지남 (17:00)</span></div></div>
+          <div class="lbl">빈 상태</div>
+          <div class="box empty"><div class="ic"></div><b>근처에 마감 할인이 없어요</b><span class="m">반경을 넓히거나 저녁 시간에 다시 확인해 보세요.</span><span class="btn sm">반경 5km로 넓히기</span></div>
+          <div class="box empty"><div class="ic"></div><b>아직 예약이 없어요</b><span class="m">오늘 마감 할인을 둘러보세요.</span><span class="btn sm">할인 보러 가기</span></div>
+          <div class="box empty"><div class="ic"></div><b>(상점주) 등록한 상품이 없어요</b><span class="m">상품을 먼저 등록해야 할인을 올릴 수 있어요.</span><span class="btn sm pri">상품 등록</span></div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li>로딩은 실제 카드 모양의 회색 뼈대(스피너 대신). 버튼을 누른 뒤 응답을 기다리는 동안 그 버튼은 비활성 + "처리 중…".</li><li>각 빈 상태는 다음 행동 버튼 하나를 둠. 상점주 빈 상태는 O4·O3에서 씀.</li></ul>
+    </section>
+  </div>
+
+  <!-- ================= 상점주 ================= -->
+  <div class="role-h" data-role="o">상점주 · PC/태블릿에서는 넓은 배치</div>
+  <div class="screens" data-role="o">
+
+    <section class="screen">
+      <div class="sh"><span class="no">O0</span><h2>첫 화면 · 상점 개설</h2><code>users.status → POST /v1/stores {pickup_address}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">마감직전 상점주</span><span class="sp"></span><span class="link">로그아웃</span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s3);align-content:start">
+            <div class="box"><span class="tag hot" style="justify-self:start">승인 대기</span><div class="t">승인 대기 중이에요</div><div class="m">관리자가 확인하면 상점을 열 수 있어요.</div></div>
+            <div class="box"><span class="tag mute" style="justify-self:start">거절됨</span><div class="t">가입이 거절되었습니다</div><div class="m">다시 신청하는 기능은 아직 없어요(<b>확인 필요</b>).</div></div>
+            <div class="box"><span class="tag hot" style="justify-self:start">상점 정지</span><div class="t">관리자가 상점을 정지했어요</div><div class="m">새 할인을 올릴 수 없어요. 기존 예약의 픽업은 처리할 수 있어요. → O1로 이동, 상단에 이 안내 고정.</div></div>
+            <div class="box"><span class="tag mute" style="justify-self:start">폐점</span><div class="t">폐점한 상점이에요</div><div class="m">이 계정으로 새 상점을 열 수 없어요.</div></div>
+          </div>
+          <div class="box">
+            <div class="t">상점 개설</div>
+            <div class="lbl">상점명</div><div class="in" style="background:var(--fill)">망원베이커리 (가입 시 상호)</div>
+            <div class="lbl">픽업 주소 *</div><div class="in">서울시 마포구 월드컵북로 1</div>
+            <div class="err">지금은 주소를 확인할 수 없어요. 잠시 후 다시 시도해 주세요.</div>
+            <div class="btn pri dk">상점 열기</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn pri">상점 열기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>로그인 직후 <b>GET /v1/stores/me</b>(새 API)로 분기: 404 + 계정 상태가 승인 대기/거절 → 안내, 404 + 승인됨 → 개설 폼, 200이면 status로 ACTIVE → O1, SUSPENDED → O1 + 정지 안내, CLOSED → 폐점 안내.</li><li>상점 ID도 이 응답에서 얻어 O1~O4의 모든 /stores/{id} 호출에 씀. 어느 상태든 상단 "로그아웃"으로 다른 계정으로 바꿀 수 있음.</li><li>주소는 카카오로 좌표 변환: KAKAO_REST_API_KEY가 없으면 503.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O1</span><h2>오늘 · 픽업 처리</h2><code>POST /v1/reservations/{id}/pickup {pickup_code}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">망원베이커리</span><span class="tag ok">영업 중</span><span class="sp"></span>
+          <span class="nav"><b>오늘</b><span>할인</span><span>매장</span></span><span class="acct">계정</span></div>
+        <div class="body split r">
+          <div style="display:grid;gap:var(--s3);min-width:0">
+            <div class="box" style="border-color:var(--ok)"><div class="row"><b style="color:var(--ok)">✓ 픽업 완료</b><span class="sp"></span><span class="m">방금</span></div><div class="t" style="font-size:16px">바게트 × 3 전달하세요</div><div class="m">17:10 예약 · 완료 목록으로 옮겼어요</div></div>
+            <div class="scroll"><span class="chip on">픽업 대기 6</span><span class="chip">완료 11</span></div>
+            <div class="list">
+              <div class="tr th"><span class="lbl">상품 · 수량</span><span class="lbl">픽업 시간</span><span class="lbl">금액</span><span class="lbl">예약 시각</span><span></span></div>
+              <div class="tr"><div><b>식빵 모둠 5종 × 2</b><div class="m mob">픽업 18:00–20:00 · 12,000원 · 17:42 예약</div></div><span class="hide">18:00–20:00</span><span class="hide">12,000원</span><span class="hide">17:42</span><span></span></div>
+              <div class="tr"><div><b>식빵 모둠 5종 × 1</b><div class="m mob">픽업 18:00–20:00 · 6,000원 · 17:30 예약</div></div><span class="hide">18:00–20:00</span><span class="hide">6,000원</span><span class="hide">17:30</span><span></span></div>
+            </div>
+          </div>
+          <div class="box dk" style="flex-direction:column;background:var(--fill)">
+            <div class="t">픽업 코드 입력</div><div class="m">고객 화면의 코드를 입력해야 픽업 완료돼요.</div>
+            <div class="in" style="font:600 22px var(--mono);letter-spacing:.15em;justify-content:center;color:var(--fg)">A12345</div>
+            <div class="err">코드가 맞지 않아요. 다시 확인해 주세요. (오류 예시)</div>
+            <div class="btn pri">픽업 완료</div>
+          </div>
+        </div>
+        <div class="cta" style="flex-direction:column;align-items:stretch"><div class="m">고객 화면의 픽업 코드 입력</div><div class="row" style="flex-wrap:nowrap"><div class="in" style="flex:1;font:600 18px var(--mono);letter-spacing:.12em;color:var(--fg)">A12345</div><div class="btn pri" style="flex:0 0 auto">픽업 완료</div></div><div class="err">코드가 맞지 않아요. 다시 확인해 주세요.</div></div>
+        <div class="tabs"><b>오늘</b><span>할인</span><span>매장</span></div>
+      </div></div></div>
+      <ul class="notes"><li>상단 탭은 "픽업 대기"·"완료" 두 개만(상품별 칩 없음). 목록은 픽업 상품을 보여 주기만 함(행 선택·버튼 없음).</li><li>픽업 완료는 반드시 픽업 코드를 입력해야 처리됨: 코드 입력 → 픽업 완료. 코드 없이 완료할 수 있는 버튼은 두지 않음.</li><li>픽업 완료 직후: 목록 위에 초록 확인 상자 "바게트 × 3 전달하세요"(상품·수량을 크게), 그 행은 완료로 이동, 코드 입력칸은 비움. 코드 오류는 입력칸 바로 아래(모바일 하단 바 안, PC 우측 패널 안).</li><li><b>백엔드 필요:</b> 상점주 목록 항목에 픽업 시간(pickup_start·pickup_end)이 없음 → 추가 필요. 고객 정보·픽업 코드는 R-REQ25로 계속 빼 둠.</li><li><b>백엔드 필요:</b> 지금 픽업 API는 예약 ID가 필요함(POST /reservations/{id}/pickup) → 행을 고르지 않으므로 코드만으로 예약을 찾아 픽업 처리하는 API(상점 범위 안에서 코드 조회) 필요(<b>확인 필요</b>).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O2</span><h2>할인 관리 · 재고 조정</h2><code>offers · stock-adjustments</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">할인</span><span class="sp"></span>
+          <span class="nav"><span>오늘</span><b>할인</b><span>매장</span></span><span class="acct">계정</span></div>
+        <div class="body split r">
+          <div style="display:grid;gap:var(--s3);min-width:0">
+            <div class="btn pri dk" style="justify-self:start">+ 할인 등록</div>
+            <div class="scroll"><span class="chip on">판매 중 2</span><span class="chip">판매 예정 1</span><span class="chip">품절</span><span class="chip">판매 종료</span></div>
+            <div class="box"><div class="row"><span class="tag ok">판매 중</span><span class="cd">판매 마감 42분 전</span></div>
+              <div class="t">식빵 모둠 5종 · 6,000원 (50%)</div>
+              <div class="m">남은 3 / 10 · 픽업 18:00–20:00</div>
+              <div class="row"><span class="btn sm">수정</span><span class="btn sm">재고 조정</span><span class="sp"></span><span class="link">판매 중단</span></div></div>
+            <div class="box"><div class="row"><span class="tag mute">판매 종료</span></div><div class="t">바게트 · 2,500원</div><div class="row"><span class="btn sm">다시 올리기</span></div></div>
+          </div>
+          <div class="box dk" style="flex-direction:column">
+            <div class="t">재고 조정 · 식빵 모둠</div>
+            <div class="step" style="justify-content:space-between"><span>−</span><b>−1</b><span>+</span></div>
+            <div class="lbl">사유</div><div class="in">파손</div>
+            <div class="m">조정 후 남은 재고 2</div>
+            <div class="btn">적용</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn pri">+ 할인 등록</div></div>
+        <div class="tabs"><span>오늘</span><b>할인</b><span>매장</span></div>
+      </div></div></div>
+      <ul class="notes"><li>"+ 할인 등록"이 이 탭의 주 버튼: 모바일은 탭 바 위 고정 바, PC는 목록 위 큰 버튼.</li><li>연결: 수정 → O9, 재고 조정 → O10(모바일), 판매 중단 → O5, 다시 올리기 → O3.</li><li>재고 조정: 모바일은 바텀시트, PC는 우측 패널. 판매 중단은 링크 → O5. 다시 올리기 → O3(이전 값 채움).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O3</span><h2>할인 등록 · 다시 올리기</h2><code>POST /v1/products/{id}/offers · /relist</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">할인 등록</span><span class="sp"></span>
+          <span class="nav"><span>오늘</span><b>할인</b><span>매장</span></span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">상품 *</div><div class="in">식빵 모둠 5종 ▾</div>
+            <div class="row"><div style="flex:1"><div class="lbl">정가</div><div class="in" style="background:var(--fill)">12,000</div></div><div style="flex:1"><div class="lbl">할인가 *</div><div class="in">6,000</div></div></div>
+            <div class="lbl">수량 * (1~9999)</div><div class="step" style="justify-content:space-between"><span>−</span><b>10</b><span>+</span></div>
+            <div class="lbl">픽업 시작 · 빠른 선택</div>
+            <div class="scroll"><span class="chip">30분 후 · 취소 불가</span><span class="chip">1시간 후 · 취소 불가</span><span class="chip on">2시간 후</span><span class="chip">3시간 후</span><span class="chip">직접 입력</span></div>
+          </div>
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="box" style="background:var(--fill)">
+              <div class="kv"><span class="lbl">판매</span><b>지금(18:00) → 20:00</b></div>
+              <div class="kv"><span class="lbl">픽업</span><b>오늘 20:00 → 22:00</b></div>
+              <div class="kv"><span class="lbl">고객 취소 가능</span><b>19:00까지</b></div>
+              <div class="link" style="text-align:left">시간 직접 바꾸기</div>
+            </div>
+            <div class="warn">1시간 이하를 고르면 표시: 취소 마감(픽업 시작 1시간 전)이 이미 지나 고객이 예약을 취소할 수 없어요.</div>
+            <div class="btn pri dk">할인 등록</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn pri">할인 등록</div></div>
+      </div></div></div>
+      <ul class="notes"><li>기본값: 오늘 날짜, 판매 시작 = 지금, 판매 마감 = 픽업 시작, 픽업 시작 = <b>2시간 후</b>(고객이 1시간 동안 취소 가능), 픽업 2시간.</li><li>30분·1시간 칩에는 "취소 불가"를 미리 붙이고, 고르거나 직접 입력한 값이 1시간 이하면 경고 상자를 띄움.</li><li>다시 올리기도 가격·수량·네 시각 전체를 보내야 하므로 같은 폼을 이전 값으로 채우고 시각만 새 기본값으로.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O4</span><h2>매장 · 상품</h2><code>GET/POST /v1/stores/{id}/products</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">매장</span><span class="sp"></span>
+          <span class="nav"><span>오늘</span><span>할인</span><b>매장</b></span><span class="acct">계정</span></div>
+        <div class="body split">
+          <div class="box"><div class="t">망원베이커리</div><div class="m">서울시 마포구 월드컵북로 1</div><span class="tag ok" style="justify-self:start">영업 중</span></div>
+          <div class="list">
+            <div class="row"><span class="lbl" style="flex:1">상품 4개</span><span class="btn sm">+ 상품 등록</span></div>
+            <div class="li"><div><b>식빵 모둠 5종</b><div class="m">빵 · 12,000원</div></div><span class="tag ok">노출</span></div>
+            <div class="li"><div><b>바게트</b><div class="m">빵 · 4,000원</div></div><span class="tag mute">숨김</span></div>
+            <div class="lbl" style="margin-top:var(--s4)">계정</div>
+            <div class="li"><span>비밀번호 변경</span><span class="m">›</span></div>
+            <div class="li"><span>로그아웃</span><span class="m">›</span></div>
+            <div class="link" style="margin-top:var(--s5)">상점 폐점</div>
+          </div>
+        </div>
+        <div class="tabs"><span>오늘</span><span>할인</span><b>매장</b></div>
+      </div></div></div>
+      <ul class="notes"><li>상품과 매장 정보를 "매장" 탭 하나로 합침(탭 3개: 오늘·할인·매장).</li><li>상점 폐점은 맨 아래 링크 → O7 확인 화면.</li><li>계정 메뉴: 모든 상점주·관리자 화면 오른쪽 위 "계정" 버튼 → O8. 모바일 매장 탭에도 같은 행(비밀번호 변경 → C9, 로그아웃 → C10).</li><li>상품 행 → O11, "+ 상품 등록" → O6.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O5</span><h2>판매 중단 확인</h2><code>POST /v1/offers/{id}/deactivate {reason, cancel_reservations}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">판매 중단</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">식빵 모둠 5종 · 6,000원</div><div class="m">픽업 대기 예약 3건</div></div>
+          <div class="lbl">중단 사유 *</div><div class="in">재료 소진</div>
+          <div class="lbl">기존 예약 3건은?</div>
+          <div class="box"><b>● 그대로 두기</b><div class="m">새 예약만 막고, 예약한 고객은 픽업 가능</div></div>
+          <div class="box"><b>○ 모두 취소하고 전액 환불</b><div class="m">고객 앱의 예약에 "매장 사정으로 취소됨 · 전액 환불"로 표시돼요. 문자·알림은 가지 않아요.</div></div>
+        </div>
+        <div class="cta"><div class="btn">취소</div><div class="btn dark">판매 중단</div></div>
+      </div></div></div>
+      <ul class="notes"><li>백엔드에 푸시·문자·이메일 알림이 없어 "고객에게 알림" 약속을 뺌. 알림 기능 추가는 <b>확인 필요</b>. 관리자 할인 정지·강제 폐점도 같음.</li><li>상점주 목록에는 고객 연락처가 없음(R-REQ25) → 연락 방법이 생기기 전까지 "직접 연락" 안내는 넣지 않음.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O6</span><h2>상품 등록</h2><code>POST /v1/stores/{id}/products</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">상품 등록</span><span class="sp"></span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">상품명 *</div><div class="in">식빵 모둠 5종</div>
+            <div class="lbl">정상 가격 *</div><div class="in">12,000</div>
+            <div class="lbl">카테고리</div><div class="in">빵</div>
+            <div class="lbl">설명</div><div class="in" style="min-height:64px">오늘 구운 식빵 5종 모둠</div>
+          </div>
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">상품 사진 (1장)</div>
+            <div class="ph photo"><div style="display:grid;justify-items:center;gap:4px"><b style="font-size:22px">+</b><span>사진 추가 · 카메라 또는 앨범</span></div></div>
+            <div class="m">고객 목록 카드와 상세 화면에 이 사진이 보여요. 없으면 기본 그림이 나와요.</div>
+            <div class="btn pri dk">등록하고 할인 만들기</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn" style="flex:0 0 auto">등록만</div><div class="btn pri">등록하고 할인 만들기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>사진은 상품당 1장. 추가·업로드 중·완료·오류 상태는 O12.</li><li>업로드가 끝나기 전에는 "등록" 버튼 비활성(사진 없이 등록은 가능).</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O7</span><h2>상점 폐점 확인</h2><code>POST /v1/stores/{id}/close</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">상점 폐점</span><span class="sp"></span></div>
+        <div class="body">
+          <div class="box"><div class="t">폐점하기 전에 확인하세요</div>
+            <div class="kv"><span>진행 중·예정 할인</span><b>0건 ✓</b></div>
+            <div class="kv"><span>픽업 대기 예약</span><b class="cd">2건 · 폐점 불가</b></div>
+            <div class="m">남은 예약을 픽업 처리하거나 취소한 뒤 폐점할 수 있어요.</div></div>
+          <div class="warn">폐점하면 다시 열 수 없고, 이 계정으로 새 상점도 만들 수 없어요.</div>
+          <div class="lbl">확인을 위해 상점명을 입력하세요: <b>망원베이커리</b></div><div class="in">망원베이커</div>
+        </div>
+        <div class="cta"><div class="btn">취소</div><div class="btn dark" style="opacity:.4">폐점하기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>폐점은 예약을 취소하지 않고, 진행 중 할인이나 픽업 대기 예약이 있으면 막힘(API 규칙). 그래서 막는 항목을 먼저 보여 줌.</li><li>상점주 1명당 상점 1개(REQ-2, 폐점 상점 포함) → 되돌릴 수 없음을 강조. 상점명을 정확히 입력하고 막는 항목이 0일 때만 버튼 활성.</li></ul>
+    </section>
+    <section class="screen">
+      <div class="sh"><span class="no">O9</span><h2>할인 수정</h2><code>PATCH /v1/offers/{id}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">할인 수정</span><span class="sp"></span>
+          <span class="nav"><span>오늘</span><b>할인</b><span>매장</span></span><span class="acct">계정</span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="box" style="background:var(--fill)"><div class="t">식빵 모둠 5종</div><div class="m">판매 예정 · 예약 0건</div></div>
+            <div class="lbl">할인가 (정가 12,000원보다 낮게)</div><div class="in">6,000</div>
+            <div class="lbl">최초 수량</div><div class="step" style="justify-content:space-between"><span>−</span><b>10</b><span>+</span></div>
+            <div class="row"><div style="flex:1"><div class="lbl">판매 마감</div><div class="in">오늘 20:00</div></div><div style="flex:1"><div class="lbl">픽업</div><div class="in">20:00–22:00</div></div></div>
+          </div>
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">예약이 생긴 할인을 열면</div>
+            <div class="warn">예약이 있는 할인은 수정할 수 없어요. 판매를 중단하고 다시 올려 주세요.</div>
+            <div class="row"><span class="btn sm">판매 중단 (O5)</span></div>
+            <div class="btn pri dk">저장</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn pri">저장</div></div>
+      </div></div></div>
+      <ul class="notes"><li>O2 "수정"에서 들어옴. 예약 0건일 때만 칸이 열림(OFFER_HAS_RESERVATIONS). 예약이 있으면 칸을 잠그고 위 안내만.</li><li>바꾼 값만 보냄. 판매 중단·재개(is_active)는 다른 칸과 같이 못 보내므로 이 화면에서 다루지 않음.</li><li>최초 수량은 이미 팔린 수보다 작게 못 줄임 → 스텝퍼 최솟값으로 막음.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O10</span><h2>재고 조정 (모바일)</h2><code>POST /v1/offers/{id}/stock-adjustments {amount, reason?}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">할인</span><span class="sp"></span><span class="acct">계정</span></div>
+        <div class="dim">
+          <div class="sheet">
+            <div><div class="t" style="font-size:17px">재고 조정</div><div class="m">식빵 모둠 5종 · 지금 남은 3개</div></div>
+            <div class="scroll"><span class="chip on">빼기 (파손·소진)</span><span class="chip">더하기 (추가 입고)</span></div>
+            <div class="step" style="justify-content:space-between"><span>−</span><b>1</b><span>+</span></div>
+            <div class="lbl">사유 (선택, 200자)</div><div class="in">파손</div>
+            <div class="m">조정 후 남은 재고 <b>2개</b></div>
+            <div class="err">남은 재고보다 많이 뺄 수 없어요.</div>
+            <div class="btn pri">적용</div>
+          </div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li>O2 "재고 조정"에서 열림(PC는 O2 우측 패널). 0은 보낼 수 없음 → 스텝퍼 최소 1. 0개가 되면 자동으로 품절.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O11</span><h2>상품 수정 · 숨기기</h2><code>PATCH /v1/products/{id} · /deactivate · /activate</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">상품 수정</span><span class="sp"></span>
+          <span class="nav"><span>오늘</span><span>할인</span><b>매장</b></span><span class="acct">계정</span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">상품명</div><div class="in">식빵 모둠 5종</div>
+            <div class="lbl">정상 가격</div><div class="in">12,000</div>
+            <div class="lbl">카테고리</div><div class="in">빵</div>
+            <div class="lbl">설명</div><div class="in" style="min-height:64px">오늘 구운 식빵 5종 모둠</div>
+            <div class="lbl">상품 사진 (1장)</div>
+            <div class="ph photo">현재 사진</div>
+            <div class="row"><span class="btn sm">사진 바꾸기</span><span class="sp"></span><span class="link">사진 삭제</span></div>
+          </div>
+          <div class="box">
+            <div class="row"><b style="flex:1">고객에게 보이기</b><span class="chip on">노출 중</span></div>
+            <div class="m">숨기면 이 상품으로 새 할인을 올릴 수 없고, 고객 목록에서 이 상품의 할인이 빠져요.</div>
+            <div class="link" style="text-align:left">숨기기</div>
+            <div class="btn pri dk">저장</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn pri">저장</div></div>
+      </div></div></div>
+      <ul class="notes"><li>O4 상품 행을 누르면 열림. 숨김 상품은 "다시 보이기" 버튼으로 바뀜.</li><li>숨길 때 진행 중 할인·예약이 어떻게 되는지 API 규칙 확인 후 확인 단계 추가(<b>확인 필요</b>).</li><li>사진 바꾸기 → O12 흐름. 사진 삭제는 바로 지우지 않고 저장할 때 반영.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">O12</span><h2>상품 사진 올리기 (1장)</h2><code>POST /v1/products/{id}/images → products.product_image</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">상품 사진</span><span class="sp"></span></div>
+        <div class="body split h">
+          <div style="display:grid;gap:var(--s3);align-content:start">
+            <div class="lbl">① 사진 고르기</div>
+            <div class="sheet" style="border-radius:16px">
+              <div class="t">사진 추가</div>
+              <div class="btn">카메라로 찍기</div>
+              <div class="btn">앨범에서 고르기</div>
+              <div class="m">JPG·PNG·WebP, 5MB 이하 <span class="code-tag">(임시값)</span></div>
+            </div>
+            <div class="lbl">② 업로드 중</div>
+            <div class="ph photo">미리보기<div class="pbar"><i style="width:62%"></i></div></div>
+            <div class="row"><span class="m">올리는 중… 62%</span><span class="sp"></span><span class="link">취소</span></div>
+          </div>
+          <div style="display:grid;gap:var(--s3);align-content:start">
+            <div class="lbl">③ 올라감</div>
+            <div class="ph photo">식빵 모둠 사진</div>
+            <div class="row"><span class="btn sm">사진 바꾸기</span><span class="sp"></span><span class="link">삭제</span></div>
+            <div class="lbl">④ 실패</div>
+            <div class="ph photo" style="border-color:var(--accent)">미리보기</div>
+            <div class="err">사진이 5MB보다 커요. 더 작은 사진을 골라 주세요.</div>
+            <div class="row"><span class="btn sm">다시 시도</span><span class="btn sm">다른 사진 고르기</span></div>
+          </div>
+        </div>
+      </div></div></div>
+      <ul class="notes"><li><b>규칙: 상품당 사진 1장.</b> 이미 있으면 "추가" 대신 "바꾸기"만 보임. 새 사진이 다 올라간 뒤에 예전 사진과 바뀜(실패해도 예전 사진 유지).</li><li>화면에서 4:3으로 미리 보여 주고, 고객 카드·상세에서도 같은 비율로 자름.</li><li><b>DB:</b> products.product_image(JSON 목록) 그대로 씀 → 사진 있음 ["url"], 없음 null 또는 []. 컬럼 변경 불필요.</li><li><b>백엔드 반영됨 #42:</b> ① 업로드 <b>POST /v1/products/{id}/images</b>(201), 삭제 DELETE /v1/products/{id}/images/{image_id}(204), 조회 GET …/images/{image_id}(공개). JPEG·PNG·WebP(파일 내용으로 판별), <b>5MB 이하</b>, DB 저장. 올린 이미지 주소가 products.product_image 목록에 들어감(상품 응답 형식 불변). ② 백엔드는 상품당 최대 10개(외부 URL 포함)까지 받으므로, "1장" 규칙은 화면에서만 지킴(백엔드에서도 막을지는 <b>확인 필요</b>). ③ 사진을 바꿀 때는 새 사진 업로드 후 예전 사진 DELETE.</li></ul>
+    </section>
+  </div>
+
+  <!-- ================= 관리자 ================= -->
+  <div class="role-h" data-role="a">관리자 · PC 우선, 상태 코드 병기</div>
+  <div class="screens" data-role="a">
+    <section class="screen">
+      <div class="sh"><span class="no">M1</span><h2>승인 · 회원 · 상점 관리</h2><code>/v1/admin/*</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">관리자</span><span class="sp"></span>
+          <span class="nav"><b>승인</b><span>회원</span><span>상점</span><span>할인</span></span><span class="acct">계정</span></div>
+        <div class="body split">
+          <div class="box">
+            <div class="in">이메일로 회원 검색</div>
+            <div class="scroll"><span class="chip on">상점주</span><span class="chip">고객</span></div>
+            <div class="kv"><span>승인 대기</span><b class="cd">3</b></div>
+            <div class="kv"><span>정지 회원</span><b>2</b></div>
+            <div class="kv"><span>정지 상점</span><b>1</b></div>
+          </div>
+          <div class="list">
+            <div class="tr th"><span class="lbl">상점주(상호)</span><span class="lbl">이메일</span><span class="lbl">가입일</span><span class="lbl">상태</span><span></span></div>
+            <div class="tr"><div><b>한끼반찬</b><div class="m mob">owner1@… · 11/08</div></div><span class="hide">owner1@example.com</span><span class="hide">11/08</span><span class="hide tag hot">승인 대기 <span class="code-tag">PENDING</span></span><span class="row"><span class="btn sm">승인</span><span class="btn sm">거부</span></span></div>
+            <div class="tr"><div><b>달콤제과</b><div class="m mob">owner2@… · 11/09</div></div><span class="hide">owner2@example.com</span><span class="hide">11/09</span><span class="hide tag hot">승인 대기 <span class="code-tag">PENDING</span></span><span class="row"><span class="btn sm">승인</span><span class="btn sm">거부</span></span></div>
+          </div>
+        </div>
+        <div class="tabs"><b>승인</b><span>회원</span><span>상점</span><span>할인</span></div>
+      </div></div></div>
+      <ul class="notes"><li>목록은 <b>GET /v1/admin/users</b>(관리자 전용, <b>백엔드 반영됨 #42</b>): 승인 탭 = role=OWNER&amp;status=PENDING, 회원 탭 = 역할·상태 필터 + 이메일 부분 검색, 페이지 번호(total로 계산). 쿼리·응답 형식은 M3 참고.</li><li>상점 탭·할인 탭의 목록 API는 아직 없음 → <b>확인 필요</b>. 그 전까지 상점 정지·폐점은 상점 ID를 알아야 함.</li><li>PC에서는 창 전체 폭 표, 모바일에서는 이메일·가입일을 이름 아래로 접음.</li><li>승인만 한 번 탭. 나머지 제재는 행의 버튼마다 각자 M2 시트를 엶.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">M2</span><h2>제재 확인 (예: 회원 정지)</h2><code>PATCH /v1/admin/users/{id}/suspend {reason, suspended_until?}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">회원 정지</span><span class="sp"></span></div>
+        <div class="body split h">
+          <div class="box">
+            <div class="t">대상: 박고객 (customer3@example.com)</div>
+            <div class="kv"><span>상태</span><span>정상 <span class="code-tag">APPROVED</span></span></div>
+            <div class="kv"><span>진행 중 예약</span><b>2건</b></div>
+          </div>
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">정지 사유 *</div><div class="in" style="min-height:64px">노쇼 반복</div>
+            <div class="lbl">정지 종료 (비우면 무기한)</div><div class="in">2026-11-30</div>
+            <div class="btn dark dk">정지하기</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn">취소</div><div class="btn dark">정지하기</div></div>
+      </div></div></div>
+      <ul class="notes"><li>동작은 시트를 열기 전에 정해지고 시트 안에서 바꿀 수 없음(제목·버튼 문구 고정).</li><li>같은 틀을 쓰는 다른 시트: 상점주 거부·강제 탈퇴·상점 정지·강제 폐점·할인 정지·포인트 지급. 모두 사유 필수, 정지 종료는 회원 정지에만.</li></ul>
+    </section>
+    <section class="screen">
+      <div class="sh"><span class="no">M3</span><h2>회원 탭 · 회원 상세</h2><code>GET /v1/admin/users · /users/{id} · /users/{id}/points</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">관리자</span><span class="sp"></span>
+          <span class="nav"><span>승인</span><b>회원</b><span>상점</span><span>할인</span></span><span class="acct">계정</span></div>
+        <div class="body split r">
+          <div style="display:grid;gap:var(--s3);min-width:0">
+            <div class="in">이메일로 검색</div>
+            <div class="scroll"><span class="chip on">전체</span><span class="chip">고객</span><span class="chip">상점주</span><span class="chip">정지</span><span class="chip">탈퇴</span></div>
+            <div class="list">
+              <div class="tr th"><span class="lbl">이름 · 이메일</span><span class="lbl">역할</span><span class="lbl">가입일</span><span class="lbl">상태</span><span></span></div>
+              <div class="tr sel"><div><b>박고객</b><div class="m">customer3@example.com</div></div><span class="hide">CUSTOMER</span><span class="hide">10/21</span><span class="hide">정상 <span class="code-tag">APPROVED</span></span><b class="m">›</b></div>
+              <div class="tr"><div><b>이고객</b><div class="m">customer4@example.com</div></div><span class="hide">CUSTOMER</span><span class="hide">10/18</span><span class="hide tag hot">정지 <span class="code-tag">SUSPENDED</span></span><b class="m">›</b></div>
+              <div class="tr"><div><b>한끼반찬</b><div class="m">owner1@example.com</div></div><span class="hide">OWNER</span><span class="hide">11/08</span><span class="hide">승인 대기 <span class="code-tag">PENDING</span></span><b class="m">›</b></div>
+            </div>
+            <div class="row"><span class="m">1–20 / 134명</span><span class="sp"></span><span class="btn sm">이전</span><span class="btn sm">다음</span></div>
+          </div>
+          <div class="box dk" style="flex-direction:column">
+            <div class="t">박고객</div><div class="m">customer3@example.com · 010-****-1234</div>
+            <div class="kv"><span>상태</span><span>정상 <span class="code-tag">APPROVED</span></span></div>
+            <div class="kv"><span>포인트</span><b>2,300P</b></div>
+            <div class="lbl">최근 포인트 내역</div>
+            <div class="kv"><span class="m">11/07 적립 <span class="code-tag">EARN</span></span><span>+115P</span></div>
+            <div class="kv"><span class="m">11/01 지급 <span class="code-tag">GRANT</span></span><span>+1,000P</span></div>
+            <div class="row"><span class="btn sm">포인트 지급 (M4)</span><span class="btn sm">정지 (M2)</span><span class="sp"></span><span class="link">강제 탈퇴</span></div>
+          </div>
+        </div>
+        <div class="tabs"><span>승인</span><b>회원</b><span>상점</span><span>할인</span></div>
+      </div></div></div>
+      <ul class="notes"><li>목록은 <b>GET /v1/admin/users</b>(관리자 전용, <b>백엔드 반영됨 #42</b>, 명세 admin.md 10절). 쿼리: role(CUSTOMER/OWNER/ADMIN), status(PENDING/APPROVED/REJECTED/SUSPENDED/WITHDRAWN; 정지 기간이 지난 회원은 APPROVED로 취급), email(부분 검색, 대소문자 무시), page(<b>1부터</b>), size(1~100, 기본 20; 범위 밖이면 400 INVALID_PAGE). 응답 {items:[{id, email, name, role, status, created_at}], page, size, total}. 정렬은 가입 오래된 순(오래 기다린 회원 먼저). 전화번호·포인트는 목록에 없으므로 단건 조회(GET /v1/admin/users/{id})로 본다. 상태 필터를 비우면("전체") 탈퇴 회원도 포함.</li><li>행을 누르면 상세: PC는 우측 패널, 모바일은 새 화면.</li><li>정지·강제 탈퇴는 M2 시트(사유 필수). 기간이 지난 정지는 목록에서 "정상"으로 보임.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">M4</span><h2>포인트 지급</h2><code>POST /v1/admin/users/{id}/points {amount, reason}</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span>←</span><span class="t">포인트 지급</span><span class="sp"></span></div>
+        <div class="body split h">
+          <div class="box"><div class="t">대상: 박고객</div><div class="m">customer3@example.com</div><div class="kv"><span>현재 잔액</span><b>2,300P</b></div></div>
+          <div style="display:grid;gap:var(--s2);align-content:start">
+            <div class="lbl">지급 포인트 * (1 이상)</div><div class="in">1,000</div>
+            <div class="lbl">지급 사유 *</div><div class="in" style="min-height:64px">배송 지연 보상</div>
+            <div class="m">지급 후 잔액 <b>3,300P</b> · 회원 내역에 "지급"으로 남아요.</div>
+            <div class="btn pri dk">1,000P 지급</div>
+          </div>
+        </div>
+        <div class="cta"><div class="btn">취소</div><div class="btn pri">1,000P 지급</div></div>
+      </div></div></div>
+      <ul class="notes"><li>버튼 문구에 금액을 넣어 실수로 큰 값을 지급하지 않게 함. 회수(음수) 기능은 없음.</li></ul>
+    </section>
+
+    <section class="screen">
+      <div class="sh"><span class="no">M5</span><h2>상점 탭 · 할인 탭</h2><code>PATCH /v1/admin/stores/{id}/suspend·close · /offers/{id}/suspend</code></div>
+      <div class="devwrap"><div class="dev"><div class="app">
+        <div class="bar"><span class="logo">관리자</span><span class="sp"></span>
+          <span class="nav"><span>승인</span><span>회원</span><b>상점</b><span>할인</span></span><span class="acct">계정</span></div>
+        <div class="body split">
+          <div class="box">
+            <div class="warn">상점·할인 목록 API가 아직 없어요(<b>확인 필요</b>). 지금은 ID로만 찾을 수 있어요.</div>
+            <div class="lbl">상점 ID 또는 할인 ID</div><div class="in" style="font-family:var(--mono)">1a2b3c4d-…</div>
+            <div class="btn">찾기</div>
+          </div>
+          <div class="list">
+            <div class="tr th"><span class="lbl">상점</span><span class="lbl">주소</span><span class="lbl">개설일</span><span class="lbl">상태</span><span></span></div>
+            <div class="tr"><div><b>망원베이커리</b><div class="m mob">마포구 월드컵북로 1 · 영업 중</div></div><span class="hide">마포구 월드컵북로 1</span><span class="hide">10/30</span><span class="hide">영업 중 <span class="code-tag">ACTIVE</span></span><span class="row"><span class="btn sm">정지</span><span class="link">강제 폐점</span></span></div>
+            <div class="m">할인 탭도 같은 틀: 상품명·상점·판매 상태 <span class="code-tag">ON_SALE</span> + "할인 정지".</div>
+          </div>
+        </div>
+        <div class="tabs"><span>승인</span><span>회원</span><b>상점</b><span>할인</span></div>
+      </div></div></div>
+      <ul class="notes"><li>목록 API가 생기면 M3처럼 검색·필터 표로 바꿈. 지금 표는 목표 모습.</li><li>정지·강제 폐점·할인 정지는 모두 M2 시트(사유 필수). 강제 폐점은 예약 취소·환불 건수를 먼저 보여 줌.</li></ul>
+    </section>
+  </div>
+</div>
+
+<script>
+const mob=document.getElementById('b-mob'),desk=document.getElementById('b-desk');
+function setDev(d){document.body.classList.toggle('desk',d);mob.setAttribute('aria-pressed',!d);desk.setAttribute('aria-pressed',d);try{localStorage.setItem('lc-dev',d?'1':'')}catch(e){}}
+mob.onclick=()=>setDev(false);desk.onclick=()=>setDev(true);
+try{if(localStorage.getItem('lc-dev'))setDev(true)}catch(e){}
+function setRole(r){
+  document.querySelectorAll('[data-r]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.r===r));
+  document.querySelectorAll('[data-role]').forEach(el=>el.hidden=!el.dataset.role.split(' ').includes(r));
+  try{localStorage.setItem('lc-role',r)}catch(e){}
+}
+document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>setRole(b.dataset.r));
+let r0='c';try{r0=localStorage.getItem('lc-role')||'c'}catch(e){}
+setRole(r0);
+</script>
+
+</body></html>

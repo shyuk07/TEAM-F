@@ -1,0 +1,1622 @@
+[
+ {
+  "id": "A1",
+  "title": "로그인",
+  "api": "POST /v1/auth/login {email, password}",
+  "roles": [
+   "고객",
+   "상점주",
+   "관리자"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "로그인",
+   "회원가입"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "비밀번호 재설정",
+   "사장님이신가요? 입점 신청"
+  ],
+  "labels": [
+   "이메일",
+   "비밀번호"
+  ],
+  "errors": [
+   "이메일 또는 비밀번호가 올바르지 않습니다."
+  ],
+  "notes": [
+   "제목은 \"로그인\" 고정, 들어온 경로에 따라 아래 한 줄만 바뀜: C2 → \"예약을 이어가려면…\", 내 예약·마이 탭 → \"예약 내역을 보려면…\", 홈 상단 링크 → 문구 없음.",
+   "역할 선택 없음. 로그인 뒤 계정 역할로 이동: 고객은 원래 보던 화면(또는 C1), 상점주는 O0/O1, 관리자는 M1.",
+   "상점주·관리자는 홈 상단 \"로그인\"으로 들어옴."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "FieldError"
+  ],
+  "refs": [
+   "C2",
+   "C1",
+   "O0",
+   "O1",
+   "M1"
+  ]
+ },
+ {
+  "id": "A2",
+  "title": "회원가입",
+  "api": "POST /v1/auth/signup {email, password, name, phone, role}",
+  "roles": [
+   "고객",
+   "상점주"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "가입하기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "어떻게 이용하시나요? *",
+   "이름 *",
+   "이메일 *",
+   "비밀번호 * (8자 이상)",
+   "전화번호 *"
+  ],
+  "errors": [
+   "이미 가입된 이메일입니다."
+  ],
+  "notes": [
+   "역할은 여기서만 고름. 상점주를 고르면 \"이름\" 라벨이 \"상호(상점명으로 쓰임)\"로 바뀜.",
+   "가입 응답에는 토큰이 없으므로 성공 후 같은 이메일·비밀번호로 로그인 API를 바로 호출.",
+   "가입 후 이동은 A1과 같음: 고객은 가입 전에 있던 화면으로(C2에서 왔으면 같은 수량으로 예약 이어가기), 상점주는 O0(승인 대기)."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "FieldError",
+   "RolePicker"
+  ],
+  "refs": [
+   "O0"
+  ]
+ },
+ {
+  "id": "A3",
+  "title": "비밀번호 재설정",
+  "api": "POST /v1/auth/password-reset/request · /confirm",
+  "roles": [
+   "고객",
+   "상점주",
+   "관리자"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "코드 보내기",
+   "비밀번호 바꾸기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "코드 다시 받기"
+  ],
+  "labels": [
+   "1단계 · 코드 받기",
+   "가입한 이메일",
+   "2단계 · 새 비밀번호",
+   "6자리 코드",
+   "새 비밀번호 (8자 이상)"
+  ],
+  "errors": [
+   "코드가 맞지 않거나 만료됐어요. 코드를 다시 받아 주세요."
+  ],
+  "notes": [
+   "A1 \"비밀번호 재설정\"에서 들어옴. 1단계를 보내면 2단계가 열림. 완료 후 A1로, \"새 비밀번호로 로그인하세요\".",
+   "가입 여부와 상관없이 같은 안내(204)로 이메일 존재 여부를 드러내지 않음. 코드 오류·만료·횟수 초과는 모두 같은 오류 문구(INVALID_RESET_CODE).",
+   "현재 코드는 서버 로그로만 남고 이메일로 보내지 않음(reset_notifier.py) → 메일 발송 **확인 필요**."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "FieldError",
+   "Box"
+  ],
+  "refs": [
+   "A1"
+  ]
+ },
+ {
+  "id": "C8",
+  "title": "프로필 변경",
+  "api": "PATCH /v1/users/me {name?, phone?}",
+  "roles": [
+   "고객",
+   "상점주",
+   "관리자"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "저장"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "이메일 (변경 불가)",
+   "이름",
+   "상점주로 열었을 때",
+   "전화번호"
+  ],
+  "errors": [],
+  "notes": [
+   "C6과 O8(상점주·관리자 계정 메뉴)이 같은 화면을 씀. 저장 후 \"저장했어요\" 알림 + 이전 화면.",
+   "상점주는 \"상호\" 칸을 잠금: 상점은 개설할 때 이름을 복사해 두므로, 바꾸면 계정 이름과 상점명이 달라짐. 상호 변경 규칙이 정해질 때까지 전화번호만 수정(**확인 필요**).",
+   "바꾼 값만 보냄(PATCH). 아무것도 안 바꾸면 저장 버튼 비활성."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "Box"
+  ],
+  "refs": [
+   "O8"
+  ]
+ },
+ {
+  "id": "C9",
+  "title": "비밀번호 변경",
+  "api": "POST /v1/users/me/password {current_password, new_password}",
+  "roles": [
+   "고객",
+   "상점주",
+   "관리자"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "비밀번호 바꾸기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "현재 비밀번호",
+   "새 비밀번호 (8자 이상)",
+   "새 비밀번호 확인"
+  ],
+  "errors": [
+   "현재 비밀번호가 일치하지 않습니다."
+  ],
+  "notes": [
+   "성공(204) 후 지금 쓰는 토큰(변경에 쓴 기기)은 유지되고, 다른 기기의 토큰만 무효(401 TOKEN_REVOKED)가 됨 → 이 기기는 다시 로그인하지 않음. 비밀번호 재설정(A3)은 모든 토큰이 무효(REQ-24, REQ-32). \"확인\" 칸은 화면에서만 비교.",
+   "고객·상점주·관리자 공용."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "FieldError"
+  ],
+  "refs": [
+   "A3"
+  ]
+ },
+ {
+  "id": "C10",
+  "title": "로그아웃 확인",
+  "api": "POST /v1/auth/logout",
+  "roles": [
+   "고객",
+   "상점주",
+   "관리자"
+  ],
+  "section": "공통 · 로그인·계정 (모든 역할)",
+  "buttons": [
+   "로그아웃",
+   "취소"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [
+   "홈 내 예약 마이"
+  ],
+  "links": [],
+  "labels": [],
+  "errors": [],
+  "notes": [
+   "로그아웃 후 C1(비로그인 홈). 상점주·관리자는 A1로.",
+   "고객·상점주·관리자 공용."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "BottomSheet",
+   "Button"
+  ],
+  "refs": [
+   "C1"
+  ]
+ },
+ {
+  "id": "O8",
+  "title": "계정 메뉴",
+  "api": "헤더 \"계정\" 버튼 (상점주·관리자 공용)",
+  "roles": [
+   "상점주",
+   "관리자"
+  ],
+  "section": "상점주·관리자 공통",
+  "buttons": [],
+  "chips": [],
+  "tags": [],
+  "tabs": [
+   "오늘 할인 매장"
+  ],
+  "links": [],
+  "labels": [],
+  "errors": [],
+  "notes": [
+   "모바일은 바텀시트, PC는 계정 버튼 아래 드롭다운. 관리자도 같은 메뉴(상점 줄 없음).",
+   "상점주 회원 탈퇴는 API가 있지만(POST /users/me/withdraw) 상점·예약 처리 규칙이 없어 메뉴에서 뺌 → **확인 필요**."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "BottomSheet",
+   "ListRow",
+   "AccountButton"
+  ],
+  "refs": [
+   "C8",
+   "C9",
+   "C10",
+   "O4"
+  ]
+ },
+ {
+  "id": "C1",
+  "title": "홈 · 주변 할인 (비로그인 가능)",
+  "api": "GET /v1/offers",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [],
+  "chips": [
+   "망원동 · 3km",
+   "마감 임박",
+   "가까운 순",
+   "할인율",
+   "낮은 가격"
+  ],
+  "tags": [
+   "품절"
+  ],
+  "tabs": [
+   "홈 내 예약 마이"
+  ],
+  "links": [
+   "로그인",
+   "사장님이신가요? 입점 신청"
+  ],
+  "labels": [],
+  "errors": [],
+  "notes": [
+   "로그인 없이 열림(할인 조회는 공개 API). 상단 \"로그인\"은 선택 사항.",
+   "비로그인 상태에서 내 예약·마이 탭 → A1 로그인 → 로그인 후 누른 탭으로 돌아옴.",
+   "탭 바 바로 위 작은 고정 링크 \"입점 신청\" → A2(상점주 미리 선택). 목록 끝에 두지 않음(페이지 목록이라 끝까지 안 내려감). A1에도 같은 링크.",
+   "위치 칩 \"망원동 · 3km\" → C1a.",
+   "모든 카드: 픽업 시간대 + \"판매 마감 N분 전\" 한 가지 형식 + 남은 수량.",
+   "지도 탭은 목록 API에 좌표가 없어 제외. 위치 권한이 없으면 거리 숨김, \"가까운 순\" 비활성."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "OfferCard",
+   "Chip",
+   "StatusTag",
+   "Input"
+  ],
+  "refs": [
+   "A1",
+   "A2",
+   "C1a"
+  ]
+ },
+ {
+  "id": "C1a",
+  "title": "위치 · 반경",
+  "api": "GET /v1/offers?lat&lng&radius_km",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "◎ 현재 위치 사용",
+   "적용"
+  ],
+  "chips": [
+   "망원동 · 3km",
+   "1km",
+   "3km",
+   "5km",
+   "10km"
+  ],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "반경"
+  ],
+  "errors": [],
+  "notes": [
+   "API는 좌표(lat·lng)와 반경(0.1~20km, 기본 3)을 받음. 기본은 기기 위치.",
+   "주소를 입력해 위치를 바꾸려면 주소 → 좌표 변환이 고객용으로 필요(상점 개설용 카카오 변환만 있음) → **확인 필요**. 그 전까지는 현재 위치만."
+  ],
+  "components": [
+   "AppBar",
+   "BottomSheet",
+   "Chip",
+   "Button"
+  ],
+  "refs": []
+ },
+ {
+  "id": "C2",
+  "title": "할인 상세",
+  "api": "GET /v1/offers/{id}",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "결제 이어하기",
+   "예약하고 결제 12,000원"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "픽업 시간",
+   "취소 가능"
+  ],
+  "errors": [
+   "이 상품에 결제하지 않은 예약이 이미 있어요. (오류 예시)"
+  ],
+  "notes": [
+   "비로그인 상태에서 \"예약하고 결제\"를 누르면 A1 로그인으로. 로그인 후 이 화면으로 돌아와 같은 수량으로 이어감.",
+   "수량 상한 = min(남은 재고, 5). 예약 1건 최대 5개(R-REQ1). 5에 닿으면 + 비활성.",
+   "같은 할인에 결제 대기 예약이 이미 있으면 409 PENDING_RESERVATION_EXISTS(R-REQ28) → 오류 대신 \"결제 이어하기\"로 그 예약의 C3를 엶. 예약 ID를 내 예약 목록에서 찾아야 함.",
+   "품절·판매 종료면 버튼 비활성 + 사유. 폐점·정지 상점과 숨김 상품의 할인은 목록에서 빠짐(백엔드 반영됨)."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "FieldError",
+   "KeyValue",
+   "Box",
+   "Stepper"
+  ],
+  "refs": [
+   "A1"
+  ]
+ },
+ {
+  "id": "C3",
+  "title": "결제",
+  "api": "POST /v1/payments {reservation_id, use_point}",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "결제하기 11,500원"
+  ],
+  "chips": [
+   "전액"
+  ],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "포인트 사용 (100P 단위)"
+  ],
+  "errors": [],
+  "notes": [
+   "예약 생성 시 재고를 잡고 결제 대기 상태가 됨. 예약은 자동 만료되지 않음(설계 Q-2).",
+   "포인트는 결제 요청의 use_point로 보냄.",
+   "뒤로 가기 → C3a."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Chip",
+   "Button",
+   "Input",
+   "KeyValue",
+   "Box"
+  ],
+  "refs": [
+   "C3a"
+  ]
+ },
+ {
+  "id": "C3a",
+  "title": "결제 화면 나가기",
+  "api": "POST /v1/reservations/{id}/cancel",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "결제 계속하기",
+   "예약 취소하고 나가기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "나중에 결제 (내 예약에 남음)"
+  ],
+  "labels": [],
+  "errors": [],
+  "notes": [
+   "뒤로 가기는 실수로 누르는 경우가 많아 \"결제 계속하기\"가 주 버튼. 취소는 두 번째(테두리 버튼), \"나중에 결제\"는 링크.",
+   "결제 대기 예약 취소는 기존 API가 허용."
+  ],
+  "components": [
+   "AppBar",
+   "BottomSheet",
+   "Button"
+  ],
+  "refs": []
+ },
+ {
+  "id": "C4",
+  "title": "결제 완료",
+  "api": "결제 응답 → 예약 확정",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "길찾기",
+   "내 예약 보기"
+  ],
+  "chips": [],
+  "tags": [
+   "예약 확정"
+  ],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "매장에서 이 코드를 보여 주세요",
+   "픽업",
+   "매장",
+   "취소 가능"
+  ],
+  "errors": [],
+  "notes": [
+   "픽업 코드는 영문 1자 + 숫자 5자(예: A12345). 코드 상자는 6자 기준.",
+   "코드가 결제 응답에 오는지, 예약 조회로 다시 받아야 하는지 **확인 필요**(이슈 18)."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "StatusTag",
+   "Button",
+   "KeyValue",
+   "Box",
+   "PickupCode"
+  ],
+  "refs": []
+ },
+ {
+  "id": "C5",
+  "title": "내 예약",
+  "api": "GET /v1/users/me/reservations",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "길찾기",
+   "결제 이어하기",
+   "예약 취소"
+  ],
+  "chips": [
+   "진행 중",
+   "지난 예약"
+  ],
+  "tags": [
+   "예약 확정",
+   "매장 사정으로 취소됨",
+   "결제 대기",
+   "픽업 시간 지남"
+  ],
+  "tabs": [
+   "홈 내 예약 마이"
+  ],
+  "links": [
+   "예약 취소 · 17:00까지"
+  ],
+  "labels": [
+   "매장에서 보여 주세요"
+  ],
+  "errors": [],
+  "notes": [
+   "코드 카드에 예약 시각(17:42 예약)을 함께 표시 → 상점주 O1 목록의 예약 시각과 바로 맞춰 볼 수 있음(백엔드 변경 없음).",
+   "매장 사정으로 취소된 예약(점주의 판매 중단, cancelled_by=STORE)은 — 관리자의 할인 정지·강제 폐점은 예약을 취소하지 않고 새 예약만 막음 — 원래 픽업 종료 시각까지 \"진행 중\" 탭에 남겨 둠. 알림 기능이 없어 고객이 앱을 열어야만 알 수 있음.",
+   "확정 예약의 취소는 길찾기와 떨어진 오른쪽 텍스트 링크 → C5a 확인. 링크에 마감 시각을 함께 표시.",
+   "취소 마감(픽업 시작 − 1시간)이 지나면 링크 대신 회색 문구 \"취소 마감 지남 (17:00)\", 누를 수 없음(E1 참고). 현재 백엔드 cancel()은 마감 시각을 검사하지 않음 → 서버 규칙 추가 **확인 필요**.",
+   "취소 구분은 예약 응답의 **cancelled_by**로 표시(**백엔드 반영됨 #44**, 내 예약 목록과 취소 응답에 들어감): CUSTOMER → \"직접 취소\", STORE → \"매장 사정으로 취소됨\", 그 외·null → \"취소됨\". SYSTEM(탈퇴 회원 예약)은 고객 화면에 나오지 않음.",
+   "미수령(노쇼): 픽업 종료 후에도 DB 상태는 \"예약 확정\"으로 남음 → \"픽업 시간 지남\"은 DB 상태가 아니라 화면이 계산해 표시(예약 확정 상태 + pickup_end가 지남). 환불·상태 전이 규칙은 백엔드에서 정해야 함(**확인 필요**)."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "Chip",
+   "StatusTag",
+   "Button",
+   "Box",
+   "PickupCode"
+  ],
+  "refs": [
+   "O1",
+   "C5a",
+   "E1"
+  ]
+ },
+ {
+  "id": "C5a",
+  "title": "예약 취소 확인",
+  "api": "POST /v1/reservations/{id}/cancel",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "돌아가기",
+   "예약 취소"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "돌려받는 금액"
+  ],
+  "errors": [],
+  "notes": [
+   "환불액·포인트 복구(RESTORE)·회수(REVOKE)는 포인트 정책대로 계산해 보여 줌. 결제는 모의 결제라 수단 이름 대신 \"결제 수단으로 환불\".",
+   "규칙 하나로 통일: 취소 마감 전에는 전액 환불, 마감 후에는 취소 불가(C2와 같은 문구). 위약금은 쓰지 않음 → API의 cancel_policy 설명 문구도 맞춰야 함(이슈 23)."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "KeyValue",
+   "Box"
+  ],
+  "refs": []
+ },
+ {
+  "id": "C5b",
+  "title": "내 예약 · 지난 예약",
+  "api": "GET /v1/users/me/reservations",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [],
+  "chips": [
+   "진행 중",
+   "지난 예약"
+  ],
+  "tags": [
+   "픽업 완료",
+   "취소됨",
+   "매장 사정으로 취소됨",
+   "픽업 시간 지남"
+  ],
+  "tabs": [
+   "홈 내 예약 마이"
+  ],
+  "links": [
+   "더 보기"
+  ],
+  "labels": [],
+  "errors": [],
+  "notes": [
+   "진행 중 = 결제 대기·예약 확정(픽업 전)·픽업 종료 전의 매장 취소. 지난 예약 = 픽업 완료·취소됨·픽업 시간 지남. 최신순.",
+   "취소 카드의 \"직접 취소\"·\"매장 사정으로 취소됨\"·\"취소됨\" 구분은 cancelled_by(C5 참고, **백엔드 반영됨 #44**). \"픽업 시간 지남\"은 DB 상태가 아니라 화면 계산(예약 확정 + pickup_end 지남), 노쇼 환불 규칙은 미결정.",
+   "예약 목록 API에 페이지 매개변수가 없음(명세 이슈 5) → \"더 보기\"는 API가 생기면. 그 전에는 전체를 받아 앱에서 나눔."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "Chip",
+   "StatusTag",
+   "Box"
+  ],
+  "refs": [
+   "C5"
+  ]
+ },
+ {
+  "id": "C6",
+  "title": "마이",
+  "api": "GET /v1/users/me · /points",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [],
+  "chips": [],
+  "tags": [],
+  "tabs": [
+   "홈 내 예약 마이"
+  ],
+  "links": [
+   "전체 보기 (C11)",
+   "회원 탈퇴"
+  ],
+  "labels": [
+   "최근 포인트 내역"
+  ],
+  "errors": [],
+  "notes": [
+   "자주 쓰는 항목은 행, 드물고 위험한 탈퇴는 맨 아래 조용한 링크 → C7."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "ListRow",
+   "KeyValue",
+   "Box"
+  ],
+  "refs": [
+   "C7",
+   "C11",
+   "C8",
+   "C9",
+   "C10"
+  ]
+ },
+ {
+  "id": "C7",
+  "title": "회원 탈퇴 확인",
+  "api": "POST /v1/users/me/withdraw {password}",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "취소",
+   "탈퇴하기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "현재 비밀번호 *"
+  ],
+  "errors": [
+   "비밀번호가 일치하지 않습니다."
+  ],
+  "notes": [],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "FieldError",
+   "KeyValue",
+   "Box"
+  ],
+  "refs": []
+ },
+ {
+  "id": "C11",
+  "title": "포인트 내역 전체",
+  "api": "GET /v1/users/me/points?page=0",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "더 보기"
+  ],
+  "labels": [
+   "보유 포인트"
+  ],
+  "errors": [],
+  "notes": [
+   "종류는 한국어로만: 적립(EARN)·사용(USE)·복구(RESTORE)·회수(REVOKE)·지급(GRANT)·소멸(EXPIRE). 잔액(balance_after)이 없는 옛 내역은 잔액 생략.",
+   "페이지는 0부터, total_elements로 \"더 보기\" 표시 여부 판단."
+  ],
+  "components": [
+   "AppBar",
+   "ListRow",
+   "Box"
+  ],
+  "refs": []
+ },
+ {
+  "id": "E1",
+  "title": "로딩 · 빈 상태 · 취소 마감",
+  "api": "상태 모음",
+  "roles": [
+   "고객"
+  ],
+  "section": "고객 · 둘러보기 → 예약 → 픽업",
+  "buttons": [
+   "길찾기",
+   "반경 5km로 넓히기",
+   "할인 보러 가기",
+   "상품 등록"
+  ],
+  "chips": [],
+  "tags": [
+   "예약 확정"
+  ],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "로딩 (목록 공통)",
+   "취소 마감 지난 예약 카드",
+   "빈 상태"
+  ],
+  "errors": [],
+  "notes": [
+   "로딩은 실제 카드 모양의 회색 뼈대(스피너 대신). 버튼을 누른 뒤 응답을 기다리는 동안 그 버튼은 비활성 + \"처리 중…\".",
+   "각 빈 상태는 다음 행동 버튼 하나를 둠. 상점주 빈 상태는 O4·O3에서 씀."
+  ],
+  "components": [
+   "AppBar",
+   "OfferCard",
+   "StatusTag",
+   "Button",
+   "Box",
+   "EmptyState",
+   "Skeleton"
+  ],
+  "refs": [
+   "O4"
+  ]
+ },
+ {
+  "id": "O0",
+  "title": "첫 화면 · 상점 개설",
+  "api": "users.status → POST /v1/stores {pickup_address}",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "상점 열기"
+  ],
+  "chips": [],
+  "tags": [
+   "승인 대기",
+   "거절됨",
+   "상점 정지",
+   "폐점"
+  ],
+  "tabs": [],
+  "links": [
+   "로그아웃"
+  ],
+  "labels": [
+   "상점명",
+   "픽업 주소 *"
+  ],
+  "errors": [
+   "지금은 주소를 확인할 수 없어요. 잠시 후 다시 시도해 주세요."
+  ],
+  "notes": [
+   "로그인 직후 **GET /v1/stores/me**(새 API)로 분기: 404 + 계정 상태가 승인 대기/거절 → 안내, 404 + 승인됨 → 개설 폼, 200이면 status로 ACTIVE → O1, SUSPENDED → O1 + 정지 안내, CLOSED → 폐점 안내.",
+   "상점 ID도 이 응답에서 얻어 O1~O4의 모든 /stores/{id} 호출에 씀. 어느 상태든 상단 \"로그아웃\"으로 다른 계정으로 바꿀 수 있음.",
+   "주소는 카카오로 좌표 변환: KAKAO_REST_API_KEY가 없으면 503."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "StatusTag",
+   "Button",
+   "Input",
+   "FieldError",
+   "Box",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O1"
+  ]
+ },
+ {
+  "id": "O1",
+  "title": "오늘 · 픽업 처리",
+  "api": "POST /v1/reservations/{id}/pickup {pickup_code}",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "픽업 완료"
+  ],
+  "chips": [
+   "픽업 대기 6",
+   "완료 11"
+  ],
+  "tags": [
+   "영업 중"
+  ],
+  "tabs": [
+   "오늘 할인 매장"
+  ],
+  "links": [],
+  "labels": [
+   "상품 · 수량",
+   "픽업 시간",
+   "금액",
+   "예약 시각"
+  ],
+  "errors": [
+   "코드가 맞지 않아요. 다시 확인해 주세요. (오류 예시)",
+   "코드가 맞지 않아요. 다시 확인해 주세요."
+  ],
+  "notes": [
+   "상단 탭은 \"픽업 대기\"·\"완료\" 두 개만(상품별 칩 없음). 목록은 픽업 상품을 보여 주기만 함(행 선택·버튼 없음).",
+   "픽업 완료는 반드시 픽업 코드를 입력해야 처리됨: 코드 입력 → 픽업 완료. 코드 없이 완료할 수 있는 버튼은 두지 않음.",
+   "픽업 완료 직후: 목록 위에 초록 확인 상자 \"바게트 × 3 전달하세요\"(상품·수량을 크게), 그 행은 완료로 이동, 코드 입력칸은 비움. 코드 오류는 입력칸 바로 아래(모바일 하단 바 안, PC 우측 패널 안).",
+   "**백엔드 필요:** 상점주 목록 항목에 픽업 시간(pickup_start·pickup_end)이 없음 → 추가 필요. 고객 정보·픽업 코드는 R-REQ25로 계속 빼 둠.",
+   "**백엔드 필요:** 지금 픽업 API는 예약 ID가 필요함(POST /reservations/{id}/pickup) → 행을 고르지 않으므로 코드만으로 예약을 찾아 픽업 처리하는 API(상점 범위 안에서 코드 조회) 필요(**확인 필요**)."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "CtaBar",
+   "TableRow",
+   "Chip",
+   "StatusTag",
+   "Button",
+   "Input",
+   "FieldError",
+   "Box",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": []
+ },
+ {
+  "id": "O2",
+  "title": "할인 관리 · 재고 조정",
+  "api": "offers · stock-adjustments",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "+ 할인 등록",
+   "수정",
+   "재고 조정",
+   "다시 올리기",
+   "적용"
+  ],
+  "chips": [
+   "판매 중 2",
+   "판매 예정 1",
+   "품절",
+   "판매 종료"
+  ],
+  "tags": [
+   "판매 중",
+   "판매 종료"
+  ],
+  "tabs": [
+   "오늘 할인 매장"
+  ],
+  "links": [
+   "판매 중단"
+  ],
+  "labels": [
+   "사유"
+  ],
+  "errors": [],
+  "notes": [
+   "\"+ 할인 등록\"이 이 탭의 주 버튼: 모바일은 탭 바 위 고정 바, PC는 목록 위 큰 버튼.",
+   "연결: 수정 → O9, 재고 조정 → O10(모바일), 판매 중단 → O5, 다시 올리기 → O3.",
+   "재고 조정: 모바일은 바텀시트, PC는 우측 패널. 판매 중단은 링크 → O5. 다시 올리기 → O3(이전 값 채움)."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "CtaBar",
+   "Chip",
+   "StatusTag",
+   "Button",
+   "Input",
+   "Box",
+   "Stepper",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O9",
+   "O10",
+   "O5",
+   "O3"
+  ]
+ },
+ {
+  "id": "O3",
+  "title": "할인 등록 · 다시 올리기",
+  "api": "POST /v1/products/{id}/offers · /relist",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "할인 등록"
+  ],
+  "chips": [
+   "30분 후 · 취소 불가",
+   "1시간 후 · 취소 불가",
+   "2시간 후",
+   "3시간 후",
+   "직접 입력"
+  ],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "시간 직접 바꾸기"
+  ],
+  "labels": [
+   "상품 *",
+   "정가",
+   "할인가 *",
+   "수량 * (1~9999)",
+   "픽업 시작 · 빠른 선택",
+   "판매",
+   "픽업",
+   "고객 취소 가능"
+  ],
+  "errors": [
+   "1시간 이하를 고르면 표시: 취소 마감(픽업 시작 1시간 전)이 이미 지나 고객이 예약을 취소할 수 없어요."
+  ],
+  "notes": [
+   "기본값: 오늘 날짜, 판매 시작 = 지금, 판매 마감 = 픽업 시작, 픽업 시작 = **2시간 후**(고객이 1시간 동안 취소 가능), 픽업 2시간.",
+   "30분·1시간 칩에는 \"취소 불가\"를 미리 붙이고, 고르거나 직접 입력한 값이 1시간 이하면 경고 상자를 띄움.",
+   "다시 올리기도 가격·수량·네 시각 전체를 보내야 하므로 같은 폼을 이전 값으로 채우고 시각만 새 기본값으로."
+  ],
+  "components": [
+   "AppBar",
+   "TopNav",
+   "CtaBar",
+   "Chip",
+   "Button",
+   "Input",
+   "Notice",
+   "KeyValue",
+   "Box",
+   "Stepper",
+   "SplitLayout"
+  ],
+  "refs": []
+ },
+ {
+  "id": "O4",
+  "title": "매장 · 상품",
+  "api": "GET/POST /v1/stores/{id}/products",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "+ 상품 등록"
+  ],
+  "chips": [],
+  "tags": [
+   "영업 중",
+   "노출",
+   "숨김"
+  ],
+  "tabs": [
+   "오늘 할인 매장"
+  ],
+  "links": [
+   "상점 폐점"
+  ],
+  "labels": [
+   "상품 4개",
+   "계정"
+  ],
+  "errors": [],
+  "notes": [
+   "상품과 매장 정보를 \"매장\" 탭 하나로 합침(탭 3개: 오늘·할인·매장).",
+   "상점 폐점은 맨 아래 링크 → O7 확인 화면.",
+   "계정 메뉴: 모든 상점주·관리자 화면 오른쪽 위 \"계정\" 버튼 → O8. 모바일 매장 탭에도 같은 행(비밀번호 변경 → C9, 로그아웃 → C10).",
+   "상품 행 → O11, \"+ 상품 등록\" → O6."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "ListRow",
+   "StatusTag",
+   "Button",
+   "Box",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O7",
+   "O8",
+   "C9",
+   "C10",
+   "O11",
+   "O6"
+  ]
+ },
+ {
+  "id": "O5",
+  "title": "판매 중단 확인",
+  "api": "POST /v1/offers/{id}/deactivate {reason, cancel_reservations}",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "취소",
+   "판매 중단"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "중단 사유 *",
+   "기존 예약 3건은?"
+  ],
+  "errors": [],
+  "notes": [
+   "백엔드에 푸시·문자·이메일 알림이 없어 \"고객에게 알림\" 약속을 뺌. 알림 기능 추가는 **확인 필요**. 관리자 할인 정지·강제 폐점도 같음.",
+   "상점주 목록에는 고객 연락처가 없음(R-REQ25) → 연락 방법이 생기기 전까지 \"직접 연락\" 안내는 넣지 않음."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "Box"
+  ],
+  "refs": []
+ },
+ {
+  "id": "O6",
+  "title": "상품 등록",
+  "api": "POST /v1/stores/{id}/products",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "등록하고 할인 만들기",
+   "등록만"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "상품명 *",
+   "정상 가격 *",
+   "카테고리",
+   "설명",
+   "상품 사진 (1장)"
+  ],
+  "errors": [],
+  "notes": [
+   "사진은 상품당 1장. 추가·업로드 중·완료·오류 상태는 O12.",
+   "업로드가 끝나기 전에는 \"등록\" 버튼 비활성(사진 없이 등록은 가능)."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "PhotoSlot",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O12"
+  ]
+ },
+ {
+  "id": "O7",
+  "title": "상점 폐점 확인",
+  "api": "POST /v1/stores/{id}/close",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "취소",
+   "폐점하기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "확인을 위해 상점명을 입력하세요: 망원베이커리"
+  ],
+  "errors": [
+   "폐점하면 다시 열 수 없고, 이 계정으로 새 상점도 만들 수 없어요."
+  ],
+  "notes": [
+   "폐점은 예약을 취소하지 않고, 진행 중 할인이나 픽업 대기 예약이 있으면 막힘(API 규칙). 그래서 막는 항목을 먼저 보여 줌.",
+   "상점주 1명당 상점 1개(REQ-2, 폐점 상점 포함) → 되돌릴 수 없음을 강조. 상점명을 정확히 입력하고 막는 항목이 0일 때만 버튼 활성."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "Notice",
+   "KeyValue",
+   "Box"
+  ],
+  "refs": []
+ },
+ {
+  "id": "O9",
+  "title": "할인 수정",
+  "api": "PATCH /v1/offers/{id}",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "판매 중단 (O5)",
+   "저장"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "할인가 (정가 12,000원보다 낮게)",
+   "최초 수량",
+   "판매 마감",
+   "픽업",
+   "예약이 생긴 할인을 열면"
+  ],
+  "errors": [
+   "예약이 있는 할인은 수정할 수 없어요. 판매를 중단하고 다시 올려 주세요."
+  ],
+  "notes": [
+   "O2 \"수정\"에서 들어옴. 예약 0건일 때만 칸이 열림(OFFER_HAS_RESERVATIONS). 예약이 있으면 칸을 잠그고 위 안내만.",
+   "바꾼 값만 보냄. 판매 중단·재개(is_active)는 다른 칸과 같이 못 보내므로 이 화면에서 다루지 않음.",
+   "최초 수량은 이미 팔린 수보다 작게 못 줄임 → 스텝퍼 최솟값으로 막음."
+  ],
+  "components": [
+   "AppBar",
+   "TopNav",
+   "CtaBar",
+   "Button",
+   "Input",
+   "Notice",
+   "Box",
+   "Stepper",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O2",
+   "O5"
+  ]
+ },
+ {
+  "id": "O10",
+  "title": "재고 조정 (모바일)",
+  "api": "POST /v1/offers/{id}/stock-adjustments {amount, reason?}",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "적용"
+  ],
+  "chips": [
+   "빼기 (파손·소진)",
+   "더하기 (추가 입고)"
+  ],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "사유 (선택, 200자)"
+  ],
+  "errors": [
+   "남은 재고보다 많이 뺄 수 없어요."
+  ],
+  "notes": [
+   "O2 \"재고 조정\"에서 열림(PC는 O2 우측 패널). 0은 보낼 수 없음 → 스텝퍼 최소 1. 0개가 되면 자동으로 품절."
+  ],
+  "components": [
+   "AppBar",
+   "BottomSheet",
+   "Chip",
+   "Button",
+   "Input",
+   "FieldError",
+   "Stepper",
+   "AccountButton"
+  ],
+  "refs": [
+   "O2"
+  ]
+ },
+ {
+  "id": "O11",
+  "title": "상품 수정 · 숨기기",
+  "api": "PATCH /v1/products/{id} · /deactivate · /activate",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "사진 바꾸기",
+   "저장"
+  ],
+  "chips": [
+   "노출 중"
+  ],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "사진 삭제",
+   "숨기기"
+  ],
+  "labels": [
+   "상품명",
+   "정상 가격",
+   "카테고리",
+   "설명",
+   "상품 사진 (1장)"
+  ],
+  "errors": [],
+  "notes": [
+   "O4 상품 행을 누르면 열림. 숨김 상품은 \"다시 보이기\" 버튼으로 바뀜.",
+   "숨길 때 진행 중 할인·예약이 어떻게 되는지 API 규칙 확인 후 확인 단계 추가(**확인 필요**).",
+   "사진 바꾸기 → O12 흐름. 사진 삭제는 바로 지우지 않고 저장할 때 반영."
+  ],
+  "components": [
+   "AppBar",
+   "TopNav",
+   "CtaBar",
+   "Chip",
+   "Button",
+   "Input",
+   "Box",
+   "PhotoSlot",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "O4",
+   "O12"
+  ]
+ },
+ {
+  "id": "O12",
+  "title": "상품 사진 올리기 (1장)",
+  "api": "POST /v1/products/{id}/images → products.product_image",
+  "roles": [
+   "상점주"
+  ],
+  "section": "상점주 · PC/태블릿에서는 넓은 배치",
+  "buttons": [
+   "카메라로 찍기",
+   "앨범에서 고르기",
+   "사진 바꾸기",
+   "다시 시도",
+   "다른 사진 고르기"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [
+   "취소",
+   "삭제"
+  ],
+  "labels": [
+   "① 사진 고르기",
+   "② 업로드 중",
+   "③ 올라감",
+   "④ 실패"
+  ],
+  "errors": [
+   "사진이 5MB보다 커요. 더 작은 사진을 골라 주세요."
+  ],
+  "notes": [
+   "**규칙: 상품당 사진 1장.** 이미 있으면 \"추가\" 대신 \"바꾸기\"만 보임. 새 사진이 다 올라간 뒤에 예전 사진과 바뀜(실패해도 예전 사진 유지).",
+   "화면에서 4:3으로 미리 보여 주고, 고객 카드·상세에서도 같은 비율로 자름.",
+   "**DB:** products.product_image(JSON 목록) 그대로 씀 → 사진 있음 [\"url\"], 없음 null 또는 []. 컬럼 변경 불필요.",
+   "**백엔드 반영됨 #42:** ① 업로드 **POST /v1/products/{id}/images**(201), 삭제 DELETE /v1/products/{id}/images/{image_id}(204), 조회 GET …/images/{image_id}(공개). JPEG·PNG·WebP(파일 내용으로 판별), **5MB 이하**, DB 저장. 올린 이미지 주소가 products.product_image 목록에 들어감(상품 응답 형식 불변). ② 백엔드는 상품당 최대 10개(외부 URL 포함)까지 받으므로, \"1장\" 규칙은 화면에서만 지킴(백엔드에서도 막을지는 **확인 필요**). ③ 사진을 바꿀 때는 새 사진 업로드 후 예전 사진 DELETE."
+  ],
+  "components": [
+   "AppBar",
+   "BottomSheet",
+   "Button",
+   "FieldError",
+   "PhotoSlot",
+   "SplitLayout"
+  ],
+  "refs": []
+ },
+ {
+  "id": "M1",
+  "title": "승인 · 회원 · 상점 관리",
+  "api": "/v1/admin/*",
+  "roles": [
+   "관리자"
+  ],
+  "section": "관리자 · PC 우선, 상태 코드 병기",
+  "buttons": [
+   "승인",
+   "거부"
+  ],
+  "chips": [
+   "상점주",
+   "고객"
+  ],
+  "tags": [
+   "승인 대기 PENDING"
+  ],
+  "tabs": [
+   "승인 회원 상점 할인"
+  ],
+  "links": [],
+  "labels": [
+   "상점주(상호)",
+   "이메일",
+   "가입일",
+   "상태"
+  ],
+  "errors": [],
+  "notes": [
+   "목록은 **GET /v1/admin/users**(관리자 전용, **백엔드 반영됨 #42**): 승인 탭 = role=OWNER&status=PENDING, 회원 탭 = 역할·상태 필터 + 이메일 부분 검색, 페이지 번호(total로 계산). 쿼리·응답 형식은 M3 참고.",
+   "상점 탭·할인 탭의 목록 API는 아직 없음 → **확인 필요**. 그 전까지 상점 정지·폐점은 상점 ID를 알아야 함.",
+   "PC에서는 창 전체 폭 표, 모바일에서는 이메일·가입일을 이름 아래로 접음.",
+   "승인만 한 번 탭. 나머지 제재는 행의 버튼마다 각자 M2 시트를 엶."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "TableRow",
+   "Chip",
+   "StatusTag",
+   "Button",
+   "Input",
+   "KeyValue",
+   "Box",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "M3",
+   "M2"
+  ]
+ },
+ {
+  "id": "M2",
+  "title": "제재 확인 (예: 회원 정지)",
+  "api": "PATCH /v1/admin/users/{id}/suspend {reason, suspended_until?}",
+  "roles": [
+   "관리자"
+  ],
+  "section": "관리자 · PC 우선, 상태 코드 병기",
+  "buttons": [
+   "정지하기",
+   "취소"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "정지 사유 *",
+   "정지 종료 (비우면 무기한)"
+  ],
+  "errors": [],
+  "notes": [
+   "동작은 시트를 열기 전에 정해지고 시트 안에서 바꿀 수 없음(제목·버튼 문구 고정).",
+   "같은 틀을 쓰는 다른 시트: 상점주 거부·강제 탈퇴·상점 정지·강제 폐점·할인 정지·포인트 지급. 모두 사유 필수, 정지 종료는 회원 정지에만."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "KeyValue",
+   "Box",
+   "SplitLayout"
+  ],
+  "refs": []
+ },
+ {
+  "id": "M3",
+  "title": "회원 탭 · 회원 상세",
+  "api": "GET /v1/admin/users · /users/{id} · /users/{id}/points",
+  "roles": [
+   "관리자"
+  ],
+  "section": "관리자 · PC 우선, 상태 코드 병기",
+  "buttons": [
+   "이전",
+   "다음",
+   "포인트 지급 (M4)",
+   "정지 (M2)"
+  ],
+  "chips": [
+   "전체",
+   "고객",
+   "상점주",
+   "정지",
+   "탈퇴"
+  ],
+  "tags": [
+   "정지 SUSPENDED"
+  ],
+  "tabs": [
+   "승인 회원 상점 할인"
+  ],
+  "links": [
+   "강제 탈퇴"
+  ],
+  "labels": [
+   "이름 · 이메일",
+   "역할",
+   "가입일",
+   "상태",
+   "최근 포인트 내역"
+  ],
+  "errors": [],
+  "notes": [
+   "목록은 **GET /v1/admin/users**(관리자 전용, **백엔드 반영됨 #42**, 명세 admin.md 10절). 쿼리: role(CUSTOMER/OWNER/ADMIN), status(PENDING/APPROVED/REJECTED/SUSPENDED/WITHDRAWN; 정지 기간이 지난 회원은 APPROVED로 취급), email(부분 검색, 대소문자 무시), page(**1부터**), size(1~100, 기본 20; 범위 밖이면 400 INVALID_PAGE). 응답 {items:[{id, email, name, role, status, created_at}], page, size, total}. 정렬은 가입 오래된 순(오래 기다린 회원 먼저). 전화번호·포인트는 목록에 없으므로 단건 조회(GET /v1/admin/users/{id})로 본다. 상태 필터를 비우면(\"전체\") 탈퇴 회원도 포함.",
+   "행을 누르면 상세: PC는 우측 패널, 모바일은 새 화면.",
+   "정지·강제 탈퇴는 M2 시트(사유 필수). 기간이 지난 정지는 목록에서 \"정상\"으로 보임."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "TableRow",
+   "Chip",
+   "StatusTag",
+   "Button",
+   "Input",
+   "KeyValue",
+   "Box",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "M2",
+   "M4"
+  ]
+ },
+ {
+  "id": "M4",
+  "title": "포인트 지급",
+  "api": "POST /v1/admin/users/{id}/points {amount, reason}",
+  "roles": [
+   "관리자"
+  ],
+  "section": "관리자 · PC 우선, 상태 코드 병기",
+  "buttons": [
+   "1,000P 지급",
+   "취소"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [],
+  "links": [],
+  "labels": [
+   "지급 포인트 * (1 이상)",
+   "지급 사유 *"
+  ],
+  "errors": [],
+  "notes": [
+   "버튼 문구에 금액을 넣어 실수로 큰 값을 지급하지 않게 함. 회수(음수) 기능은 없음."
+  ],
+  "components": [
+   "AppBar",
+   "CtaBar",
+   "Button",
+   "Input",
+   "KeyValue",
+   "Box",
+   "SplitLayout"
+  ],
+  "refs": []
+ },
+ {
+  "id": "M5",
+  "title": "상점 탭 · 할인 탭",
+  "api": "PATCH /v1/admin/stores/{id}/suspend·close · /offers/{id}/suspend",
+  "roles": [
+   "관리자"
+  ],
+  "section": "관리자 · PC 우선, 상태 코드 병기",
+  "buttons": [
+   "찾기",
+   "정지"
+  ],
+  "chips": [],
+  "tags": [],
+  "tabs": [
+   "승인 회원 상점 할인"
+  ],
+  "links": [
+   "강제 폐점"
+  ],
+  "labels": [
+   "상점 ID 또는 할인 ID",
+   "상점",
+   "주소",
+   "개설일",
+   "상태"
+  ],
+  "errors": [
+   "상점·할인 목록 API가 아직 없어요( 확인 필요 ). 지금은 ID로만 찾을 수 있어요."
+  ],
+  "notes": [
+   "목록 API가 생기면 M3처럼 검색·필터 표로 바꿈. 지금 표는 목표 모습.",
+   "정지·강제 폐점·할인 정지는 모두 M2 시트(사유 필수). 강제 폐점은 예약 취소·환불 건수를 먼저 보여 줌."
+  ],
+  "components": [
+   "AppBar",
+   "TabBar",
+   "TopNav",
+   "TableRow",
+   "Button",
+   "Input",
+   "Notice",
+   "Box",
+   "AccountButton",
+   "SplitLayout"
+  ],
+  "refs": [
+   "M2"
+  ]
+ }
+]
