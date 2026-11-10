@@ -89,14 +89,16 @@ export function onTokenChange(cb: (token: string | null) => void): () => void {
 }
 ```
 
+`tokenStorage.ts` 함수를 직접 부르는 곳은 두 곳뿐입니다. `shared/api/client.ts`(`readToken`으로 헤더 붙이기)와 `entities/session/infrastructure/localSessionStore.ts`(application 포트 `SessionStore`의 구현체)입니다. 나머지 코드는 `SessionStore` 포트를 `useDep(SessionStoreToken)`으로 받아 씁니다(`layer-architecture` §6.3, §6.5). 쿠키 방식으로 바꾸면 구현체와 `entities/session/wiring.ts`만 고치면 됩니다.
+
 | 시점 | 동작 | 위치 |
 | --- | --- | --- |
-| 로그인 성공 (`POST /v1/auth/login`) | `saveToken(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/login`의 application 훅 |
-| 앱 시작 | 토큰이 있으면 `GET /v1/users/me`로 사용자 확인. 401이면 `clearToken()` | `app/providers`의 인증 Context |
-| 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `clearToken()` (서버가 토큰을 블랙리스트에 올림) | `features/logout` |
-| `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `clearToken()` → 로그인 화면(A1) | 인증 Context (§3) |
-| 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `clearToken()` 후 다시 로그인 | 해당 feature |
-| 다른 탭 변경 | `onTokenChange`로 인증 Context 상태 갱신 | 인증 Context |
+| 로그인 성공 (`POST /v1/auth/login`) | `session.save(access_token)` 후 응답의 `status`(APPROVED·PENDING 등)로 화면 분기 | `features/login`의 유스케이스 |
+| 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `app/providers`의 인증 Context |
+| 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/logout`의 유스케이스 |
+| `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `session.clear()` → 로그인 화면(A1) | 인증 Context (§3) |
+| 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | 해당 feature의 유스케이스 |
+| 다른 탭 변경 | `onTokenChange`로 인증 Context 상태 갱신 (포트에 `subscribe`를 두고 구현체가 `onTokenChange`를 감쌈) | 인증 Context |
 
 ### 보안 메모: localStorage의 약점과 대책
 
@@ -134,30 +136,18 @@ export async function toApiError(res: Response): Promise<ApiError> {
 ```
 - 화면 분기는 `errorCode`로 합니다. `message` 문자열 비교로 분기하지 않습니다.
 - 명세상 auth 외 모듈은 에러 형식이 아직 통일되지 않았을 수 있습니다(`../docs/reference/README.md` "확인 필요"). 형식이 다르면 `UNKNOWN`으로 떨어지므로, 발견하면 보고서에 적습니다.
-- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`clearToken()` → 로그인 화면 A1, §2.1). 처리 위치는 `app/providers`의 인증 Context입니다.
+- `401 UNAUTHORIZED`·`TOKEN_REVOKED`는 공통으로 처리합니다(`session.clear()` → 로그인 화면 A1, §2.1). 처리 위치는 `app/providers`의 인증 Context입니다.
 - `429 ACCOUNT_LOCKED`는 `Retry-After` 헤더가 있으니 필요한 화면에서 읽습니다.
 
-## 4. slice infrastructure (F9)
+## 4. slice infrastructure (F9, F18)
 
-```ts
-// entities/offer/infrastructure/offerApi.ts
-import { apiGet } from '@/shared/api/client'
-import type { Offer } from '../domain/offer'
+서버를 부르는 코드는 domain 포트(`<개체>Repository`)의 구현체로 만듭니다. 예시 코드는 `layer-architecture` §6.5(`HttpOfferRepository`)가 정본입니다.
 
-type OfferDto = { id: string; price: number; discount_price: number; closes_at: string; stock: number }
-
-export function toOffer(d: OfferDto): Offer {
-  return { id: d.id, price: d.price, discountPrice: d.discount_price, closesAt: new Date(d.closes_at), stock: d.stock }
-}
-
-export async function fetchOffer(id: string, signal?: AbortSignal): Promise<Offer> {
-  return toOffer(await apiGet<OfferDto>(`/v1/offers/${encodeURIComponent(id)}`, signal))
-}
-```
-- DTO 타입은 infrastructure 파일 안에만 두고 공개 API로 내보내지 않습니다.
+- 구현체는 `shared/api`의 `apiGet`·`apiPost`를 쓰고, `fetch`를 직접 부르지 않습니다(F8).
+- DTO 타입과 DTO → domain 변환 함수는 구현체 파일 안에만 두고 공개 API로 내보내지 않습니다.
 - DTO 필드명은 명세의 snake_case 그대로, domain은 camelCase로 바꿉니다.
 - 시각 문자열은 `Date`로, 금액은 `number`(원 단위 정수)로 바꿉니다.
-- 위 필드는 예시입니다. 실제 필드는 명세를 확인합니다(§5).
+- §6.5 예시의 필드는 예시입니다. 실제 필드는 명세를 확인합니다(§5).
 
 ## 5. 명세 대조 (F14)
 

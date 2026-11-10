@@ -53,15 +53,19 @@ export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, key: stri
 
 ```ts
 // entities/offer/application/useOffers.ts
+import { useDep } from '@/shared/lib/di'
 import { useAsync } from '@/shared/lib/useAsync'
-import { fetchOffers, type OfferQuery } from '../infrastructure/offerApi'
+import type { NearbyQuery } from '../domain/offerRepository'
+import { OfferRepositoryToken } from './tokens'
 
-export function useOffers(q: OfferQuery) {
-  return useAsync((signal) => fetchOffers(q, signal), `${q.lat}|${q.lng}|${q.radiusKm}`)
+export function useOffers(q: NearbyQuery) {
+  const offers = useDep(OfferRepositoryToken)   // 포트만 받는다. 구현체(HttpOfferRepository)를 모른다
+  return useAsync((signal) => offers.findNearby(q, signal), `${q.lat}|${q.lng}|${q.radiusKm}`)
 }
 ```
 
-- 정리된 요청의 결과로 상태를 바꾸지 않습니다(F10). `signal`은 infrastructure → `shared/api`까지 넘깁니다.
+- 포트·토큰·구현체·wiring 구조는 `layer-architecture` §6이 정본입니다(F18). application 코드에서 infrastructure를 import하지 않습니다.
+- 정리된 요청의 결과로 상태를 바꾸지 않습니다(F10). `signal`은 포트 → infrastructure → `shared/api`까지 넘깁니다.
 - `key`는 요청을 결정하는 원시값을 이어 붙인 문자열입니다. 객체를 그대로 쓰면 렌더마다 다시 요청합니다.
 - `eslint-disable`로 의존성 경고를 끄지 않습니다(F16). 경고가 나면 `key`를 다시 정합니다.
 - 같은 데이터를 여러 화면이 쓰면 공통 조상(page 또는 `app/providers`의 Context)에서 한 번 불러 내려 줍니다. 캐시 계층을 직접 만들지 않습니다.
@@ -71,7 +75,7 @@ export function useOffers(q: OfferQuery) {
 컴포넌트는 로딩·에러·빈·성공을 모두 그립니다. 표시 방식(Skeleton, EmptyState, Notice)과 문구는 `../docs/design-system/states.md`, `screens.md`의 E1을 따릅니다.
 
 ```tsx
-export function OfferList({ query }: { query: OfferQuery }) {
+export function OfferList({ query }: { query: NearbyQuery }) {
   const offers = useOffers(query)
   if (offers.status === 'loading') return <OfferListSkeleton />
   if (offers.status === 'error') return <LoadError error={offers.error} onRetry={offers.reload} />
@@ -85,12 +89,24 @@ export function OfferList({ query }: { query: OfferQuery }) {
 ## 4. 데이터 바꾸기: 요청 훅
 
 ```ts
-// features/reserve-offer/application/useReserveOffer.ts
+// features/reserve-offer/application/reserveOffer.ts  (유스케이스: 포트만 받는 순수 함수)
+import type { Reservation, ReservationRepository } from '@/entities/reservation'
+
+export function reserveOffer(
+  deps: { reservations: ReservationRepository },
+  input: { offerId: string; quantity: number },
+): Promise<Reservation> {
+  return deps.reservations.create(input)
+}
+
+// features/reserve-offer/application/useReserveOffer.ts  (훅: 포트를 꺼내 유스케이스에 넘기고 상태를 관리)
 import { useState } from 'react'
-import { postReservation } from '../infrastructure/reservationApi'
-import type { Reservation } from '@/entities/reservation'
+import { useDep } from '@/shared/lib/di'
+import { ReservationRepositoryToken, type Reservation } from '@/entities/reservation'
+import { reserveOffer } from './reserveOffer'
 
 export function useReserveOffer() {
+  const reservations = useDep(ReservationRepositoryToken)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
@@ -98,7 +114,7 @@ export function useReserveOffer() {
     if (pending) return null              // 중복 제출 방지
     setPending(true); setError(null)
     try {
-      return await postReservation({ offerId, quantity })
+      return await reserveOffer({ reservations }, { offerId, quantity })
     } catch (e) {
       setError(e); return null
     } finally {
@@ -130,9 +146,13 @@ export function useReserveOffer() {
 | 대상 | 방법 | 위치 |
 | --- | --- | --- |
 | domain 함수 | 순수 함수 단위 테스트. 경계값(0, 마감 시각 정각, 재고 1) 포함 | `<slice>/domain/*.test.ts` |
-| infrastructure | `shared/api`를 `vi.mock`하고 DTO → domain 변환 확인 | `<slice>/infrastructure/*.test.ts` |
-| application 훅 | `renderHook` + infrastructure `vi.mock`. 로딩 → 성공/에러 전이, 언마운트 시 abort | `<slice>/application/*.test.ts` |
-| presentation | `render` + `screen.getByRole`. 로딩·빈·에러·성공 네 상태를 모두 확인 | `<slice>/presentation/*.test.tsx` |
+| infrastructure 구현체 | `shared/api`를 `vi.mock`하고 DTO → domain 변환, 엔드포인트·쿼리 확인 | `<slice>/infrastructure/*.test.ts` |
+| application 유스케이스 | 포트에 가짜 객체를 넘겨 호출 순서·결과 확인 (React 없음) | `<slice>/application/*.test.ts` |
+| application 훅 | 가짜 구현체로 만든 `Container`를 `DepsProvider`로 감싸 `renderHook`. 로딩 → 성공/에러 전이, 언마운트 시 abort | `<slice>/application/*.test.ts` |
+| presentation | 가짜 구현체 `DepsProvider` + `render` + `screen.getByRole`. 로딩·빈·에러·성공 네 상태를 모두 확인 | `<slice>/presentation/*.test.tsx` |
+| 조립 | `createContainer()`가 중복 없이 만들어지고 핵심 토큰이 풀리는지 | `src/app/container.test.ts` |
+
+- application·presentation 테스트에서 `vi.mock`으로 모듈을 바꾸지 않습니다. 포트에 가짜 구현체를 넣습니다(`layer-architecture` §6.8). `vi.mock`은 infrastructure 테스트의 `shared/api`에만 씁니다.
 
 - 시각은 `vi.useFakeTimers()`와 `vi.setSystemTime()`으로 고정하거나 domain에 `now`를 넘깁니다.
 - 요소는 역할·이름(`getByRole('button', { name: '예약하고 결제' })`)으로 찾습니다. 클래스명이나 test-id에 기대지 않습니다.

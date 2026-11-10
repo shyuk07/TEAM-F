@@ -1,6 +1,6 @@
 ---
 name: frontend-invariants
-description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F17)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
+description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F18)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
 ---
 
 # 프론트엔드 불변 규칙
@@ -8,7 +8,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 이 문서는 **규칙의 정본**입니다. 다른 스킬과 에이전트 명세는 규칙 문장을 다시 쓰지 않고 `F번호`로 가리킵니다.
 - 규칙을 바꿀 때는 이 문서만 고칩니다.
 - FSD 배치: `fsd-structure` / slice 안 4계층: `layer-architecture` / 코드 패턴: `react-implementation` / API: `api-client` / 디자인: `design-system-usage` / 자동 검사: `layer-check`
-- 발주서에는 "F1~F17 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
+- 발주서에는 "F1~F18 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
 
 검사 방법 표기: **자동**(`check_layers.mjs`가 잡음, 괄호 안은 출력 태그) / **도구**(ESLint·Prettier·tsc·Vitest·Playwright) / **정독**(`fe-architect`·`fe-reviewer`가 코드를 읽어 판정) / **실행**(`fe-qa`가 실행해 판정)
 
@@ -25,9 +25,10 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 | ID | 규칙 | 검사 | 상세 |
 | --- | --- | --- | --- |
 | F4 | slice 안은 `presentation / application / domain / infrastructure` 네 폴더로만 나눈다(쓰지 않는 계층은 만들지 않는다). FSD 세그먼트 이름(`ui`, `model`, `api`, `lib`)을 slice 안에 쓰지 않는다. | 자동(`[구조]`) | `layer-architecture` §1 |
-| F5 | 의존 방향: presentation → application·domain, application → domain·infrastructure, infrastructure → domain. presentation은 infrastructure를 import하지 않는다. 아래 계층은 위 계층을 import하지 않는다. | 자동(`[의존방향]`) | `layer-architecture` §2 |
+| F5 | 의존 방향: presentation → application·domain, application → domain, infrastructure → domain·application(`import type`만). application과 presentation은 infrastructure를 import하지 않는다. domain은 slice 안 다른 계층을 import하지 않는다. | 자동(`[의존방향]`) | `layer-architecture` §2 |
 | F6 | domain은 순수 TypeScript다. `react`, `react-dom`, `react-router`, `fetch`, `window`, `document`, `localStorage`, `import.meta.env`를 쓰지 않는다. | 자동(`[외부의존]`) | `layer-architecture` §3 |
 | F7 | 검증·상태 판단·계산·표기 변환(금액, 남은 시간, 상태 문구)은 domain 함수에 둔다. 컴포넌트와 훅에 비즈니스 if-else를 두지 않는다. | 정독 | `layer-architecture` §3 |
+| F18 | 계층은 추상(포트)으로만 연결한다. 도메인 데이터 접근은 domain 포트, 유스케이스 전용 기술 기능은 application 포트(`interface`)로 선언하고, 구현체는 infrastructure에 `implements`로 둔다. 토큰은 `application/tokens.ts`에 두고 훅은 `useDep(토큰)`으로 받는다. 구현체를 만드는 곳은 slice의 `wiring.ts`뿐이고, `wiring.ts`를 가져오는 곳은 `app/container.ts`뿐이다. `index.ts`는 구현체와 wiring을 내보내지 않는다. 유스케이스는 포트를 인자로 받고 구현체 기본값을 두지 않는다. | 자동(`[wiring위치]`, `[공개API]`, `[의존방향]`, `[구조]`) + 정독 | `layer-architecture` §6 |
 
 ## 3. 서버 통신과 상태
 
@@ -61,7 +62,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 명령은 한 줄에 하나씩 실행합니다. `&&`·`||`로 잇지 않습니다(Windows PowerShell 5.1은 지원하지 않음). 저장소의 스크립트는 모두 Node(`.mjs`)라서 Windows PowerShell·macOS·Linux에서 같은 명령으로 동작합니다. 셸 스크립트(`.sh`)는 만들지 않습니다.
 
 ```powershell
-node .claude/skills/layer-check/check_layers.mjs   # 위반 0건 (F1~F6, F8, F12)
+node .claude/skills/layer-check/check_layers.mjs   # 위반 0건 (F1~F6, F8, F12, F18)
 npm run lint                                         # 0 error, 0 warning
 npm run format:check                                 # Prettier 차이 0
 npm run typecheck                                    # tsc 0 error
@@ -69,11 +70,11 @@ npm run test                                         # Vitest failed 0, skip 0
 npm run build                                        # 성공
 ```
 - 화면 흐름을 바꿨으면 `npm run test:e2e`(Playwright)도 실행합니다(`qa-verification` §4).
-- 정독 규칙(F7, F9~F11, F13, F14)은 수정자가 아닌 `fe-architect`(구조)·`fe-reviewer`(정확성)가 판정합니다.
+- 정독 규칙(F7, F9~F11, F13, F14, F17, F18의 정독 부분)은 수정자가 아닌 `fe-architect`(구조)·`fe-reviewer`(정확성)가 판정합니다.
 - `package.json`에 위 스크립트 이름이 없으면 게이트를 통과로 치지 않고 "스크립트 없음"으로 보고합니다. 스크립트 정의는 `qa-verification` §1이 정본입니다.
 
 ## 7. 위반 보고 형식
 
 | 심각도 | 파일:줄 | 규칙 | 내용 | 고치는 방법 |
 | --- | --- | --- | --- | --- |
-| 위반 / 주의 / 미구현 | `src/features/reserve-offer/presentation/ReserveButton.tsx:12` | F5 | presentation에서 infrastructure의 `postReservation` 직접 호출 | application 훅(`useReserveOffer`)을 거쳐 호출 |
+| 위반 / 주의 / 미구현 | `src/features/reserve-offer/application/useReserveOffer.ts:4` | F5, F18 | application에서 infrastructure의 `HttpReservationRepository`를 직접 import | `ReservationRepository` 포트를 `useDep(ReservationRepositoryToken)`으로 받고, 구현체 연결은 `wiring.ts`에 둠 |

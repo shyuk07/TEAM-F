@@ -1,48 +1,60 @@
 ---
 name: layer-architecture
-description: 마감 직전 프론트엔드에서 FSD slice(pages, widgets, features, entities) 안을 나누는 4계층(presentation, application, domain, infrastructure)의 책임, 의존 방향, 계층별로 둘 것과 두지 않을 것, 계층 판단 예시를 정합니다. slice 안에 코드를 어디에 둘지 정할 때, 컴포넌트·훅·도메인 함수·API 함수를 나눌 때, 계층 간 import가 허용되는지 판단할 때 사용합니다. slice를 어느 FSD 계층에 둘지는 fsd-structure, 코드 패턴은 react-implementation, 자동 검사는 layer-check를 씁니다.
+description: 마감 직전 프론트엔드에서 FSD slice(pages, widgets, features, entities) 안을 나누는 4계층(presentation, application, domain, infrastructure)의 책임과 의존 방향, 그리고 의존성 역전·주입 구조를 정합니다. domain 포트(저장소 등)와 application 포트(유스케이스 전용 기능)로 추상화하고, infrastructure에서 구현하며, slice의 wiring.ts와 app/container.ts에서 토큰 기반 Context로 조립합니다. slice 안에 코드를 어디에 둘지 정할 때, 포트·구현체·wiring을 만들 때, 계층 간 import가 허용되는지 판단할 때, 테스트에서 가짜 구현체를 넣을 때 사용합니다. slice를 어느 FSD 계층에 둘지는 fsd-structure, 코드 패턴은 react-implementation, 자동 검사는 layer-check를 씁니다.
 ---
 
-# slice 안 4계층
+# slice 안 4계층과 의존성 주입
 
-이 스킬은 **slice 안에서 무엇을 어디에 두고 왜 그렇게 하는가**를 정합니다. 규칙 ID(F4~F10)는 `frontend-invariants`가 정본입니다.
+이 스킬은 **slice 안에서 무엇을 어디에 두고, 계층끼리 어떻게 약하게 연결하는가**를 정합니다. 규칙 ID(F4~F10, F18)는 `frontend-invariants`가 정본입니다.
+
+**의존성 주입(§6)은 이 스킬이 정본입니다.** 다른 스킬의 코드 예시가 이 절과 다르면 이 절을 따르고 그 예시를 고칩니다.
 
 ## 1. 계층 책임
 
 | 계층 | 책임 | 파일 예시 | 두지 않는 것 |
 | --- | --- | --- | --- |
-| presentation | 그리기, 사용자 입력 받기, 로딩·에러·빈 상태 표시 | `OfferCard.tsx`, `ReserveButton.tsx` | fetch, 비즈니스 계산, DTO |
-| application | 유스케이스 흐름. 서버 호출 조합, 비동기 상태(로딩·에러·데이터), 성공 후 다음 동작 | `useOffers.ts`, `useReserveOffer.ts` | JSX, 금액·시간 계산 규칙 |
-| domain | 타입, 업무 규칙, 계산, 표기 변환. 순수 함수 | `offer.ts`(`Offer` 타입, `minutesUntilClose`, `canReserve`) | React, fetch, 브라우저 API, env |
-| infrastructure | 서버 API 호출 함수, DTO 타입, DTO → domain 변환 | `offerApi.ts`(`fetchOffers`, `toOffer`) | React, 상태, 화면 문구 |
+| presentation | 그리기, 사용자 입력 받기, 로딩·에러·빈 상태 표시 | `OfferCard.tsx`, `ReserveButton.tsx` | fetch, 비즈니스 계산, DTO, 구현체 |
+| application | 유스케이스 흐름(순수 함수), React 훅, **application 포트**(유스케이스만 필요로 하는 기능의 추상)와 주입 토큰 | `reserveOffer.ts`, `useReserveOffer.ts`, `ports.ts`, `tokens.ts` | JSX, 금액·시간 계산 규칙, 구현체 |
+| domain | 타입, 업무 규칙, 계산, 표기 변환, **domain 포트**(도메인 데이터 접근의 추상) | `offer.ts`, `offerRepository.ts` | React, fetch, 브라우저 API, env, 토큰 |
+| infrastructure | 포트의 구현체. 서버 API 호출, DTO 타입, DTO → domain 변환, 브라우저 API 사용 | `httpOfferRepository.ts`, `localSessionStore.ts` | React, 상태, 화면 문구 |
+| (slice 루트) `wiring.ts` | 이 slice의 구현체를 만들어 토큰에 연결 | `wiring.ts` | 업무 로직 |
+| (slice 루트) `index.ts` | 공개 API. 타입·포트·토큰·훅·컴포넌트만 내보냄 | `index.ts` | 구현체, wiring |
 
 FSD 세그먼트 이름(`ui`, `model`, `api`, `lib`)은 slice 안에서 쓰지 않습니다(F4). 쓰지 않는 계층 폴더는 만들지 않습니다.
 
 ## 2. 의존 방향 (F5)
 
 ```text
-presentation ──▶ application ──▶ infrastructure
-     │                │                │
-     └───────────────▶▼◀───────────────┘
-                    domain
+                 presentation
+                      │
+                      ▼
+ infrastructure ┈┈▶ application        ┈┈▶ : 포트 타입만 (import type)
+      │                │
+      └──────▶ domain ◀┘
+
+ wiring.ts ──▶ infrastructure · application(토큰) · domain     (구현체를 아는 slice 안 유일한 곳)
+ app/container.ts ──▶ 각 slice의 wiring.ts                    (구현체를 모으는 앱의 유일한 곳)
 ```
 
 | 계층 | import할 수 있는 slice 안 계층 | 그 외 |
 | --- | --- | --- |
 | presentation | application, domain | 아래 FSD 계층의 공개 API, `shared/ui`, `shared/lib` |
-| application | domain, infrastructure | 아래 FSD 계층의 공개 API, `shared/lib`, `react` |
-| infrastructure | domain | `shared/api`, `shared/config` |
+| application | domain | 아래 FSD 계층의 공개 API, `shared/lib`, `react` |
+| infrastructure | domain, application(**`import type`만**) | `shared/api`, `shared/config`, `shared/lib` |
 | domain | 없음 | 아래 FSD 계층 공개 API의 **타입과 순수 함수**, `shared/lib`의 순수 함수 |
+| `wiring.ts` | 모든 계층 | `shared/lib/di` |
 
+- **application은 infrastructure를 import하지 않습니다.** 필요한 기능은 포트(추상)로 선언하고, 토큰으로 주입받습니다.
+- **infrastructure는 application의 포트 타입만** 가져옵니다(`import type`). 실행 코드를 가져오면 application이 바뀔 때 구현체도 함께 바뀌는 강한 결합이 됩니다.
 - presentation은 infrastructure를 import하지 않습니다. 서버 호출은 반드시 application 훅을 거칩니다.
-- 왜: 화면이 서버 형식을 모르면, 백엔드 응답이 바뀌어도 infrastructure의 변환 함수 하나만 고치면 됩니다.
-- application이 infrastructure 함수를 직접 부르는 것은 허용합니다. 이 프로젝트는 fetch + React 내장 상태만 쓰므로 주입 계층을 따로 두지 않습니다. 테스트에서는 `vi.mock`으로 infrastructure 모듈을 바꿉니다.
+- 이렇게 하면 **어느 계층도 다른 계층의 구현을 모릅니다.** 서버 형식이 바뀌면 infrastructure 하나, 저장 방식(localStorage → 쿠키)이 바뀌면 구현체와 wiring 한 줄만 고칩니다.
 
 ## 3. domain 순수성 (F6, F7)
 
 - domain 파일은 Node에서 React·브라우저 없이 import하고 테스트할 수 있어야 합니다.
 - 현재 시각이 필요한 규칙은 `now: Date`를 인자로 받습니다. 함수 안에서 `new Date()`를 부르지 않습니다(테스트 고정이 어려움).
 - 화면에 보일 계산값(할인율, "판매 마감 N분 전", 상태 문구)은 `../docs/design-system/states.md`의 "화면에서 계산하는 값"을 domain 함수로 만듭니다.
+- domain 포트는 순수 TypeScript `interface`입니다. 토큰(DI 도구)은 domain에 두지 않고 application에 둡니다.
 
 ```ts
 // entities/offer/domain/offer.ts
@@ -65,12 +77,17 @@ export function canReserve(o: Offer, now: Date): boolean {
 
 | 코드 | 계층 | 이유 |
 | --- | --- | --- |
-| `GET /v1/offers` 호출과 응답 → `Offer[]` 변환 | infrastructure | 서버 형식을 아는 유일한 곳 |
-| `useOffers()`가 로딩·에러·데이터를 돌려줌 | application | 비동기 흐름 |
+| `OfferRepository` 인터페이스(`findNearby`, `findById`) | domain 포트 | 도메인 데이터를 어떻게 가져오는지의 추상 |
+| `GET /v1/offers` 호출과 응답 → `Offer[]` 변환 (`HttpOfferRepository`) | infrastructure | 서버 형식을 아는 유일한 곳 |
+| `SessionStore` 인터페이스(`save`, `clear`), `LocationProvider`(현재 위치) | application 포트 | 도메인 규칙과 무관하고 유스케이스만 필요로 함 |
+| `localStorage`·`navigator.geolocation` 사용 | infrastructure | 브라우저 기술 |
+| `reserveOffer(deps, input)` 유스케이스 | application | 흐름. 포트만 받음 |
+| `useOffers()`가 로딩·에러·데이터를 돌려줌 | application | 비동기 흐름. 포트는 `useDep(토큰)`으로 받음 |
 | 재고 0이면 예약 버튼 비활성 판단 | domain(`canReserve`) | 업무 규칙 |
 | 비활성 버튼을 `btn` 클래스로 그림 | presentation | 그리기 |
-| 예약 성공 후 결제 화면(C3)으로 이동 | application(훅이 `onSuccess` 콜백 또는 결과 반환) + presentation(`navigate`) | 흐름은 훅, 라우터 호출은 컴포넌트 |
+| 예약 성공 후 결제 화면(C3)으로 이동 | application(결과 반환) + presentation(`navigate`) | 흐름은 훅, 라우터 호출은 컴포넌트 |
 | `RESERVATION_CLOSED` 에러를 화면 문구로 바꿈 | domain(코드 → 문구 표) 또는 presentation(`content.md` 문구) | 화면 명세에 따라 |
+| `new HttpOfferRepository()` | slice의 `wiring.ts` | 구현체 생성은 조립 지점에서만 |
 
 ## 5. 설계안에 적을 것
 
@@ -78,12 +95,257 @@ export function canReserve(o: Offer, now: Date): boolean {
 1. FSD 계층과 slice 이름, 대응 화면 ID
 2. 계층별 파일 목록과 각 파일의 export
 3. domain 타입·규칙 함수와 입력·출력, 경계값
-4. infrastructure: 엔드포인트, DTO 필드 ↔ domain 필드 대응
-5. application 훅이 돌려주는 값(데이터·로딩·에러)과 성공·실패 후 동작
-6. presentation: 화면 상태(로딩·빈·에러·권한 없음)별 표시와 사용하는 디자인 시스템 컴포넌트
-7. 공개 API(`index.ts`) 목록
-8. 결정 표: `D-번호 | 항목 | 값 | 임시/확정 | 근거`. 설계자가 정한 값은 "임시", 사용자가 정한 값만 "확정"
-9. 정합 이슈: `C-번호 | 내용 | 양쪽 근거(파일:절)`. 명세 ↔ 백엔드 코드, 화면 명세 ↔ API 명세, 다른 slice 설계안과의 불일치, 요청 범위를 넘은 추가
-10. 차단 이슈와 질문 목록: 명세·디자인 문서의 "확인 필요", 백엔드에 없는 엔드포인트, `open-issues.md` 항목
+4. 포트 목록: 이름, 위치(domain / application), 메서드 시그니처, 토큰 이름, 구현체 이름
+5. infrastructure: 엔드포인트, DTO 필드 ↔ domain 필드 대응
+6. application 유스케이스·훅이 받는 포트와 돌려주는 값(데이터·로딩·에러), 성공·실패 후 동작
+7. presentation: 화면 상태(로딩·빈·에러·권한 없음)별 표시와 사용하는 디자인 시스템 컴포넌트
+8. 공개 API(`index.ts`) 목록과 `wiring.ts`가 등록하는 토큰 목록
+9. 결정 표: `D-번호 | 항목 | 값 | 임시/확정 | 근거`. 설계자가 정한 값은 "임시", 사용자가 정한 값만 "확정"
+10. 정합 이슈: `C-번호 | 내용 | 양쪽 근거(파일:절)`. 명세 ↔ 백엔드 코드, 화면 명세 ↔ API 명세, 다른 slice 설계안과의 불일치, 요청 범위를 넘은 추가
+11. 차단 이슈와 질문 목록: 명세·디자인 문서의 "확인 필요", 백엔드에 없는 엔드포인트, `open-issues.md` 항목
 
 D-번호·C-번호는 설계안 파일 안에서 1부터 매기고, 한 번 매긴 번호는 바꾸거나 다시 쓰지 않습니다. 다른 파일에서 가리킬 때는 `<slice>.md D-3`처럼 파일명과 함께 씁니다.
+
+## 6. 추상화와 의존성 주입 (F18)
+
+백엔드의 `domain/repository.py`(추상) → `infrastructure/`(구현) → `src/container.py`(조립)와 같은 구조입니다. React에는 FastAPI `Depends`가 없으므로 **토큰 + Context**로 주입합니다.
+
+| 백엔드 | 프론트 |
+| --- | --- |
+| `domain/repository.py` (ABC) | `domain/<이름>Repository.ts` (`interface`) |
+| `domain/service.py` (ABC) | `application/ports.ts` (`interface`, 유스케이스 전용) |
+| `infrastructure/repositories.py` | `infrastructure/http<이름>Repository.ts` |
+| `presentation/dependencies.py`의 `provide_*` 자리표시자 | `application/tokens.ts`의 토큰 |
+| `src/container.py`의 모듈 구역 | slice의 `wiring.ts` |
+| `wire_dependencies(app)` | `app/container.ts`의 `createContainer()` |
+| `Depends(provide_*)` | `useDep(토큰)` |
+
+### 6.1 DI 도구 — `shared/lib/di.tsx` (업무를 모름, 하나만 둠)
+
+```tsx
+// shared/lib/di.tsx
+import { createContext, useContext, type ReactNode } from 'react'
+
+export type Token<T> = { readonly key: symbol; readonly name: string; readonly _type?: T }
+export function createToken<T>(name: string): Token<T> {
+  return { key: Symbol(name), name }
+}
+
+export type Binding = { readonly token: Token<unknown>; readonly value: unknown }
+export function bind<T>(token: Token<T>, value: T): Binding {
+  return { token, value }
+}
+
+export class Container {
+  private readonly map = new Map<symbol, unknown>()
+  constructor(bindings: readonly Binding[]) {
+    for (const b of bindings) {
+      if (this.map.has(b.token.key)) throw new Error(`의존성 중복 등록: ${b.token.name}`)
+      this.map.set(b.token.key, b.value)
+    }
+  }
+  get<T>(token: Token<T>): T {
+    if (!this.map.has(token.key)) throw new Error(`의존성 미등록: ${token.name} (wiring.ts와 app/container.ts 확인)`)
+    return this.map.get(token.key) as T
+  }
+}
+
+const DepsContext = createContext<Container | null>(null)
+
+export function DepsProvider({ container, children }: { container: Container; children: ReactNode }) {
+  return <DepsContext.Provider value={container}>{children}</DepsContext.Provider>
+}
+
+export function useDep<T>(token: Token<T>): T {
+  const container = useContext(DepsContext)
+  if (!container) throw new Error('DepsProvider 밖에서 useDep를 호출했습니다.')
+  return container.get(token)
+}
+```
+- `shared`는 업무를 모르므로 어떤 포트·토큰도 import하지 않습니다. slice별 타입은 토큰의 제네릭(`Token<OfferRepository>`)이 들고 다닙니다.
+- 컨테이너는 앱 시작 때 한 번 만들고 바꾸지 않습니다. 렌더 중에 만들지 않습니다.
+
+### 6.2 domain 포트 — 도메인 데이터 접근
+
+```ts
+// entities/offer/domain/offerRepository.ts
+import type { Offer } from './offer'
+
+export type NearbyQuery = { lat: number; lng: number; radiusKm: number }
+
+export interface OfferRepository {
+  findNearby(q: NearbyQuery, signal?: AbortSignal): Promise<Offer[]>
+  findById(id: string, signal?: AbortSignal): Promise<Offer>
+}
+```
+- 도메인 객체만 주고받습니다. DTO, `Response`, URL을 노출하지 않습니다.
+- 이름은 `<개체>Repository`, 메서드는 `find*`·`save`·`create`·`cancel`처럼 업무 동사로 짓습니다.
+
+### 6.3 application 포트와 토큰
+
+```ts
+// entities/session/application/ports.ts
+export interface SessionStore {
+  save(accessToken: string): void
+  clear(): void
+  hasSession(): boolean
+}
+
+// entities/session/application/tokens.ts
+import { createToken } from '@/shared/lib/di'
+import type { SessionStore } from './ports'
+export const SessionStoreToken = createToken<SessionStore>('SessionStore')
+
+// entities/offer/application/tokens.ts
+import { createToken } from '@/shared/lib/di'
+import type { OfferRepository } from '../domain/offerRepository'
+export const OfferRepositoryToken = createToken<OfferRepository>('OfferRepository')
+```
+- **포트 위치 기준:** 도메인 데이터를 읽고 쓰는 추상은 domain, 도메인 규칙과 무관하게 유스케이스만 필요로 하는 기술 기능(세션 저장, 현재 위치, 클립보드)은 application에 둡니다.
+- **토큰은 application에 둡니다.** domain 포트의 토큰도 그 slice의 `application/tokens.ts`에 둡니다(domain을 DI 도구로부터 지키기 위해).
+- 포트 하나에 토큰 하나. 토큰 이름은 `<포트이름>Token`, `createToken`의 문자열은 포트 이름과 같게 짓습니다(오류 메시지에 쓰임).
+
+### 6.4 유스케이스와 훅 — 포트만 받는다
+
+```ts
+// features/login/application/login.ts  (순수 함수: React 없이 테스트)
+import type { SessionStore } from '@/entities/session'
+import type { AuthGateway, LoginResult } from './ports'
+
+export async function login(
+  deps: { auth: AuthGateway; session: SessionStore },
+  input: { email: string; password: string },
+): Promise<LoginResult> {
+  const result = await deps.auth.login(input.email, input.password)
+  deps.session.save(result.accessToken)
+  return result
+}
+
+// features/login/application/useLogin.ts  (React 연결)
+import { useDep } from '@/shared/lib/di'
+import { SessionStoreToken } from '@/entities/session'
+import { AuthGatewayToken } from './tokens'
+import { login } from './login'
+
+export function useLogin() {
+  const auth = useDep(AuthGatewayToken)
+  const session = useDep(SessionStoreToken)
+  // pending·error 상태 처리는 react-implementation §4
+  return (email: string, password: string) => login({ auth, session }, { email, password })
+}
+```
+- 유스케이스 함수는 첫 인자로 필요한 포트 묶음(`deps`)만 받습니다. 구현체를 만들거나 기본값을 두지 않습니다(백엔드 `layer-architecture` §5.4와 같음).
+- 훅은 `useDep`로 포트를 꺼내 유스케이스에 넘기는 얇은 연결만 합니다.
+- 다른 slice의 포트·토큰은 그 slice의 공개 API로 가져옵니다(아래 FSD 계층만, F1·F2).
+
+### 6.5 구현체 — infrastructure
+
+```ts
+// entities/offer/infrastructure/httpOfferRepository.ts
+import { apiGet } from '@/shared/api/client'
+import type { Offer } from '../domain/offer'
+import type { NearbyQuery, OfferRepository } from '../domain/offerRepository'
+
+type OfferDto = { id: string; price: number; discount_price: number; closes_at: string; stock: number }
+const toOffer = (d: OfferDto): Offer => ({
+  id: d.id, price: d.price, discountPrice: d.discount_price, closesAt: new Date(d.closes_at), stock: d.stock,
+})
+
+export class HttpOfferRepository implements OfferRepository {
+  async findNearby(q: NearbyQuery, signal?: AbortSignal) {
+    const qs = new URLSearchParams({ lat: String(q.lat), lng: String(q.lng), radius_km: String(q.radiusKm) })
+    return (await apiGet<OfferDto[]>(`/v1/offers?${qs}`, signal)).map(toOffer)
+  }
+  async findById(id: string, signal?: AbortSignal) {
+    return toOffer(await apiGet<OfferDto>(`/v1/offers/${encodeURIComponent(id)}`, signal))
+  }
+}
+
+// entities/session/infrastructure/localSessionStore.ts
+import { clearToken, readToken, saveToken } from '@/shared/api/tokenStorage'
+import type { SessionStore } from '../application/ports'   // application 포트는 import type만
+
+export class LocalSessionStore implements SessionStore {
+  save(accessToken: string) { saveToken(accessToken) }
+  clear() { clearToken() }
+  hasSession() { return readToken() !== null }
+}
+```
+- 이름은 `<기술><포트이름>`(`HttpOfferRepository`, `LocalSessionStore`, `BrowserLocationProvider`).
+- `implements`를 반드시 씁니다. 포트가 바뀌면 타입 검사가 구현체를 잡아냅니다.
+- 필드는 예시입니다. 실제 필드는 `api-client` §5로 명세를 확인합니다.
+
+### 6.6 조립 — slice의 `wiring.ts`
+
+```ts
+// entities/offer/wiring.ts
+import { bind, type Binding } from '@/shared/lib/di'
+import { OfferRepositoryToken } from './application/tokens'
+import { HttpOfferRepository } from './infrastructure/httpOfferRepository'
+
+export function wireOffer(): Binding[] {
+  return [bind(OfferRepositoryToken, new HttpOfferRepository())]
+}
+```
+- slice 안에서 infrastructure를 import하는 곳은 **`wiring.ts`와 infrastructure 자신뿐**입니다.
+- 함수 이름은 `wire<Slice이름>`, 반환 타입은 `Binding[]`입니다. `bind`가 토큰 타입과 구현체 타입을 컴파일 때 맞춰 봅니다.
+- 상태 없는 구현체는 여기서 한 번 만들어 앱 전체가 같이 씁니다(백엔드의 싱글턴 유틸과 같음).
+- `wiring.ts`는 `index.ts`로 다시 내보내지 않습니다. 가져올 수 있는 곳은 `app/container.ts`뿐입니다(F18, `[wiring위치]`).
+
+### 6.7 앱 조립 — `app/container.ts`
+
+```ts
+// app/container.ts
+import { Container } from '@/shared/lib/di'
+import { wireOffer } from '@/entities/offer/wiring'
+import { wireSession } from '@/entities/session/wiring'
+import { wireLogin } from '@/features/login/wiring'
+
+export function createContainer(): Container {
+  return new Container([
+    ...wireSession(),
+    ...wireOffer(),
+    ...wireLogin(),
+  ])
+}
+
+// main.tsx
+const container = createContainer()
+createRoot(document.getElementById('root')!).render(
+  <DepsProvider container={container}><App /></DepsProvider>,
+)
+```
+- 각 `fe-developer`는 자기 slice의 `wire*()` 한 줄만 추가합니다. 순서는 상관없고, 같은 토큰을 두 번 등록하면 앱 시작 때 오류가 납니다.
+- 등록을 빠뜨리면 그 포트를 쓰는 화면이 처음 렌더될 때 "의존성 미등록: <이름>" 오류가 납니다. E2E와 `app/container.test.ts`로 잡습니다(§6.8).
+
+### 6.8 테스트 — 가짜 구현체를 넣는다
+
+```ts
+// 유스케이스: 포트에 가짜 객체를 넘긴다 (React·네트워크 없음)
+const session = { save: vi.fn(), clear: vi.fn(), hasSession: () => false }
+await login({ auth: fakeAuth, session }, { email: 'a@b.c', password: 'pw' })
+expect(session.save).toHaveBeenCalledWith('token-1')
+
+// 훅·컴포넌트: 가짜 구현체로 만든 컨테이너로 감싼다
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <DepsProvider container={new Container([bind(OfferRepositoryToken, fakeOfferRepository)])}>{children}</DepsProvider>
+)
+renderHook(() => useOffers(query), { wrapper })
+
+// 조립: 앱 컨테이너가 중복 없이 만들어지고 핵심 토큰이 풀리는지
+const c = createContainer()
+expect(() => c.get(OfferRepositoryToken)).not.toThrow()
+```
+- application·presentation 테스트에서 `vi.mock`으로 모듈을 바꾸지 않습니다. 포트에 가짜 구현체를 넣습니다.
+- `vi.mock`은 infrastructure 테스트에서 `shared/api`를 바꿀 때만 씁니다.
+- 가짜 구현체는 테스트 파일 안이나 같은 계층의 `*.fake.ts`에 둡니다. 운영 코드에서 import하지 않습니다.
+
+### 6.9 새 포트 체크리스트
+1. 위치를 정한다: 도메인 데이터 접근이면 domain, 유스케이스 전용 기술 기능이면 application (§6.3)
+2. `interface`를 만든다 (domain 또는 application)
+3. `application/tokens.ts`에 토큰을 만든다
+4. infrastructure에 `implements` 구현체를 만든다
+5. 같은 slice의 `wiring.ts`에서 `bind`한다
+6. 새 slice면 `app/container.ts`에 `wire*()` 한 줄을 추가한다
+7. 다른 slice가 쓸 포트면 `index.ts`에서 포트 타입과 토큰을 내보낸다 (구현체·wiring은 내보내지 않음)
+8. `node .claude/skills/layer-check/check_layers.mjs`가 0건인지 확인한다

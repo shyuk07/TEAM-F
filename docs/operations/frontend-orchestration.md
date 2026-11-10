@@ -18,7 +18,7 @@
 | 상황 | 에이전트 | 쓰기 범위 | 병렬 |
 | --- | --- | --- | --- |
 | 화면·slice 설계, 구조 점검 | `fe-architect` | `../docs/design/frontend/<slice>.md`, `fsd-structure` §7 대응표 | 설계는 slice가 다르면 가능. 대응표는 한 번에 한 명 |
-| slice 구현·수정 | `fe-developer` | 맡은 slice와 그 테스트, `app/router`의 자기 라우트 한 줄 | slice가 다르고 서로 import하지 않을 때만 |
+| slice 구현·수정 | `fe-developer` | 맡은 slice(`wiring.ts` 포함)와 그 테스트, `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 `wire*()` 한 줄 | slice가 다르고 서로 import하지 않을 때만 |
 | 변경 코드 정확성 리뷰 | `fe-reviewer` | 없음 (읽기 전용, npm·서버 실행 안 함) | 가능 |
 | 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
 
@@ -53,7 +53,7 @@
 4. 미해결 이슈: ID와 이번 작업에서의 처리 방식(건드리지 않음 / 임시값 사용 / 보고만)
 5. 다른 에이전트의 의견: 원문 인용과 출처(파일:절 또는 "◯◯ 에이전트 보고")
 6. 쓰기 허용 범위와 금지 범위
-7. 지킬 규칙(`F1~F17 준수`처럼 ID로)과 완료 조건, 보고 형식 (해당 에이전트 명세의 형식)
+7. 지킬 규칙(`F1~F18 준수`처럼 ID로)과 완료 조건, 보고 형식 (해당 에이전트 명세의 형식)
 8. 리뷰 발주에는 diff 범위(예: `git diff origin/main...HEAD -- .`)와 변경 의도
 9. 서버를 띄우는 발주에는 `--state-dir`(scratchpad)과 `--port`
 
@@ -76,7 +76,9 @@
 | --- | --- |
 | `../docs/design/frontend/<slice>.md` | `fe-architect` |
 | `.claude/skills/fsd-structure/SKILL.md` §7 대응표 | `fe-architect` (한 번에 한 명) |
-| `src/<계층>/<slice>/**` (pages·widgets·features·entities) | 그 slice를 맡은 `fe-developer` (한 번에 한 명) |
+| `src/<계층>/<slice>/**` (pages·widgets·features·entities, `wiring.ts` 포함) | 그 slice를 맡은 `fe-developer` (한 번에 한 명) |
+| `src/app/container.ts` | 각 developer는 자기 slice의 `wire*()` 한 줄씩. 중복 토큰 충돌 조정은 오케스트레이터 |
+| `src/shared/lib/di.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
 | `src/<계층>/<slice>/**/*.test.ts(x)` | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
 | `src/app/router/**` | 각 developer는 자기 라우트 한 줄씩. 순서·레이아웃 조정은 오케스트레이터가 발주 |
 | `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html` | 발주서에 명시한 `fe-developer`만 |

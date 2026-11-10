@@ -11,7 +11,7 @@ description: 마감 직전 프론트엔드의 Feature-Sliced Design(FSD) 바깥 
 
 | 계층 | 책임 | slice | 예시 |
 | --- | --- | --- | --- |
-| `app` | 앱 시작, 라우터, 전역 Provider, 전역 스타일, 역할별 셸 | 없음 | `app/router/`, `app/providers/`, `app/styles/` |
+| `app` | 앱 시작, 라우터, 전역 Provider, 전역 스타일, 역할별 셸, **의존성 조립(각 slice의 `wiring.ts`를 모음)** | 없음 | `app/router/`, `app/providers/`, `app/styles/`, `app/container.ts` |
 | `pages` | 화면 하나(라우트 하나). widgets·features·entities를 조립 | 있음 | `pages/offer-detail/` (C2) |
 | `widgets` | 여러 화면에서 쓰는 큰 화면 블록 | 있음 | `widgets/customer-tab-bar/`, `widgets/offer-list/` |
 | `features` | 사용자 행동 하나(동사). 서버 상태를 바꾸는 상호작용 | 있음 | `features/reserve-offer/`, `features/cancel-reservation/` |
@@ -32,17 +32,25 @@ app ─▶ pages ─▶ widgets ─▶ features ─▶ entities ─▶ shared
 
 ## 3. 공개 API (F2)
 
-slice마다 루트에 `index.ts`를 두고, 밖에서 쓸 것만 다시 내보냅니다.
+slice 루트에는 파일 두 개만 둡니다(F4, F18).
+
+| 파일 | 역할 | 가져올 수 있는 곳 |
+| --- | --- | --- |
+| `index.ts` | 공개 API. 타입·순수 함수·포트 타입·토큰·훅·컴포넌트 | 위 FSD 계층 어디서나 |
+| `wiring.ts` | 이 slice의 구현체를 토큰에 연결하는 `wire<Slice>()` | `app/container.ts`만 |
 
 ```ts
 // src/entities/offer/index.ts
 export type { Offer, OfferStatus } from './domain/offer'
 export { formatDiscountRate, minutesUntilClose } from './domain/offer'
+export type { OfferRepository, NearbyQuery } from './domain/offerRepository'   // 포트 타입
+export { OfferRepositoryToken } from './application/tokens'                    // 토큰
 export { useOffer, useOffers } from './application/useOffers'
 export { OfferCard } from './presentation/OfferCard'
 ```
 - 밖에서는 `import { OfferCard } from '@/entities/offer'`만 씁니다.
-- infrastructure(API 함수, DTO)는 공개 API에 넣지 않습니다. 다른 slice가 서버를 직접 부르지 못하게 합니다.
+- infrastructure(구현체, DTO)와 `wiring.ts`는 `index.ts`로 내보내지 않습니다. 다른 slice는 포트와 토큰만 알고 구현체를 모릅니다(`layer-architecture` §6).
+- 다른 slice가 쓸 포트가 있을 때만 포트 타입과 토큰을 내보냅니다.
 - 공개 API를 바꾸면 쓰는 쪽을 함께 고칩니다(`git grep -n "@/entities/offer'" -- src`).
 
 ## 4. 어느 계층에 둘까
@@ -67,8 +75,9 @@ export { OfferCard } from './presentation/OfferCard'
 ### 만들기
 1. §4로 계층을 정하고 §5로 이름을 짓습니다.
 2. 필요한 계층 폴더만 만들고(F4), `index.ts`를 둡니다.
-3. §7 대응표에 행을 추가합니다.
-4. `node .claude/skills/layer-check/check_layers.mjs`가 0건인지 확인합니다.
+3. 포트와 구현체가 있으면 `wiring.ts`를 만들고, `app/container.ts`에 `wire<Slice>()` 한 줄을 추가합니다(`layer-architecture` §6.9).
+4. §7 대응표에 행을 추가합니다.
+5. `node .claude/skills/layer-check/check_layers.mjs`가 0건인지 확인합니다.
 
 ### 옮기기·나누기
 1. 옮기기 전에 쓰는 곳을 찾습니다: `git grep -n "@/<계층>/<slice>" -- src` (Windows·macOS·Linux 공통. 아직 커밋하지 않은 새 파일도 찾으려면 `--untracked`를 붙입니다)
