@@ -46,9 +46,15 @@ export function LoginPage() {
           비밀번호 재설정
         </Link>
       </div>
+      {/* .cta는 720px 이상에서 숨는다(bundle.css). 가입 링크는 PC에서도 보여야 하므로 display를 직접 지정한다 */}
       <div
         className="cta"
-        style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 'var(--s2)',
+        }}
       >
         <span className="m" style={{ textAlign: 'center' }}>
           계정이 없나요?
