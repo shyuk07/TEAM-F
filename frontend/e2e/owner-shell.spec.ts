@@ -1,5 +1,10 @@
-// 모킹·실서버 없음: API를 부르지 않는 셸 흐름
+// 백엔드 응답은 page.route로 대체
 import { expect, test, type Page } from '@playwright/test';
+import { mockOwnerSession } from './support/auth';
+
+test.beforeEach(async ({ page }) => {
+  await mockOwnerSession(page);
+});
 
 const TABS = ['오늘', '할인', '매장'] as const;
 
