@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from 'react-router';
 import { ROUTES, ROUTE_PATTERNS } from '@/shared/lib/routes';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { TAB_BAR_HANDLE } from './handle';
 import {
   HomePlaceholder,
   LoginPlaceholder,
@@ -14,18 +15,24 @@ import {
 
 export const routes: RouteObject[] = [
   { path: ROUTES.home, element: <HomePlaceholder /> },
+  // TODO: 로그인 후 원래 화면으로 돌아가는 방식을 정한다.
+  //   왜: from state·쿼리 중 어느 쪽인지 미정 (docs/design/frontend/app-shell.md Q-2)
+  //   언제: auth 구현 시
   { path: ROUTES.login, element: <LoginPlaceholder /> },
   { path: ROUTES.owner, element: <Navigate to={ROUTES.ownerToday} replace /> },
   {
     element: <OwnerLayout />,
     children: [
-      { path: ROUTES.ownerToday, element: <OwnerTodayPlaceholder />, handle: { tabBar: true } },
-      { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: { tabBar: true } },
+      { path: ROUTES.ownerToday, element: <OwnerTodayPlaceholder />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOfferNew, element: <OwnerOfferNewPlaceholder /> },
-      { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: { tabBar: true } },
+      { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerProductNew, element: <OwnerProductNewPlaceholder /> },
       { path: ROUTE_PATTERNS.ownerProduct, element: <OwnerProductEditPlaceholder /> },
     ],
   },
+  // TODO: 정의되지 않은 경로를 /로 보낸다. 전용 NotFound 화면과 문구를 정한다.
+  //   왜: 문구 정본이 없다 (docs/design/frontend/app-shell.md D-16)
+  //   언제: 결정 후 (사용자: NotFound 문구)
   { path: '*', element: <Navigate to={ROUTES.home} replace /> },
 ];

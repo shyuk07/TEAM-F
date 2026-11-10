@@ -32,3 +32,13 @@ describe('OWNER_TABS', () => {
     ]);
   });
 });
+
+describe('activeOwnerTab 대소문자', () => {
+  it.each([
+    ['/owner/Offers', 'offers'],
+    ['/OWNER/products/P1', 'store'],
+    ['/owner/OffersX', null],
+  ])('%s → %s', (pathname, expected) => {
+    expect(activeOwnerTab(pathname)).toBe(expected);
+  });
+});

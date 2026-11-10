@@ -6,6 +6,7 @@ export const ROUTES = {
   ownerOffers: '/owner/offers',
   ownerOfferNew: '/owner/offers/new',
   ownerStore: '/owner/store',
+  ownerProducts: '/owner/products',
   ownerProductNew: '/owner/products/new',
   ownerProduct: (id: string) => `/owner/products/${encodeURIComponent(id)}`,
 } as const;

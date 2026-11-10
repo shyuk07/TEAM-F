@@ -1,29 +1,63 @@
+// TODO: 자리 page가 화면 ID만 표시한다. 정식 page(pages/*)로 교체하고 이 파일을 지운다.
+//   왜: 문구 정본이 없는 개발용 표기다 (docs/design/frontend/app-shell.md D-8, D-15)
+//   언제: O1 구현 시, O2 구현 시, O3 구현 시, O4 구현 시, O6 구현 시, O11 구현 시 (각 화면의 자리 page를 교체)
+import { useParams } from 'react-router';
+import { OwnerAccountButton, OwnerTopNav } from '@/widgets/owner-nav';
+
+function OwnerPlaceholder({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <>
+      <div className="bar">
+        <span className="logo">{title}</span>
+        <span className="sp"></span>
+        <OwnerTopNav />
+        <OwnerAccountButton />
+      </div>
+      <div className="body">
+        <h1>{title}</h1>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export function LoginPlaceholder() {
-  return null;
+  return (
+    <div className="app">
+      <div className="body">
+        <h1>A1 로그인</h1>
+      </div>
+    </div>
+  );
 }
 
 export function OwnerTodayPlaceholder() {
-  return null;
+  return <OwnerPlaceholder title="O1 오늘" />;
 }
 
 export function OwnerOffersPlaceholder() {
-  return null;
+  return <OwnerPlaceholder title="O2 할인" />;
 }
 
 export function OwnerOfferNewPlaceholder() {
-  return null;
+  return <OwnerPlaceholder title="O3 할인 등록" />;
 }
 
 export function OwnerStorePlaceholder() {
-  return null;
+  return <OwnerPlaceholder title="O4 매장" />;
 }
 
 export function OwnerProductNewPlaceholder() {
-  return null;
+  return <OwnerPlaceholder title="O6 상품 등록" />;
 }
 
 export function OwnerProductEditPlaceholder() {
-  return null;
+  const { productId } = useParams();
+  return (
+    <OwnerPlaceholder title="O11 상품 수정">
+      <p>{productId}</p>
+    </OwnerPlaceholder>
+  );
 }
 
 export function HomePlaceholder() {

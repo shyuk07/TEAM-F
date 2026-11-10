@@ -1,3 +1,9 @@
+import { OwnerNavItems } from './OwnerNavItems';
+
 export function OwnerTabBar() {
-  return null;
+  return (
+    <div className="tabs">
+      <OwnerNavItems />
+    </div>
+  );
 }

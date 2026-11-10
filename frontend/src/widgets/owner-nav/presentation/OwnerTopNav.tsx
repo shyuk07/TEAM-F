@@ -1,3 +1,9 @@
+import { OwnerNavItems } from './OwnerNavItems';
+
 export function OwnerTopNav() {
-  return null;
+  return (
+    <span className="nav">
+      <OwnerNavItems />
+    </span>
+  );
 }
