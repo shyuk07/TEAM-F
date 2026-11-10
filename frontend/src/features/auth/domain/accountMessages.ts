@@ -34,8 +34,10 @@ export const POINTS_LOAD_FAILED_MESSAGE = '불러오지 못했어요. 잠시 후
 export const RETRY_LABEL = '다시 시도';
 
 export function withdrawErrorView(e: ErrorLike): FieldError<'password' | 'form'> {
-  void e;
-  throw new Error('not implemented: withdrawErrorView');
+  if (e.errorCode === 'CURRENT_PASSWORD_MISMATCH') {
+    return { field: 'password', message: WITHDRAW_PASSWORD_MISMATCH_MESSAGE };
+  }
+  return { field: 'form', message: accountErrorMessage(e) };
 }
 
 export function signupErrorView(e: ErrorLike): FieldError<'email' | 'form'> {

@@ -14,10 +14,17 @@ export function loginNoticeMessage(notice: LoginNotice): string {
   return notice === 'passwordReset' ? PASSWORD_RESET_DONE_NOTICE : SIGNUP_LOGIN_FAILED_NOTICE;
 }
 
+const LOGIN_ENTRY_RESERVATION_MESSAGE = '예약을 이어가려면 로그인하세요.';
+// TODO: 내 예약·마이 진입 안내의 끝맺음을 임시로 정했다.
+//   왜: 정본(screens.md A1 동작 메모)은 「예약 내역을 보려면…」까지만 있다 (docs/design/frontend/customer-home.md C-7, Q-11)
+//   언제: 결정 후 (디자인 시스템: content.md 문구 확정)
+const LOGIN_ENTRY_CUSTOMER_TAB_MESSAGE = '예약 내역을 보려면 로그인하세요.';
+
 // A1 진입 경로별 안내 한 줄(customer-home.md §3.1, D-7)
 export function loginEntryMessage(entry: LoginEntry): string {
-  void entry;
-  throw new Error('not implemented: loginEntryMessage');
+  return entry === 'reservation'
+    ? LOGIN_ENTRY_RESERVATION_MESSAGE
+    : LOGIN_ENTRY_CUSTOMER_TAB_MESSAGE;
 }
 
 // 세션 확인(restoreSession) 실패 때 서버 문구가 비어 있으면 보여 줄 임시 문구.

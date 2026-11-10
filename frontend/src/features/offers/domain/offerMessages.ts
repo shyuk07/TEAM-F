@@ -11,8 +11,7 @@ export const LOAD_MORE_LABEL = '더 보기';
 export const SEARCH_LABEL = '상품명 검색';
 
 export function widenRadiusLabel(r: RadiusKm): string {
-  void r;
-  throw new Error('not implemented: widenRadiusLabel');
+  return `반경 ${r}km로 넓히기`;
 }
 
 // TODO: 임시 문구다(목록 불러오기 실패, 정렬 묶음 이름). 정본 문구가 정해지면 바꾼다.

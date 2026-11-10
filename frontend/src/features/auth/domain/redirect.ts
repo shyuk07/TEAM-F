@@ -41,9 +41,12 @@ export function readLoginNotice(state: unknown): LoginNotice | null {
   return LOGIN_NOTICES.find((n) => n === notice) ?? null;
 }
 
+const LOGIN_ENTRIES: readonly LoginEntry[] = ['reservation', 'customerTab'];
+
 export function readLoginEntry(state: unknown): LoginEntry | null {
-  void state;
-  throw new Error('not implemented: readLoginEntry');
+  if (typeof state !== 'object' || state === null) return null;
+  const entry = (state as { entry?: unknown }).entry;
+  return LOGIN_ENTRIES.find((e) => e === entry) ?? null;
 }
 
 export function isAccountPath(path: string): boolean {
@@ -55,8 +58,8 @@ export function loginRedirectState(
   currentPath: string,
   entry?: LoginEntry,
 ): LoginLocationState | undefined {
-  void entry;
-  return cause === 'loggedOut' ? undefined : { from: currentPath };
+  if (cause === 'loggedOut') return undefined;
+  return entry !== undefined ? { from: currentPath, entry } : { from: currentPath };
 }
 
 export function resolvePostLoginPath(user: User, from: string | null): string {
