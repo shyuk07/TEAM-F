@@ -73,6 +73,17 @@ async def get_current_user_allow_suspended(
     return principal.user
 
 
+async def get_current_user_allow_suspended_owner(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    service: Annotated[AuthApplicationService, Depends(provide_auth_service)],
+) -> User:
+    """정지된 상점주만 통과, 정지된 고객·관리자는 403, 탈퇴는 401 (요구조건 B-2, 내 정보 조회용)."""
+    if credentials is None or not credentials.credentials:
+        raise AuthenticationError("로그인이 필요합니다.")
+    principal = await service.authenticate(credentials.credentials, allow_suspended_owner=True)
+    return principal.user
+
+
 def require_roles(*roles: Role):
     async def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
         user.require_role(*roles)
@@ -113,3 +124,5 @@ ApprovedOwnerUser = Annotated[User, Depends(require_approved_owner())]
 SuspendedAllowedOwnerUser = Annotated[
     User, Depends(require_roles_allow_suspended(Role.OWNER))
 ]
+# 내 정보 조회 전용: 역할 제한 없이 CurrentUser와 같되 정지된 상점주도 통과한다 (B-2).
+CurrentUserAllowSuspendedOwner = Annotated[User, Depends(get_current_user_allow_suspended_owner)]
