@@ -12,7 +12,9 @@ export {
 export type { SignupRole } from './domain/signupInput';
 export { readSignupRole } from './domain/signupInput';
 export { SESSION_ERROR_FALLBACK_MESSAGE } from './domain/loginMessage';
+export { loginNoticeMessage } from './domain/loginMessage';
 export { PASSWORD_RESET_DONE_NOTICE, SIGNUP_LOGIN_FAILED_NOTICE } from './domain/accountMessages';
+export { BACK_LABEL } from './domain/accountMessages';
 export type { AccountGateway, AuthGateway } from './application/ports';
 export { AccountGatewayToken, AuthGatewayToken } from './application/tokens';
 export { useAuth } from './application/authContext';
