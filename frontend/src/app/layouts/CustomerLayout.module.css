@@ -1,0 +1,14 @@
+/* 고객 PC 화면은 모바일 화면 그대로 가운데 420px (layout.md). bundle.css에 클래스가 없어 임시로 둔다 (offers.md C-6, Q-9) */
+.outer {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.frame {
+  max-width: var(--customer-pc-w);
+  min-height: 100vh;
+  margin: 0 auto;
+  background: var(--paper);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}

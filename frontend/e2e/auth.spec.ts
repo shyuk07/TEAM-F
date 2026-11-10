@@ -6,6 +6,9 @@ const token = (page: Page) => page.evaluate((k) => localStorage.getItem(k), TOKE
 
 async function mockLogin(page: Page, role: 'OWNER' | 'CUSTOMER' = 'OWNER') {
   const meAuth: Array<string | undefined> = [];
+  await page.route('**/v1/offers**', (route) =>
+    json(route, { items: [], page: 1, size: 20, total: 0 }),
+  );
   await page.route('**/v1/auth/login', (route) =>
     json(route, { access_token: 'tok1', token_type: 'bearer', status: 'APPROVED' }),
   );
@@ -131,5 +134,5 @@ test('A1 → C1: CUSTOMER 계정으로 로그인하면 /로 이동한다', async
   await page.goto('/login');
   await login(page);
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { name: '마감 직전' })).toBeVisible();
+  await expect(page.getByText('마감직전', { exact: true })).toBeVisible();
 });

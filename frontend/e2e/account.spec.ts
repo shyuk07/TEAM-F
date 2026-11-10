@@ -19,6 +19,9 @@ function visibleButton(page: Page, name: string) {
 // 가입 → 로그인 → /users/me 흐름을 모킹하고 가입 요청 본문을 모은다.
 async function mockSignupFlow(page: Page, role: 'OWNER' | 'CUSTOMER') {
   const signupBodies: unknown[] = [];
+  await page.route('**/v1/offers**', (route) =>
+    json(route, { items: [], page: 1, size: 20, total: 0 }),
+  );
   await page.route('**/v1/auth/signup', (route) => {
     signupBodies.push(route.request().postDataJSON());
     return json(route, userDto(role), 201);
@@ -52,7 +55,7 @@ test('A1 → A2 → C1: 고객으로 가입하면 로그인되어 /로 이동한
   await fillSignup(page, '이름 *');
   await visibleButton(page, '가입하기').click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { name: '마감 직전' })).toBeVisible();
+  await expect(page.getByText('마감직전', { exact: true })).toBeVisible();
   expect(bodies).toHaveLength(1);
   expect(bodies[0]).toMatchObject({ role: 'CUSTOMER', email: 'new@test.com' });
 });

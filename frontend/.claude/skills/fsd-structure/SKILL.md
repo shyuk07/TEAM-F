@@ -141,3 +141,6 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
 | M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
 | M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |
+| C1 홈 · 주변 할인 | `pages/home` | `features/offers`(`useHomeOffers`, `OfferCard`, `NearbyOfferSection`), `widgets/customer-nav`(고객 셸 탭은 `app/layouts/CustomerLayout`이 그림), `features/auth`(`useAuth`, 로그인 링크) | `../docs/design/frontend/offers.md` |
+| 고객 셸 하단 탭 (홈·내 예약·마이) | 없음(`app/layouts/CustomerLayout`, 가드 없음) | `widgets/customer-nav`(`CustomerTabBar`), `features/auth`(`useAuth`, `loginRedirectState`) | `../docs/design/frontend/offers.md` |
+| C1a 위치·반경 | 없음(라우트 없는 시트. `pages/home`의 `HomePage`가 `useLocationSheet`로 열고 `features/offers`의 `LocationSheet`를 그림, `shared/ui/Overlay`) | `features/offers`(`useLocationSheet`, `LocationSheet`, `LocationChip`, `useHomeOffers`의 `radiusKm`·`setRadiusKm`·`location.retry`) | `../docs/design/frontend/offers.md` §12 |

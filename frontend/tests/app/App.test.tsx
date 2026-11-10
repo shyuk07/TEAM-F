@@ -8,12 +8,12 @@ describe('App', () => {
     localStorage.clear();
   });
 
-  it('루트 경로에서 자리 표시 화면을 보여 준다', () => {
+  it('루트 경로에서 홈(C1)을 보여 준다', () => {
     render(
       <DepsProvider container={createContainer()}>
         <App />
       </DepsProvider>,
     );
-    expect(screen.getByRole('heading', { name: '마감 직전' })).toBeInTheDocument();
+    expect(screen.getByText('마감직전')).toBeInTheDocument();
   });
 });

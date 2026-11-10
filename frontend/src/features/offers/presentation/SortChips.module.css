@@ -1,0 +1,4 @@
+/* 임시: Chip 비활성 모양 정본이 없다 (offers.md C-5, Q-9). .btn:disabled와 같은 값 */
+.disabled {
+  opacity: 0.4;
+}

@@ -7,6 +7,8 @@ export const ROUTES = {
   accountProfile: '/account/profile',
   accountPassword: '/account/password',
   home: '/',
+  reservations: '/reservations',
+  my: '/my',
   owner: '/owner',
   ownerToday: '/owner/today',
   ownerOffers: '/owner/offers',

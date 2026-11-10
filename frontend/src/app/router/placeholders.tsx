@@ -49,7 +49,3 @@ export function OwnerProductEditPlaceholder() {
     </OwnerPlaceholder>
   );
 }
-
-export function HomePlaceholder() {
-  return <h1>마감 직전</h1>;
-}

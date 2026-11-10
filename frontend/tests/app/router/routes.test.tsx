@@ -2,10 +2,11 @@ import { screen, waitFor } from '@testing-library/react';
 import { routes } from '@/app/router/routes';
 import { customerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
-import { renderRoutesWithAuth } from '../../support/renderWithAuth';
+import { renderRoutesWithOffers } from '../../support/renderWithOffers';
 
+// `/`가 HomePage(offers 의존)라서 offers 가짜도 함께 담는다.
 function renderAt(path: string, fakes: AuthFakes = signedInFakes()) {
-  return renderRoutesWithAuth(routes, { initialEntries: [path], fakes }).router;
+  return renderRoutesWithOffers(routes, { initialEntries: [path], fakes }).router;
 }
 
 describe('routes', () => {
@@ -46,9 +47,14 @@ describe('routes', () => {
     expect(screen.getByRole('heading', { name: '로그인' })).toBeInTheDocument();
   });
 
-  it('/는 「마감 직전」을 보여 준다', () => {
+  it('/는 HomePage(로고 「마감직전」)를 보여 준다', () => {
     renderAt('/');
-    expect(screen.getByRole('heading', { name: '마감 직전' })).toBeInTheDocument();
+    expect(screen.getByText('마감직전')).toBeInTheDocument();
+  });
+
+  it.each(['/reservations', '/my'])('%s는 화면이 없어 /로 이동한다', (path) => {
+    const router = renderAt(path);
+    expect(router.state.location.pathname).toBe('/');
   });
 
   it.each(['/nope', '/owner/nope'])('%s는 /로 이동한다', (path) => {
