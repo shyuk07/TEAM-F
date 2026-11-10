@@ -65,7 +65,7 @@
 
 | 관심사 | 위치 | 읽을 때 |
 |--------|------|---------|
-| 불변 규칙(F1~F16)·코드 완료 게이트 | `.claude/skills/frontend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
+| 불변 규칙(F1~F17)·코드 완료 게이트 | `.claude/skills/frontend-invariants/SKILL.md` | 코드를 설계·구현·점검·검증할 때, 발주서에 규칙을 넘길 때 |
 | FSD 계층·slice 배치·공개 API·화면 ↔ slice 대응표 | `.claude/skills/fsd-structure/SKILL.md` | 새 화면·기능의 위치를 정할 때, slice를 만들거나 옮길 때 |
 | slice 안 4계층 책임·의존 방향·설계안 항목 | `.claude/skills/layer-architecture/SKILL.md` | slice 안에 코드를 나눌 때, 설계안을 쓸 때 |
 | FSD·4계층 자동 검사 | `.claude/skills/layer-check/SKILL.md`, `check_layers.mjs` | 코드 변경 후, 머지 전 |

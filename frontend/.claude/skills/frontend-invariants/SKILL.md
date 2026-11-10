@@ -1,6 +1,6 @@
 ---
 name: frontend-invariants
-description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F16)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
+description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + Vite) 코드가 어떤 작업에서도 지켜야 하는 불변 규칙(F1~F17)과 코드 작업 공통 완료 게이트의 정본입니다. FSD 계층·slice 공개 API, slice 안 4계층 의존 방향, domain 순수성, fetch 위치, 응답 변환, 비동기 상태 처리, 디자인 시스템·화면 문구·API 명세 일치, 시크릿·의존성·테스트 규칙을 F번호로 정의하고 검사 방법과 상세 위치를 안내합니다. 코드를 설계·구현·리뷰·점검·검증할 때, 발주서에 지킬 규칙을 ID로 넘길 때, 위반을 F번호로 보고할 때 사용합니다.
 ---
 
 # 프론트엔드 불변 규칙
@@ -8,7 +8,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 이 문서는 **규칙의 정본**입니다. 다른 스킬과 에이전트 명세는 규칙 문장을 다시 쓰지 않고 `F번호`로 가리킵니다.
 - 규칙을 바꿀 때는 이 문서만 고칩니다.
 - FSD 배치: `fsd-structure` / slice 안 4계층: `layer-architecture` / 코드 패턴: `react-implementation` / API: `api-client` / 디자인: `design-system-usage` / 자동 검사: `layer-check`
-- 발주서에는 "F1~F16 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
+- 발주서에는 "F1~F17 준수"처럼 ID로 적고, 위반은 `F번호`로 보고합니다.
 
 검사 방법 표기: **자동**(`check_layers.mjs`가 잡음, 괄호 안은 출력 태그) / **도구**(ESLint·Prettier·tsc·Vitest·Playwright) / **정독**(`fe-architect`·`fe-reviewer`가 코드를 읽어 판정) / **실행**(`fe-qa`가 실행해 판정)
 
@@ -37,6 +37,7 @@ description: 마감 직전 프로젝트의 프론트엔드(React + TypeScript + 
 | F9 | API 응답 DTO는 infrastructure에서 domain 타입으로 바꾼다. presentation과 application은 DTO 타입을 쓰지 않는다. | 정독 | `api-client` §4 |
 | F10 | 서버 데이터는 application 훅이 로딩·에러·빈 상태를 함께 돌려준다. 컴포넌트는 세 상태를 모두 그린다. effect의 요청은 `AbortController`로 정리하고, 정리된 뒤 상태를 바꾸지 않는다. | 정독 + 도구(Vitest) | `react-implementation` §3 |
 | F11 | 에러는 `shared/api`의 `ApiError`(`status`, `errorCode`, `message`)로 다룬다. 화면 분기는 `errorCode`로 하고, 서버 `message`를 그대로 노출할지는 화면 명세를 따른다. | 정독 | `api-client` §3 |
+| F17 | 액세스 토큰은 `localStorage`에 두고 `shared/api/tokenStorage.ts`에서만 읽고 쓴다. 토큰을 로그·URL·에러 보고·React 상태·다른 저장소에 두지 않는다. XSS 통로(`dangerouslySetInnerHTML`, `innerHTML`, `eval`, 사용자 입력으로 만든 `javascript:` 링크)를 만들지 않는다. | 정독 | `api-client` §2.1 |
 
 ## 4. 디자인·문구·명세
 
