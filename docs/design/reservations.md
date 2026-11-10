@@ -1169,3 +1169,159 @@ DB 테스트 skip은 통과가 아니다(R16). 이 절의 변경은 테스트 DB
 
 R1(`cancel_actor.py`·`pickup_reservation.py`는 표준 라이브러리만), R2·R4(레포지토리는 도메인 객체만, `CancelActor` 변환은 `_to_domain`), R3(주체 검증·상태 전이는 엔티티 `cancel`, 서비스는 상수를 넘기기만), R5·R13(commit 위치·트랜잭션 불변), R6·R7(새 예외 없음, 도메인 `ValueError`는 기존 400 `VALIDATION_ERROR`), R8~R10(추상 메서드 목록 불변), R11·R12(타 모듈 포트·조립 불변, 새 import 방향 없음), R14(models와 schema.sql·SKILL.md를 함께 고쳐야 함: C-22 승인 전에는 불일치 상태가 되므로 7단계를 같은 PR에서 처리), R15(응답은 필드 추가만, 명세 C-23), R16(테스트를 약하게 하지 않음, DB 테스트는 ALTER 후 실행). 충돌하는 요구 없음.
 
+---
+
+## 17. 예약 시점 상품 대표 사진 기록 (2026-11-11 추가, **철회(사용자, 2026-11-11)**)
+
+> **철회(사용자, 2026-11-11)**: 사용자가 "pickup_reservations에 상품 이미지는 없어도 된다"고 판단해 이 절 전체를 철회했습니다. **구현·반영하지 않습니다.** D-47~D-54, S-7, C-26~C-31, Q-41~Q-47은 모두 철회입니다(아래 내용은 이력으로 남기고 지우지 않음). 아래의 모든 "확정"·"해소"·"반영 대기" 표기는 철회·반영 안 함으로 읽습니다.
+> - catalog 쪽 사진 보존(catalog D117~D122)도 함께 철회됐고, 현행 동작(catalog DELETE·PATCH는 파일을 지움)이 유지됩니다. C-28·Q-46의 "해소" 근거도 사라졌으며 철회로 닫힙니다.
+> - `schema.sql`·`SKILL.md`·`docs/reference/reservations.md`·마이그레이션 SQL·코드는 오케스트레이터가 main 상태로 되돌렸습니다. C-27·C-29·C-30은 "철회, 반영 안 함"(ALTER 불필요), C-31은 철회입니다.
+> - 예약 응답은 사진 필드가 없는 현행 그대로이며 상세 GET도 없습니다.
+
+(요청서 "상품 사진 보존 + 예약 시점 사진 기록" 변경 2의 설계 이력)
+
+- 이 절은 설계만 담습니다. `src/`, `tests/`, `schema.sql`, `db-schema/SKILL.md`, `docs/reference/**`는 고치지 않았고 "반영할 내용"으로만 적습니다.
+- 번호는 이어서 씁니다: D-47~, C-26~, S-7, Q-41~ (기존 최대 D-46, C-25, S-6, Q-40).
+- **확정(사용자, 2026-11-11)**: 상품 사진을 바꾸거나 지워도 이전 사진은 지우지 않는다. 그 상품을 이전에 예약한 고객에게는 예약 당시 사진이 보여야 한다. 아래 D-47~D-54와 S-7은 사용자가 2026-11-11에 모두 **확정**했습니다(17.8). 이전 문장의 "임시" 표기가 남은 곳은 확정으로 읽습니다.
+- catalog 쪽 변경(사진 바이트 보존, `DELETE …/images/{id}` 의미, 10개 상한 기준, 숨김·폐점 상품 사진 공개 범위)은 병렬로 `docs/design/catalog.md`에서 설계 중이라 **추측해 적지 않았습니다**. 맞물리는 부분은 17.9 정합 이슈로만 남깁니다.
+
+### 17.0 차단 이슈와 실행 확인
+
+| # | 확인 | 결과 | 의미 |
+| --- | --- | --- | --- |
+| B-17-1 | `grep -rniE "image\|photo" src/reservations` | 0건 | 예약 모듈은 사진을 저장도 응답도 하지 않는다. 요청서 주장과 일치. |
+| B-17-2 | 응답 스키마 `presentation/schemas.py` 읽기 | `ReservationCreateResponse`·`ReservationListItem`·`StoreReservationListItem` 어디에도 사진 필드 없음. 매장명·상품명은 `pickup_reservations`의 스냅샷 컬럼을 읽음 | **지금 예약 응답은 사진을 내려주지 않는다.** 따라서 "현재 상품 사진을 읽는지"는 해당 없음. 프론트가 사진을 보이려면 `offer_id`로 catalog를 따로 조회해야 하고, 그러면 현재 사진이 보인다(예약 당시 사진 불가). |
+| B-17-3 | 예약 생성 경로 읽기 | `ReservationApplicationService.create_reservation`(`application/service.py`)이 `StockPort.reserve()` 호출 → 어댑터 `CatalogStockAdapter._load`(`application/catalog_stock_adapter.py`)가 catalog의 **추상 레포지토리**(`DiscountOfferRepository`, `ProductRepository`, `StorePort`)로 읽어 `OfferTerms` 생성 → `OfferRef.from_info`가 복사 → `PickupReservation.create`가 스냅샷으로 저장 | **이미 `ProductRepository.find_by_id`로 `Product`를 읽고 있다**(상품명용). `Product.product_image: list[str]`(`catalog/domain/product.py:38`)가 같은 객체에 있으므로 새 포트·새 쿼리·catalog 변경 없이 대표 사진 주소를 얻는다. 의존 방향 reservations → catalog(추상) 그대로(R11·R12). |
+| B-17-4 | `presentation/router.py` 라우트 | `POST /reservations`, `GET /users/me/reservations`, `GET /stores/{store_id}/reservations`, `POST …/cancel`, `POST …/pickup` 5개. **고객 예약 "상세" GET은 없다**(명세에도 없음) | 요청서의 "상세"에 해당하는 EP가 없다. C-26·Q-41. 이번 설계는 있는 EP만 다룬다. |
+| B-17-5 | `Product._validate_images`(`catalog/domain/product.py:73-80`) | 항목은 공백 아닌 `str`이라는 검사뿐, **길이 상한 없음**. 목록에는 외부 URL과 업로드 상대경로(`/v1/products/{pid}/images/{iid}`)가 섞임 | 컬럼은 길이 제한 없는 `TEXT`여야 예약 생성이 URL 길이로 실패하지 않는다(D-49). |
+| B-17-6 | `PickupReservationModel`·`pickup_reservations` 사용처 grep | `reservations/infrastructure`, `payments/infrastructure/models.py`(FK 문자열), 테스트 다수, `tests/test_schema_check.py` | NULL 허용 컬럼 추가라 payments 영향 없음. `test_schema_check.py`가 `schema.sql`과 `models.py` 일치를 보므로 두 파일을 같은 변경에서 고친다(R14). |
+
+새 의존성·환경변수 없음. 이 작업은 코드를 바꾸지 않았으므로 `import main`·`check_layers.py` 기준선은 0절 B-1·B-4 그대로입니다(이번에 재실행하지 않음).
+
+### 17.1 도메인 (`domain/`, R1·R3)
+
+- **`PickupReservation`**: 속성 `product_image_url: str | None = None`(생성자 선택 인자, 마지막에 추가해 기존 호출을 깨지 않음).
+  - 생성자 검증: `None` 또는 문자열. 문자열이면 `strip()`하고 빈 문자열이면 `None`. **길이 검사는 하지 않는다**(D-49). 문자열이 아니면 `ValueError("상품 사진 주소가 올바르지 않습니다.")`.
+  - 값은 생성 후 **바뀌지 않는다**(스냅샷, D-54). 바꾸는 메서드를 만들지 않는다. 상태 전이표·기존 예외·`cancel`·`pickup`·`is_no_show` 불변.
+- **`OfferRef`**: 속성 `product_image_url: str | None = None` 추가. `from_info`는 `getattr(info, "product_image_url", None)`로 읽는다(`cancellable_until`과 같은 방식: 이 값을 모르는 구현·테스트 fake도 깨지지 않음).
+- **`PickupReservation.create(user_id, offer, ...)`**: `product_image_url=offer.product_image_url`을 넘긴다(`store_name`·`product_name`과 같은 스냅샷 경로).
+- "대표 사진 = 목록 첫 항목" 선택은 catalog `Product.product_image` 형식에 대한 지식이라 reservations 도메인이 알 필요가 없다. 어댑터가 `product.product_image[0] if product.product_image else None` 한 줄로 계산한다(D-51). 비즈니스 판단이 아니라 값 선택이다.
+
+### 17.2 인프라 (`infrastructure/`, R4·R14)
+
+- `models.py`: `product_image_url: Mapped[str | None] = mapped_column(Text)` 추가(`Text` import).
+- `repositories.py`: `save()` INSERT 분기에 `product_image_url=reservation.product_image_url`. UPDATE 분기는 **쓰지 않는다**(취소·픽업 UPDATE가 이 컬럼을 덮지 않음). `_to_domain`은 `product_image_url=model.product_image_url`.
+- 추상 `ReservationRepository` 메서드 목록 불변(R10). 새 쿼리 없음: 목록 조회는 같은 행의 컬럼을 읽을 뿐이고 `product_images` 테이블(BYTEA)은 읽지 않는다.
+- 동시성: 예약 생성은 이미 할인 행 `FOR UPDATE` 아래이고 상품 행은 잠그지 않는다. 대표 사진은 "상품을 읽은 시점"의 값이라, 읽은 직후 상점주가 사진을 바꾸면 바뀌기 전 사진이 기록된다. 상품명·매장명 스냅샷과 같은 성질이라 허용한다(D-52). 새 `with_for_update()` 없음.
+
+### 17.3 스키마 변경 제안 (S-7, R14 — `schema.sql`·`SKILL.md`는 이 작업에서 고치지 않음)
+
+| 항목 | 값 |
+| --- | --- |
+| 테이블 | `pickup_reservations` |
+| 새 컬럼 | `product_image_url TEXT` (예약 시점 스냅샷) |
+| NULL | **허용** (사진 없는 상품, 기존 예약 행) |
+| 제약·인덱스 | 없음 (검색·조인 대상 아님. C-28 일부 경우 예외) |
+| FK | **없음**(D-48): 값이 외부 URL일 수 있어 `product_images.id`를 가리킬 수 없다 |
+
+`schema.sql` `pickup_reservations`에 반영할 줄(`product_name` 줄 뒤):
+
+```sql
+    product_image_url TEXT,                                -- 예약 시점 상품 대표 사진 주소(스냅샷). 사진 없음·기존 행은 NULL (reservations.md 17)
+```
+
+`db-schema/SKILL.md`: ERD `pickup_reservations` 블록에 `text product_image_url` 한 줄 추가(`cancelled_by`와 같은 취급, 4절 표에는 넣지 않음).
+
+이미 만들어진 DB용 ALTER(실행은 사용자, 코드 배포 **전에**. `create_all`은 기존 테이블에 컬럼을 더하지 않으므로 테스트 DB도 같은 ALTER 또는 재생성):
+
+```sql
+ALTER TABLE pickup_reservations ADD COLUMN product_image_url TEXT;
+-- 되돌리기: ALTER TABLE pickup_reservations DROP COLUMN product_image_url;
+```
+
+### 17.4 응용 (`application/`)
+
+시나리오는 기존과 같고 값 하나가 더 흐른다. 트랜잭션 경계·commit 위치·잠금 순서 불변(R5·R13).
+
+1. `create_reservation`: `stock.reserve(...)` → (어댑터가 이미 읽은 상품에서 `OfferTerms.product_image_url` 계산) → `OfferRef.from_info(terms)` → `PickupReservation.create(...)`가 복사 → `save` → `commit`.
+2. `list_my_reservations`, `StoreReservationListService`: 코드 변경 없음. 엔티티 속성이 늘었고 응답 스키마가 `from_attributes`로 읽는다.
+3. 포트(쓰는 쪽 reservations 정의, R11): `application/ports.py`의 `OfferTermsInfo`에 `product_image_url: str | None`, `catalog_stock_adapter.OfferTerms`에 같은 필드 추가. **catalog 쪽 포트·서비스·모델 변경 없음**(D-51). `get_terms`·`release`·일괄 취소 경로는 이 값을 쓰지 않는다.
+
+### 17.5 표현 (`presentation/`, R15)
+
+임시 필드 이름 `product_image_url`(D-47). 타입 `string 또는 null`. 의미: 예약 당시 상품 대표 사진 주소(사진 목록 첫 항목). 사진이 없었거나 기록되지 않은 기존 예약은 `null`. 주소 형식은 catalog 사진 목록과 같다: 업로드 사진은 상대 경로 `/v1/products/{product_id}/images/{image_id}`(공개 조회, 서버 주소는 클라이언트가 앞에 붙임, catalog D93), 외부 사진은 전체 주소. **서버는 호스트를 붙이지 않는다.**
+
+| Method | URI | 변경 | 비고 |
+| --- | --- | --- | --- |
+| POST | `/v1/reservations` | 응답 `ReservationCreateResponse`에 `product_image_url` 추가 | D-50 |
+| GET | `/v1/users/me/reservations` | 응답 항목 `ReservationListItem`에 추가 | 요청서 범위 |
+| GET | `/v1/stores/{store_id}/reservations` | 응답 항목 `StoreReservationListItem`에 추가 | 요청서 범위. 고객 정보·픽업 코드 비노출(R-REQ25) 불변 |
+| POST | `/v1/reservations/{id}/cancel`, `/pickup` | 변경 없음 | |
+| (없음) | 고객 예약 상세 | **EP가 없다** | C-26 / Q-41 |
+
+에러·상태 코드·쿼리 매개변수 변경 없음(필드 추가라 하위 호환).
+
+`docs/reference/reservations.md`에 반영할 내용(C-27, 코드와 같은 변경에서):
+- §1 응답 표에 행 추가: `product_image_url` / `string 또는 null` / "예약 당시 상품 대표 사진 주소(상품 사진 목록의 첫 항목). 사진이 없으면 `null`. 업로드 사진은 `/v1/products/{product_id}/images/{image_id}` 형태의 상대 경로이고 외부 사진은 전체 주소". 예시 JSON에 필드 추가.
+- §2 응답 표에 `reservations[].product_image_url` 행(같은 설명 + "이 기능 이전에 만든 예약은 `null`"), 예시 JSON에 필드 추가.
+- §5 응답 표에 `reservations[].product_image_url` 행("예약 당시"), 예시 JSON에 필드 추가.
+
+### 17.6 테스트 계획 (`tests/reservations/**`, `layer-implementation/testing.md` 기준)
+
+- 도메인(DB 없음): `PickupReservation`에 `product_image_url` None/문자열/공백 문자열(→ None)/숫자(→ ValueError); `create(offer)`가 `offer.product_image_url` 복사; `OfferRef.from_info`가 필드 없는 info fake에서 None.
+- 어댑터 단위(fake 레포): `Product.product_image=[]` → None, `[a, b]` → `a`.
+- DB(`@pytest.mark.db`): 사진 있는 상품 예약 → 생성 응답·내 목록·점주 목록에 같은 주소. 예약 **후** 상품 사진 목록을 바꿔도 기존 예약 값 불변. 사진 없는 상품 → `null`. 컬럼 NULL 기존 행 → `null`. 취소·픽업 UPDATE가 값을 바꾸지 않음.
+- `tests/test_schema_check.py`는 `schema.sql`·`models.py` 반영 후 통과해야 한다. DB 테스트 skip은 통과가 아니다(R16).
+
+### 17.7 구현자 쓰기 범위 (`layer-implementer` 발주용)
+
+- `src/reservations/**`: `domain/pickup_reservation.py`, `domain/offer_ref.py`, `application/ports.py`, `application/catalog_stock_adapter.py`, `infrastructure/models.py`, `infrastructure/repositories.py`, `presentation/schemas.py`, `tests/reservations/**`.
+- 범위 밖(사용자 승인 후 별도): `.claude/skills/db-schema/schema.sql`·`SKILL.md`, `docs/reference/reservations.md`, DB ALTER(사용자).
+- 순서: 도메인 → models·repositories → ports·어댑터 → schemas → 테스트 → (승인 후) schema.sql·명세·ALTER. 게이트: `backend-invariants` §7의 3개 명령.
+
+### 17.8 결정 표 (D-번호) — **전부 확정(사용자, 2026-11-11)**
+
+추가 확정: **D-51은 catalog 설계안 D122(`get_cover_image_url` 신설)를 채택하지 않는다.** 새 포트 없이 기존 `CatalogStockAdapter`가 읽은 `Product.product_image[0]`을 쓴다. (아래 D-51 행의 "새 포트" 선택지는 기각된 것이다.)
+
+| # | 결정 | 선택지 | 확정안 | 근거 | 상태 |
+| --- | --- | --- | --- | --- | --- |
+| D-47 | 응답·컬럼 필드 이름 | (a) `product_image_url` (b) `image_url` (c) `product_image` (d) `photo_url` | **(a)** | `product_name`·`store_name` 스냅샷과 같은 `product_` 접두어. (c)는 catalog `product_image`(`list[str]`)와 같은 이름에 다른 타입이라 혼동. `_url`은 값이 주소임을 드러냄. 컬럼명=응답명(`cancelled_by`와 같음, R14·R15) | 확정 |
+| D-48 | 기록 형태 | (a) 주소 문자열 복사 (b) `image_id UUID` FK `product_images.id` | **(a) 문자열 복사, FK 없음** | (b) 약점: 사진 목록에 외부 URL이 있어 `image_id`로 표현 못 하는 경우가 생김, 응답을 만들려면 reservations가 catalog의 경로 규칙(`image_path`)을 알아야 해 R11 소지, FK가 catalog의 사진 삭제 의미 결정을 제약함. (a)는 요청서 문구와 같고 목록 항목과 값이 같아 변환이 없음. (a) 약점: 가리키는 바이트를 catalog가 지우면 깨진 링크 → catalog 보존 전제(C-28). 외부 URL은 우리가 보존 불가(catalog도 보존하지 않고 그대로 복사). catalog 전제는 D117~D121로 충족(C-28 해소) | 확정 |
+| D-49 | 컬럼 타입·검증 | (a) `TEXT`, 길이 검사 없음 (b) `VARCHAR(500)` | **(a)** | catalog가 항목 길이를 제한하지 않음(B-17-5). 길이로 예약 생성이 실패하거나 주소가 잘리면 안 됨 | 확정 |
+| D-50 | 생성 응답 포함 | (a) 포함 (b) 조회 2개만 | **(a)** | 같은 스냅샷 필드(`store_name`·`product_name`)가 이미 생성 응답에 있음. 필드 추가라 하위 호환. 확정 범위: 생성 응답과 목록 2개 | 확정 |
+| D-51 | 대표 사진을 읽는 방식 | (a) 기존 `StockPort`/`OfferTerms`에 필드 추가(어댑터가 이미 읽은 `Product`에서 `[0]`) (b) catalog에 새 포트 | **(a)** | 추가 쿼리·포트·catalog 변경 없음. 새 포트(catalog D122)는 채택하지 않음 | 확정 |
+| D-52 | 스냅샷 시점·잠금 | (a) 상품을 읽은 시점, 상품 행 비잠금 (b) 상품 행 잠금 | **(a)** | 상품명 스냅샷과 같은 성질, 잠금 순서·성능 영향 없음 | 확정 |
+| D-53 | 이미 있는 예약 행의 값 | (a) `NULL`, 백필 없음 (b) 현재 `product_image[0]`로 백필 | **(a)** | 예약 당시 사진은 사후에 알 수 없다. 백필하면 "현재 사진"을 "예약 당시 사진"으로 속이고, 이미 지워진 바이트를 가리킬 수도 있다. D-43과 같은 원칙. 화면은 `null`을 사진 없음 자리표시로 처리 | 확정 |
+| D-54 | 값의 변경 | 생성 후 불변 | **불변**(UPDATE 분기에서 쓰지 않음) | 스냅샷의 정의, 확정된 "예약 당시" 결정의 구현 | 확정 |
+
+### 17.9 정합 이슈 (C-번호)
+
+| # | 대상 | 내용 |
+| --- | --- | --- |
+| C-26 | 요청서·프론트 `docs/design/frontend/products.md`·`docs/reference/reservations.md` | 요청서가 말한 "고객 예약 **상세**" GET이 reservations에 없다(B-17-4). 프론트가 상세 EP를 기대하면 새 EP는 범위 확장이라 별도 사용자 결정·명세가 필요. 이번 설계는 만들지 않았다. **해소(사용자 확정 2026-11-11): 상세 GET은 만들지 않고, 요청서의 "상세"는 이번 범위에서 제외한다(Q-41 해소).** |
+| C-27 | `docs/reference/reservations.md` | 17.5의 §1·§2·§5 반영(R15). 코드와 같은 변경에서. 사용자 승인 필요 |
+| C-28 | `docs/design/catalog.md`(병렬 설계 중, **결과를 추측하지 않음**) | D-48이 성립하려면 catalog가 ① 예약 이후에도 `GET /v1/products/{pid}/images/{iid}`가 업로드 사진 바이트를 계속 돌려주고(PATCH로 목록에서 빠진 경우 포함) ② `DELETE …/images/{id}`가 예약이 기록한 사진을 깨뜨리지 않으며(삭제 의미가 어떤 쪽이든, 기록된 주소가 계속 열려야 함) ③ 숨김 상품·폐점 상점 상품의 사진 조회를 **공개로 유지**해야 한다(비공개면 고객이 지난 예약 사진을 못 봄). catalog 결정이 확정되면 이 절과 대조. 만약 catalog가 "예약에 쓰인 사진이면 삭제 거부"를 택하면 catalog가 정의한 포트로 reservations에 "이 주소를 기록한 예약이 있는가" 조회(예: `exists_by_product_image_url`)를 제공해야 하고 이 컬럼 인덱스가 필요하다(S-7 갱신) — **해소(2026-11-11): catalog 설계 확정 결과 `docs/design/catalog.md` 17절이 조건을 충족한다.** D117 어떤 경로로도 업로드 사진 바이트를 지우지 않음, D118 목록에서 빠진 사진도 GET 200, D119 DELETE는 목록에서만 뺌(삭제 거부 방식 아님이라 위 포트·인덱스는 불필요), D121 숨김·폐점·정지 상품 사진도 공개 조회. 외부 URL은 catalog가 보존하지 않고 그대로 복사. 읽기만 하고 catalog.md는 수정하지 않았다 |
+| C-29 | `.claude/skills/db-schema/schema.sql`, `SKILL.md` | 17.3 반영(R14). `.claude/` 수정이라 사용자 승인 필요(C-22와 같은 취급) |
+| C-30 | 개발·테스트 DB | 17.3 ALTER를 코드 배포 전에 적용(사용자). 미적용 시 예약 API 전체가 컬럼 없음 오류 |
+| C-31 | 프론트 `docs/design/frontend/products.md` D-12·D-13 | 프론트가 "저장 실패 시 방금 올린 사진만 DELETE로 되돌림"을 쓰므로 catalog DELETE 결정과 C-28이 서로 맞아야 한다. 이 문서는 확인만 하고 고치지 않음 |
+
+### 17.10 질문 목록 (Q-41~Q-47 모두 해소, 2026-11-11)
+
+Q-41은 C-26 확정으로, Q-42~Q-45·Q-47은 아래 기본값 그대로 사용자 확정, Q-46은 catalog D117~D121로 해소. 열린 항목은 17.9의 C-27·C-29·C-30·C-31뿐이다.
+
+| # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 |
+| --- | --- | --- | --- | --- |
+| Q-41 | 고객 예약 상세 GET을 새로 만들지 | B-17-4, C-26 | 만들지 않음. 목록·생성 응답만 | 명세에 없는 EP를 지어내지 않음(R15) |
+| Q-42 | 응답 필드 이름 | D-47 | `product_image_url` | D-47 |
+| Q-43 | 생성 응답에도 넣을지 | D-50 | 넣음 | 스냅샷 필드와 일관 |
+| Q-44 | 기존 예약 행 값 | D-53 | `NULL`, 백필 없음 | 사후에 알 수 없음, D-43과 같은 원칙 |
+| Q-45 | 기록 형태 | D-48 | 주소 문자열 복사, FK 없음 | D-48 |
+| Q-46 | catalog가 업로드 사진 바이트를 보존하고 공개 조회를 유지하는지(숨김·폐점 상품 포함) | C-28 | 보존·공개 유지를 전제로 설계 | **해소**: catalog D117·D118·D119·D121로 충족(C-28) |
+| Q-47 | 외부 URL 사진이 원본 서버에서 사라지는 경우 | D-48 | 처리하지 않음 | 우리가 보존할 수 없음 |
+
+임시값을 한곳에 모은 위치: 필드·컬럼 이름은 `models.py`·`schemas.py` 각 한 곳, "대표 사진 = 목록 첫 항목" 규칙은 `CatalogStockAdapter._load`의 한 줄. 이름을 바꿀 때는 `models.py`·`schemas.py`·`schema.sql`·명세를 함께 고친다.
+
+### 17.11 불변 규칙 점검
+
+R1(도메인은 표준 라이브러리만), R2·R4(레포지토리는 도메인 객체만), R3(값 검증은 엔티티 생성자, 서비스에 분기 없음), R5·R13(commit·트랜잭션 불변), R6·R7(새 예외 없음, 도메인 `ValueError`는 기존 400 `VALIDATION_ERROR`), R8~R10(추상 메서드 목록 불변), R11·R12(catalog 추상 레포지토리만 사용, 새 import 방향·FK 없음), R14(models·schema.sql·SKILL.md 같은 변경, C-29), R15(필드 추가만, 명세 C-27), R16(테스트를 약하게 하지 않음). 충돌하는 요구 없음.
+

@@ -1426,7 +1426,7 @@ async def get_product_image(product_id: uuid.UUID, image_id: uuid.UUID, service:
 | D94 | 테이블 컬럼·제약 | 사용자 결정 1의 위임, db-schema 6절 | 15.2 DDL: UUID PK, `product_id` FK+인덱스, `content_type` CHECK, `size_bytes` CHECK 1~5 MiB, `octet_length(data)=size_bytes` CHECK, `created_at` | `schema.sql` 제안 | 확정 (사용자, 2026-11-09) |
 | D95 | 업로드·삭제 권한·상태 조건 | 요구 조건 "상품 수정" 정책 표("본인 상점. 노출 중단 상품과 폐점 상점의 상품도 수정할 수 있다") | `OwnerUser` + `ensure_owner`만. 폐점 상점·노출 중단 상품·정지·미승인 상점도 허용(`update_product`와 같은 의존성·검사). 이미지는 상품 "수정"에 속한다고 본다 | `upload_product_image`, `delete_product_image` | 확정 (사용자, 2026-11-09) |
 | D96 | #17 공개 범위 | `get_offer_detail`이 노출 중단 상품·폐점 상점 할인에도 `product_image`를 공개(D56, D82) | 상품·상점 상태와 무관하게 `id`+`product_id`가 맞으면 누구나 200. 상점 포트·인증 없음 | `get_product_image` | 확정 (사용자, 2026-11-09) |
-| D97 | PATCH로 업로드 URL이 목록에서 빠질 때 | 고아 데이터 방지 | 같은 트랜잭션에서 그 이미지 행을 삭제(`apply_changes`가 빠진 id를 반환 → `delete_many`). 반대로 PATCH·등록으로 **새 업로드 URL을 직접 넣는 것은 거부**(제거·순서 변경만 허용). 외부 URL은 영향 없음 | `Product.apply_changes`, `update_product` | 확정 (사용자, 2026-11-09) |
+| D97 | PATCH로 업로드 URL이 목록에서 빠질 때 | 고아 데이터 방지 | 같은 트랜잭션에서 그 이미지 행을 삭제(`apply_changes`가 빠진 id를 반환 → `delete_many`). 반대로 PATCH·등록으로 **새 업로드 URL을 직접 넣는 것은 거부**(제거·순서 변경만 허용). 외부 URL은 영향 없음 | `Product.apply_changes`, `update_product` | 확정 (사용자, 2026-11-09). 2026-11-11에 D117로 대체했다가 **대체가 철회되어 전체가 다시 유효**(17절 머리) |
 | D98 | 조회 쿼리가 BYTEA를 읽지 않게 | 성능, B-IMG6 | ① URL이 `products.product_image`(JSON)에 있어 어떤 상품·할인 쿼리도 `product_images`를 조인하지 않는다 ② `data`는 `deferred=True` ③ 바이트는 #17의 `undefer` 쿼리와 INSERT에서만 오간다 ④ 전용 `ProductImageRepository`(`ProductRepository`에 메서드를 더하지 않아 기존 fake 영향 없음) | `models.py`, 레포지토리, 15.8 성능 테스트 | 확정 (사용자, 2026-11-09) |
 | D99 | 업로드 크기 제한 지점 | B-IMG4·B-IMG5 | 3겹(15.6.2): route class `Content-Length` 사전 검사(`MAX_IMAGE_BYTES`+64 KiB, 인증보다 앞) → `file.read(MAX+1)` → 도메인 판정(정본). 초과는 400 `IMAGE_TOO_LARGE`(프로젝트에 413 핸들러가 없고 모든 에러가 400/401/403/404 관례) | `image_router.py`, `ProductImage.create` | 확정 (사용자, 2026-11-09) |
 | D100 | 동시 업로드 10개 상한 | 기존 #5·#7 패턴 | 상품 행 `FOR UPDATE` 잠금 뒤 도메인 검사. 잠금 순서는 product 하나뿐(offer와 교착 없음) | `upload_product_image`, 15.4 | 확정 (사용자, 2026-11-09) |
@@ -1456,8 +1456,7 @@ async def get_product_image(product_id: uuid.UUID, image_id: uuid.UUID, service:
 | # | 확인 필요 항목 | 출처 | 임시 기본값 | 근거 | 바뀔 때 고칠 곳 |
 | --- | --- | --- | --- | --- | --- |
 | Q48 | **공개 GET이 노출 중단 상품·폐점 상점·정지 상점의 이미지를 줄 것인가** (요구 조건 노출 정책과 충돌 가능, CI-19) | 정책 표, D56·D82 | 준다(상태 무관, 상품 소속만 확인) | #10이 이런 상품의 `product_image`를 공개하고, URL이 UUID라 추측 불가 | `get_product_image`(`OptionalUser`+`are_products_visible_to` 추가), 테스트 "공개 범위 고정" |
-| Q49 | PATCH로 업로드 URL을 목록에서 뺄 때 바이트를 **즉시 삭제**할지(되돌릴 수 없음) 보관할지 | 고아 데이터 | 같은 트랜잭션에서 즉시 삭제(D97). 새 업로드 URL 직접 추가는 거부 | 고아 없음·두 저장소 일치 불변식이 단순 | `update_product`의 `delete_many`, `Product.apply_changes` |
-| Q50 | 크기 초과 응답 코드(400 vs 413)와 `Content-Length` 없는(chunked) 요청 처리 | 에러 관례, B-IMG4 | 400 `IMAGE_TOO_LARGE`. chunked는 사전 검사를 통과하고 `read(MAX+1)`·도메인 판정만 적용(본문이 임시 파일로 받아지는 것은 막지 못함) | 프로젝트는 400/401/403/404만 쓰고 413 핸들러가 없다. 실제 본문 상한은 리버스 프록시(`client_max_body_size` 등) 몫 | `UploadSizeLimitRoute`(없을 때 거부하도록), `error_handlers.py`(413 추가 시) |
+| Q49 | PATCH로 업로드 URL을 목록에서 뺄 때 바이트를 **즉시 삭제**할지(되돌릴 수 없음) 보관할지 | 고아 데이터 | 같은 트랜잭션에서 즉시 삭제(D97). 새 업로드 URL 직접 추가는 거부 | 고아 없음·두 저장소 일치 불변식이 단순 | `update_product`의 `delete_many`, `Product.apply_changes`| Q50 | 크기 초과 응답 코드(400 vs 413)와 `Content-Length` 없는(chunked) 요청 처리 | 에러 관례, B-IMG4 | 400 `IMAGE_TOO_LARGE`. chunked는 사전 검사를 통과하고 `read(MAX+1)`·도메인 판정만 적용(본문이 임시 파일로 받아지는 것은 막지 못함) | 프로젝트는 400/401/403/404만 쓰고 413 핸들러가 없다. 실제 본문 상한은 리버스 프록시(`client_max_body_size` 등) 몫 | `UploadSizeLimitRoute`(없을 때 거부하도록), `error_handlers.py`(413 추가 시) |
 | Q51 | 저장 URL을 상대 경로로 둘지 절대 URL(새 설정 `PUBLIC_BASE_URL`)로 둘지 | 설정에 호스트 없음 | 상대 경로 | 호스트가 바뀌어도 DB를 고칠 필요 없음, 새 환경변수 불필요 | `image_path`, `.env.example`, 기존 데이터 이전 |
 | Q52 | "5 MB"가 5 MiB인지 5,000,000바이트인지, 상품·상점당 총량 상한(상품당 최대 10개 × 5 MiB = 50 MiB) | 결정 4 | 5 MiB(5,242,880). 총량 상한 없음 | 업로드 도구가 흔히 MiB로 표시. 총량은 요구 조건에 없음 | `MAX_IMAGE_BYTES`, DDL `ck_product_images_size` |
 | Q53 | 응답 형식: DELETE를 204로 할지 갱신된 상품을 돌려줄지, POST 응답에 `product_image` 전체를 넣을지 | 명세 없음 | DELETE 204, POST는 `ProductImageResponse` + 전체 목록 | 클라이언트가 목록을 다시 조회하지 않아도 됨 | `schemas.py`, `image_router.py`, 명세 |
@@ -1698,3 +1697,182 @@ router: `is_active: bool | None = None`. `if not is_active and viewer is None: r
 | Q62 | 폼 경로의 JSON과 다른 Content-Type(예: `text/plain`, 비어 있음)의 처리 | 사용자 결정 2 | multipart가 아니면 모두 JSON 경로로 파싱(실패 시 400 `VALIDATION_ERROR`) | 현재 동작(Content-Type과 무관한 JSON 파싱 시도)을 최대한 유지. FastAPI 0.162의 엄격한 Content-Type 검사는 사용하지 않는다 | `_read_json_body` |
 | Q63 | 사진 오류와 상품 필드 오류가 함께 있을 때의 우선순위 | D112 | 상품 필드 오류(2단계)가 사진 오류(3단계)보다 먼저 보고된다 | 도메인 객체를 먼저 만드는 편이 자연스럽다 | `create_product` 순서(D112) |
 | Q64 | 사진 불량 시 `IMAGE_TOO_LARGE`의 사전 검사 한도(5 MiB + 64 KiB)에 폼 텍스트 필드(설명 등) 몫이 포함되는가 | D99 | 포함. 설명은 짧다는 전제. 파일은 5 MiB 이하라도 요청 전체가 한도를 넘으면 사전 검사에서 400 `IMAGE_TOO_LARGE`(5 MiB에 가까운 파일 + 긴 설명) | 64 KiB 여유가 헤더·경계·폼 필드를 모두 덮는다 | `MAX_UPLOAD_REQUEST_BYTES`(상수 한 곳) |
+
+---
+
+## 17. [사진 보존 철회] 명세 보강 3건만 유효 (2026-11-11 추가, 같은 날 사진 보존 철회)
+
+> **철회 (사용자, 2026-11-11 — 예약 사진 기록(reservations 17절) 철회에 따라 사진 보존도 철회, 현행 D97·Q49 유지)**
+> - 철회된 것: D117~D122, Q65~Q71, CI-32·CI-33·CI-34·CI-35·CI-36, 17.1~17.5(큰 그림·도메인·인프라·응용·표현), 17.7 중 §15·§16·§17·Product 공통 객체 문구, 17.8 테스트 계획, 17.9 구현 파일 목록. 이 절 안의 해당 내용은 **지우지 않고 기록으로 남기되 구현 기준이 아니다.** 아래 "확정" 표기는 철회 전 상태를 적은 것이다.
+> - 현행 유지: **PATCH로 업로드 URL이 목록에서 빠지면 같은 트랜잭션에서 바이트도 지우고(D97, Q49), `DELETE …/images/{id}`도 바이트를 지운다(15.5).** `GET` 공개 조회·10개 상한(목록 기준)·공개 범위도 15절 그대로다. 이전에 붙였던 D97·Q49·15.5의 "대체됨" 표시는 되돌렸다. 코드는 main 상태다.
+> - 유효한 것: **D123**(PATCH null 비우기 + 명세 보강 3건, 확정)과 17.7의 §4·§5·§6 항목(`docs/reference/catalog.md`에 **반영 완료**).
+> - 철회 사유: 사용자가 사진 보존을 철회했다. 보존의 목적이 예약 당시 사진 표시였고 그 예약 쪽 변경이 철회되어 근거가 사라졌다.
+
+요청서: 프론트 오케스트레이터 `backend-request-product-image-retention.md`(변경 1 = catalog, 변경 2 = reservations). 이 절은 **변경 1과 "함께 반영 요청" 3건**만 다룬다. 변경 2(예약 시점 사진 기록)는 reservations 설계(`docs/design/reservations.md` 17절)가 정하고, 맞춘 결과는 CI-32(닫음)에 적었다. catalog는 예약용 조회 메서드를 새로 만들지 않는다(D122 채택 안 함). 코드는 쓰지 않는다. 번호는 이 문서의 관례대로 이어 매긴다(D117~, CI-32~, Q65~). 요청서·프론트 설계의 `C-3·C-5·C-8`은 프론트 문서의 번호이고, 이 문서의 `CI-`와 다른 체계다.
+
+사용자 확정(2026-11-11): ① 상품 사진을 바꾸거나 지워도 이전 사진 바이트는 지우지 않는다. 그 상품을 이전에 예약한 고객에게는 예약 당시 사진이 보여야 한다. ② PATCH에서 `category`·`description`을 비울 때만 `null`, 나머지는 필드를 보내지 않는다. ③ 프론트는 저장 실패 시 방금 올린(어디에도 쓰이지 않은) 사진만 DELETE로 되돌린다(D-13). 이 용도는 계속 필요하다.
+
+**사용자 추가 결정(2026-11-11)**: D119 = B(DELETE는 목록에서만 뺌, 목록에 없으면 204, 행 없음·다른 상품이면 404), D120 = 목록 10개만 센다(저장 행 수 안전 상한 없음), D122 = 채택하지 않음(예약은 reservations D-51 경로로 대표 사진을 읽음), D117·D118·D121 확정, Q67·Q68(주소 복사)·Q69(외부 URL 그대로 복사)·Q71(고아 사진 정리는 후속) 확정. reservations 쪽 확정: D-47 `product_image_url`, D-48 주소 문자열 복사·FK 없음, D-50 생성 응답과 목록 2개에 포함, D-53 기존 행 NULL, C-26 고객 예약 상세 GET 없음. **이 절에 남은 "임시"는 없다**(열린 위험은 17.11 끝의 Q71 연결 참조).
+
+### 17.0 차단 이슈와 실행 확인
+
+차단 이슈 없음.
+
+| 확인 | 명령 | 결과 |
+| --- | --- | --- |
+| 코드 로딩 | `(cd src && uv run python -c "import main")` | `import-ok` |
+| 의존성 | 새 패키지 불필요 (이미지 저장은 15절 그대로) | - |
+| 환경변수·마이그레이션 | 추가 키 없음. **스키마 변경 없음**(권고안 기준). 새 테이블·컬럼이 없어 개발 DB 재생성 불필요 | - |
+| 요청서 근거 줄 | `service.py:251-252`(`update_product`의 `delete_many`), `:270-278`(`delete_product_image`의 `images.delete`), `repositories.py:487-489`(`delete`·`delete_many` 구현), `domain/repository/product_image_repository.py:19`, `tests/catalog/test_service.py:252-272`·`tests/catalog/test_product_image_service.py:157-160`(fake·단언) | 모두 실제로 존재함을 읽어 확인 |
+| 삭제 경로 전수 | `grep "delete_many\|\.delete(" src/catalog tests/catalog` | 코드 호출처는 위 두 곳뿐. 라우터 `image_router.py:74`는 #16 EP 자체 |
+| 명세 보강 근거 | `domain/exceptions.py:57`(`ProductHasOpenOfferError.error_code = "PRODUCT_HAS_OPEN_OFFER"`), `presentation/schemas.py:48-53`(`ProductUpdateRequest`: `category`·`description` 등 전부 `X \| None = None`), `router.py:284`(`body.model_dump(exclude_unset=True)`), `product.py:50-56`(`_validate_category(None)` → None), `service.py:459-465`(`get_product`) | 읽어 확인. 보낸 필드만 반영하고 **명시적 `null`은 값으로 전달**된다 |
+| 다른 모듈 | `grep product_image src/reservations src/payments` | 0건. 예약 쪽에 사진 저장 없음(요청서 근거와 일치) |
+| 못 한 확인 | 정지·폐점 상점의 숨김 상품 상세를 소유자가 받는지 실제 HTTP 호출은 하지 않았다(코드 읽기만) | 구현 시 테스트로 고정(17.8) |
+
+### 17.1 큰 그림 (철회 — 구현 없음, 17.1~17.5는 기록용)
+
+```
+PATCH  /v1/products/{pid}   product_image에서 업로드 주소 제거 ─▶ products.product_image만 바뀜. product_images 행·바이트는 그대로
+DELETE /v1/products/{pid}/images/{iid} ─▶ (행이 이 상품 것이면) 목록에서 주소 제거. 바이트는 그대로. 목록에 이미 없으면 변경 없이 204
+GET    /v1/products/{pid}/images/{iid} ─▶ 목록 포함 여부·상품·상점 상태와 무관하게 200 (변경 없음, D96)
+앱 코드 어디에도 product_images를 지우는 경로가 없다 (구조적 보장, D117)
+```
+
+- 15.1의 일관성 불변식을 바꾼다. 이전: "업로드 주소가 목록에 있는 것 ⟺ 행이 있는 것". 이후: **"목록의 업로드 주소 ⊆ 행"**이다. 행은 있는데 목록에 없는 사진("떼어낸 사진", detached)이 정상 상태다. 한 번 만든 행은 사라지지 않으므로, 과거 예약이 복사해 둔 주소(reservations D-48)는 항상 열린다(외부 URL 사진은 제외, CI-32 (c)).
+- 15.4의 잠금 규칙은 그대로다(상품 행 `FOR UPDATE` 하나, 이미지 INSERT와 목록 UPDATE를 같은 트랜잭션에서).
+- 떼어낸 사진은 다시 붙일 수 없다. `apply_changes`가 "현재 목록에 없는 업로드 주소"를 거부하는 D97 규칙이 그대로여서 PATCH로 되살릴 수 없고, 새로 업로드해야 한다(임시 아님, 변경 없음).
+
+### 17.2 도메인 (domain/)
+
+| 대상 | 변경 | 규칙·예외 |
+| --- | --- | --- |
+| `ProductImageRepository` (ABC, 15.3.4) | **`delete`·`delete_many` 제거**(추상·구현·fake 모두). 새 메서드 1개: `exists(product_id, image_id) -> bool`(`id`와 `product_id` 둘 다 일치하는 행이 있는지, `data`를 읽지 않음). 저장 행 수를 세는 메서드는 만들지 않는다(D120) | 물리 삭제 경로를 없애 D117을 구조로 보장한다. 되살리려는 변경이 들어오면 인터페이스 리뷰에서 드러난다 |
+| `Product.detach_image(image_id)` | 반환형을 `bool`로 바꾼다: 목록에서 지웠으면 `True`, 원래 없었으면 `False`. 동작은 같다 | 예외 없음 |
+| `Product.apply_changes` | 변경 없음. 반환값 `removed`(목록에서 빠진 업로드 id)는 유지하되 **서비스가 바이트 삭제에 쓰지 않는다**. 구현자는 반환값을 버려도 되지만(CI-21 호환을 위해 유지를 권장) 의미는 "떼어낸 사진"이다 | 기존 규칙 그대로 |
+| `ensure_can_attach_image()` | 변경 없음(목록 10개, D92) | 기존 문구 |
+| 도메인 예외 | 새 클래스 없음 | - |
+
+허용 전이(업로드 이미지): (없음) → **목록에 있음**(`attach_image`) → **떼어냄**(`detach_image` 또는 PATCH로 제거). "떼어냄"은 종단 상태이고 행은 영구 보존된다. (이전 표의 "삭제됨"은 폐기)
+
+### 17.3 인프라 (infrastructure/)
+
+- `SqlAlchemyProductImageRepository`: `delete`·`delete_many` 삭제. `exists`는 `select(literal(1)).where(id == :iid, product_id == :pid).limit(1)` 수준(바이트·`data` 비접근, D98 유지). 저장 행 수 조회는 두지 않는다(D120).
+- **스키마 변경 없음**(`schema.sql`·`db-schema` 문서 변경 없음, R14). `product_images.product_id`의 FK는 `NO ACTION`이고 상품은 물리 삭제가 없어(요구 조건) 행이 사라질 길이 없다.
+- 동시성: 새 잠금 없음(업로드의 목록 10개 검사는 15.4의 상품 행 `FOR UPDATE` 아래에서 그대로). DELETE·PATCH는 이전처럼 상품 행을 잠근다. 이미지 행 DELETE가 없으므로 "행 삭제와 INSERT 경합"이 없어진다.
+- 읽기 #17: 변경 없음(`find_by_id`, 잠금 없음).
+
+### 17.4 응용 (application/)
+
+**`update_product` (#5) 변경**: `removed = product.apply_changes(...)` 뒤의 `if removed: await self.product_images.delete_many(...)` **블록을 삭제**한다. 나머지(조회 → 소유자 확인 → 도메인 → `products.save` → `commit()`)는 그대로다. 트랜잭션에 이미지 테이블이 더 이상 관여하지 않는다.
+
+**#15 `upload_product_image`: 변경 없음**(D120). 상한은 목록 10개(`ensure_can_attach_image`)뿐이고 떼어낸 사진은 세지 않는다. 오류 우선순위도 15.5 그대로다.
+
+**#16 `delete_product_image` 재정의**(확정 D119 = B):
+1. 상품 `for_update` 조회(404) → 상점 로드, `ensure_owner`(403, 같은 문구)
+2. `await self.product_images.exists(product_id, image_id)`가 False면 `ProductImageNotFoundError`(404 "이미지를 찾을 수 없습니다.") — 이 상품의 이미지가 아니면 다른 상품 것도 404
+3. `if product.detach_image(image_id): await self.products.save(product); await self.session.commit()` — **목록에 이미 없으면 아무것도 하지 않고 204**(멱등, Q70 확정)
+- 소유자 확인(403)이 이미지 존재 확인(404)보다 먼저라는 기존 규칙은 유지된다.
+- 이 EP는 "프론트가 방금 올린 사진을 되돌리는" 용도(D-13)를 그대로 만족한다: 목록에서 빠지고 204. 바이트는 고아로 남고, 저장 행 수에는 상한이 없다(D120). 누적 위험은 Q71(정리 정책, 후속)로 남긴다.
+
+**#17 `get_product_image`**: 변경 없음. 상품·상점 상태, 목록 포함 여부를 보지 않는다(D118, D121).
+
+**대표 사진 조회: catalog 변경 없음 (D122 채택 안 함)**: `get_cover_image_url`·`Product.cover_image_url`·새 포트를 만들지 않는다. 예약이 대표 사진을 읽는 경로는 reservations D-51(기존 `src/reservations/application/catalog_stock_adapter.py`가 잠금 없이 읽은 `Product`의 `product_image[0]`)이다. catalog 쪽 조건은 하나다: 그 읽기는 상품 행을 **잠그지 않아야** 한다(catalog 잠금 순서는 상품 → 할인인데 예약은 할인 행을 먼저 잠근다, 15.4·D100). 예약 직전에 PATCH가 목록을 바꿔도 이전·이후 첫 사진의 바이트가 모두 보존되므로(D117) 어느 쪽을 기록해도 열린다.
+
+트랜잭션 경계: 17.4의 쓰기는 모두 catalog 한 모듈·요청 세션 하나·`commit()` 한 번(R13 해당 없음).
+
+### 17.5 표현 (presentation/)
+
+| # | Method | URI | 요청 | 응답 | 성공 | 에러 | 변경 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 5 | PATCH | `/v1/products/{product_id}` | `ProductUpdateRequest` | `ProductResponse` | 200 | 400, 401, 403, 404 | **코드 변경 없음**. 동작 의미만 바뀜: 목록에서 빠진 업로드 사진의 바이트는 그대로. 명세 보강은 17.7 |
+| 15 | POST | `/v1/products/{product_id}/images` | multipart `file` | `ProductImageResponse` | 201 | 400, 401, 403, 404 | 변경 없음 |
+| 16 | DELETE | `/v1/products/{product_id}/images/{image_id}` | - | 본문 없음 | 204 | 400, 401, 403, 404 | 의미 변경(목록에서만 뺌, 목록에 이미 없으면 204). 시그니처·코드 불변 |
+| 17 | GET | `/v1/products/{product_id}/images/{image_id}` | - | 이미지 바이트 | 200 | 400, 404 | 코드 변경 없음. 명세 문구만 갱신(17.7) |
+| 4 | GET | `/v1/products/{product_id}` | - | `ProductDetailResponse` | 200 | 400, 404 | 코드 변경 없음. 명세에 소유자에게 숨김 상품을 준다는 동작을 적음(17.7) |
+
+- 스키마 변경 없음. 목록 API 변경 없음. 이미지 응답 헤더(D103)는 그대로이나 "삭제 후에도 캐시에 남을 수 있다"는 명세 문구는 의미가 없어진다(17.7).
+- `ProductUpdateRequest`는 이미 `category`·`description` 등에 `None`을 허용하고 `exclude_unset=True`로 넘기므로 코드 변경이 없다(17.0).
+
+### 17.6 결정 표 (D117~)
+
+**D117~D122는 모두 철회(사용자, 2026-11-11 — 예약 사진 기록 철회에 따라 보존도 철회, 현행 D97·Q49 유지).** 아래 행의 "확정" 표기는 철회 전 상태이며 지금은 효력이 없다. D123만 유효하다. 선택지·근거는 기록으로 남긴다.
+
+| # | 항목 | 선택지 | 권고(임시인 경우) 또는 결정 | 근거 | 영향 | 상태 |
+| --- | --- | --- | --- | --- | --- | --- |
+| D117 **[철회]** | 사진 바이트 삭제 | 삭제 / 보존 | **어떤 경로로도 업로드 사진 바이트를 지우지 않는다.** PATCH로 목록에서 빠져도, DELETE를 불러도 행·바이트는 남는다. 레포지토리에서 삭제 메서드를 없애 구조로 보장한다 | 사용자 결정 ①. 예약 당시 사진이 이전 예약 고객에게 보여야 함 | `update_product`, `delete_product_image`, `ProductImageRepository`, fake, 테스트 | **확정 (사용자, 2026-11-11)**. D97의 "행 삭제" 부분과 Q49를 대체 |
+| D118 **[철회]** | #17 공개 조회와 떼어낸 사진 | 목록에서 빠진 사진은 404 / 계속 200 | 목록 포함 여부와 무관하게 `id`+`product_id`가 맞으면 200 | D117의 귀결: 예약 당시 사진이 보이려면 조회가 막히면 안 된다. 요청서 변경 1 두 번째 항목 | `get_product_image`(코드 불변), 테스트·명세 | **확정 (D117의 귀결, 사용자 결정 ①)** — 사용자가 따로 말한 항목은 아니므로 이의가 있으면 되돌린다 |
+| D119 **[철회]** | `DELETE …/images/{image_id}`의 의미 | **A** 바이트도 삭제(현행) / **B** 목록에서만 빼기 / **C** 예약에 쓰인 사진이면 거부, 아니면 삭제 / **D** B + `detached_at` 열 추가 | **B**: 이 상품의 사진이면 목록에서 빼고 204, 목록에 이미 없어도 204, 행이 없거나 다른 상품 것이면 404. 바이트는 안 지움 | **A**는 사용자 결정 ①을 어긴다(떼어낸 순간 예약 사진이 깨짐). **C**는 "이 사진이 예약에 쓰였는가"를 catalog가 알아야 해서 catalog → reservations 조회 포트가 늘고(CI-10·CI-11과 같은 순환 위험, reservations가 이미지 id를 조회 가능한 컬럼으로 가져야 함), 예약에 쓰인 사진은 상점주가 목록에서 뺄 수도 없게 되어 O11 「사진 삭제」가 막힌다. **D**는 고아 정리 작업이 필요해질 때 값어치가 생기나 지금은 `목록에 없는 행 = 떼어낸 사진`을 계산으로 알 수 있어(주소 집합 차) 스키마 변경 이득이 없다. B는 코드가 가장 작고 사용자 결정 ①·③을 모두 만족한다. 대가는 고아 바이트 누적(Q71, 후속) | `delete_product_image`, 명세 §16, 테스트 | **확정 (사용자, 2026-11-11)** — B 선택, Q65·Q70 해소 |
+| D120 **[철회]** | "상품당 10개" 상한의 기준 | 목록 길이(현행) / 저장된 행 수 / 둘 다 | **목록 10개만 센다(D92, REQ-6 그대로). 저장 행 수 안전 상한은 두지 않는다.** 떼어낸 사진은 개수에 세지 않는다. 코드 변경 없음 | 사용자 결정(설계자 권고였던 저장 상한 30은 채택되지 않음). 위험: 업로드→떼어내기를 반복하면 5 MiB 행이 상한 없이 쌓이고 상점주가 지울 방법이 없다 → **Q71(고아 사진 정리 정책, 후속)과 연결해 남긴다** | `ensure_can_attach_image`(불변), 명세 §15(불변) | **확정 (사용자, 2026-11-11)** — 권고와 다른 결정. Q66 해소 |
+| D121 **[철회]** | 숨김·폐점·정지 상품의 사진 조회 공개 | 지금처럼 공개 / 소유자·예약 고객만 / 인증 필요 | **공개 유지(상태·목록과 무관, D96 그대로).** 떼어낸 사진도 같다 | 화면 `<img src>`는 `Authorization` 헤더를 보낼 수 없다. 인증을 걸면 예약 목록 화면의 사진이 깨진다. 노출 중단·폐점된 상품을 이전에 예약한 고객도 사진을 봐야 한다(D117). 주소가 UUID라 추측할 수 없다. #10 할인 상세가 `product_image`를 공개하는 것(D56·D82)과도 맞다 | `get_product_image`(불변), 명세 §17 | **확정 (사용자, 2026-11-11)** — 숨김·폐점·정지 상품과 목록에서 빠진 사진 모두 공개 조회. Q67 해소 |
+| D122 **[철회]** | catalog가 제공하는 대표 사진 조회(`get_cover_image_url` 제안) | catalog에 읽기 메서드 추가 / reservations가 기존 어댑터로 읽음 | **채택하지 않는다.** catalog에 새 메서드·도메인 메서드·포트를 만들지 않는다. 예약은 reservations D-51 경로(기존 `catalog_stock_adapter.py`가 잠금 없이 읽은 `Product.product_image[0]`)로 대표 사진을 읽는다 | 사용자 결정, reservations 설계 D-51 | catalog 코드 변경 없음 | **확정 (사용자, 2026-11-11)** — 설계자 제안을 채택하지 않음. CI-32 닫음 |
+| D123 | PATCH `null` 비우기와 명세 보강 3건 | - | `category`·`description`은 `null`로 비운다. 그 외 필드는 `null` 불가, 바꾸지 않을 필드는 보내지 않는다. §5·§6 에러 표에 `error_code` 열을 더하고(숨기기 거절 `PRODUCT_HAS_OPEN_OFFER`), §4에 소유자에게 숨김 상품 상세를 준다는 동작을 적는다. **코드 변경 없음**, 명세 문구만(17.7) | 사용자 결정 ②. 코드 근거는 17.0 | `docs/reference/catalog.md` §4·§5·§6, 테스트 보강 | **확정** (사용자 결정 ② + 현행 코드. 문구는 설계자 초안) |
+
+### 17.7 모듈 밖 변경 (이 문서는 쓰지 않는다)
+
+**`docs/reference/catalog.md` 반영 상태 (2026-11-11)**: §4·§5·§6 항목은 **반영 완료**(오케스트레이터가 반영). §15·§16·§17·Product 공통 객체 항목은 **철회**(사진 보존 철회, 명세는 현행 문구 유지). 초안과 달라진 점 두 가지: ① §4에서 폐점·정지 상점의 상품을 비소유자가 조회하면 404 메시지는 "상점을 찾을 수 없습니다."(`StoreNotFoundError`, `src/catalog/domain/store_ref.py:87-89`) — 아래 §4 초안의 "상품을 찾을 수 없습니다" 계열 서술보다 이 메시지가 정확하다. ② §5·§6의 401 메시지는 실제 코드대로 "로그인이 필요합니다."(`src/auth/presentation/dependencies.py`) — 아래 초안의 "인증이 필요합니다."는 쓰지 않는다. 아래 각 항목 머리에 상태를 붙였다.
+
+- **[반영 완료] §4 상품 상세** 설명 문단 뒤에 추가: "숨김 상품(`is_active=false`)은 해당 상점의 상점주(본인)에게만 응답한다. 다른 사용자·비로그인은 404(존재하지 않는 것처럼). 폐점·정지 상점의 상품은 상점주 본인만 볼 수 있다." (근거 `service.py:459-465`, 정책 표 "노출 중단 상품 조회". 폐점·정지 상점 쪽 문구는 `ensure_products_visible_to` 현행 동작과 구현 때 대조) 에러 표를 §15 형식(HTTP | error_code | 상황 | 메시지)으로 다시 쓴다: 400 `VALIDATION_ERROR`(product_id가 UUID 아님), 404 `NOT_FOUND`(상품 없음 / 숨김 상품을 비소유자가 조회 / 폐점·정지 상점의 상품을 비소유자가 조회).
+- **[반영 완료, 단 아래 마지막 두 문장(파일이 서버에 남는다·다시 넣을 수 없다)은 사진 보존 철회로 **철회**] §5 상품 수정** 요청 본문 표: `category`·`description` 타입을 `string \| null`로 바꾸고 아래 문장을 더한다. "`category`·`description`에 `null`을 보내면 값을 비운다(응답에서 `null`). 보내지 않은 필드는 바뀌지 않는다. `name`·`original_price`·`product_image`에 `null`을 보내면 400 `VALIDATION_ERROR`이다(`product_image`를 비우려면 빈 목록 `[]`). `category`의 빈 문자열은 400이다. `description`은 값 검사가 없다." 에러 표에 `error_code` 열 추가: 400 `VALIDATION_ERROR`(수정할 항목이 없습니다. / 정상 가격은 진행 중인 할인 가격보다 커야 합니다. / 필드 값 오류 공통 / 업로드한 이미지 주소는 직접 추가할 수 없습니다. 이미지 업로드를 이용하세요. / 이미지 목록은 비울 수 없습니다. 빈 목록([])을 보내 주세요.), 401 `UNAUTHORIZED`, 403 `FORBIDDEN`, 404 `NOT_FOUND`. 아래 문장도 더한다: "`product_image`에서 업로드 이미지 주소를 빼면 목록에서만 빠지고 이미지 파일은 서버에 남는다(이전 예약 고객의 화면이 계속 보이도록). 한 번 뺀 업로드 이미지는 `product_image`로 다시 넣을 수 없다."
+- **[반영 완료] §6 상품 노출 중단** 에러 표에 `error_code` 열 추가: 400 `PRODUCT_HAS_OPEN_OFFER`(진행 중인 할인 판매가 있어 비활성화할 수 없습니다.), 400 `PRODUCT_ALREADY_INACTIVE`(이미 비활성화된 상품입니다.), 400 `VALIDATION_ERROR`(product_id가 UUID 아님), 401 `UNAUTHORIZED`, 403 `FORBIDDEN`, 404 `NOT_FOUND`. (6-1은 이미 열이 있다.)
+- **[철회] §15 업로드**: "개수" 항목은 그대로 둔다(목록 `product_image` 기준 10개, D120). 한 줄만 더한다: "목록에서 뺀 이미지는 개수에 세지 않는다." 에러 표 변경 없음.
+- **[철회] §16 삭제**: 설명을 "업로드한 이미지를 상품의 `product_image` 목록에서 뺀다. **이미지 파일은 서버에 남아** 이전에 이 상품을 예약한 고객 화면에 계속 보인다. 되돌릴 수 없고(다시 붙이려면 새로 업로드) 서버에서 파일을 지우는 방법은 없다. 이미 목록에 없는 이미지를 불러도 204. 외부 URL은 이 API가 아니라 수정으로 뺀다"로 바꾸고, "수정으로 빼도 같은 요청 안에서 파일이 지워진다" 문장을 삭제한다. 에러 표에서 "이 상품의 이미지가 아님" 행은 그대로(다른 상품 것·없는 id → 404). (D119 확정)
+- **[철회] §17 조회**: "삭제 후에도 브라우저·프록시 캐시에는 최대 1시간 남을 수 있다" 문장을 "상품 수정·삭제로 목록에서 빠진 이미지도 계속 받을 수 있다. 노출 중단·폐점·정지 상품의 이미지도 같다"로 바꾼다(D118·D121).
+- **[철회]** `Product` 공통 객체 표(22행 부근) `product_image` 설명: "업로드 이미지는 `/v1/products/{product_id}/images/{image_id}` 상대 경로. 외부 URL과 섞일 수 있음"(15.10 제안 유지)에 "목록에서 빠진 업로드 이미지 파일은 남는다"를 더한다.
+
+| 대상 | 제안 |
+| --- | --- |
+| `.claude/skills/db-schema/schema.sql`·`SKILL.md` | **변경 없음**(D119 = B 확정) |
+| `docs/requirements/catalog.md` | 확정 문서라 고치지 않는다. CI-18 묶음에 "업로드 이미지는 상품 수정·삭제로 목록에서 빠져도 서버에서 지우지 않는다(이전 예약 고객의 화면 보존)" 한 줄을 더하도록 제안(`domain-requirements` 절차) |
+| `docs/reference/reservations.md`, `schema.sql`(예약 `product_image_url` 컬럼) | reservations 설계 17절(D-47~D-53)이 정한다. 이 문서는 쓰지 않는다 |
+| `src/container.py`, `src/main.py`, `error_handlers.py`, `pyproject.toml`, `.env.example` | catalog 쪽 변경 없음(D122 채택 안 함) |
+
+### 17.8 테스트 계획 (철회, 구현 없음)
+
+**철회 (사용자, 2026-11-11).** D123은 코드 변경이 없으므로 이 절의 테스트는 구현하지 않는다. 아래는 기록이다. 단 D123 동작(PATCH `category`·`description` `null` 비우기, `null` 불가 필드의 400)을 기존 테스트가 이미 덮는지는 구현 담당이 필요하면 확인한다(필수 아님).
+
+수정해야 하는 기존 테스트:
+- `tests/catalog/test_service.py:252-272`(`FakeProductImages`의 `delete`·`delete_many`·`delete_many_calls`) → `exists`로 교체. `tests/catalog/test_product_image_service.py:157-160`(PATCH가 `delete_many`를 올바른 id 집합으로 1회 호출) → "PATCH로 업로드 주소를 빼도 이미지 레포지토리에 쓰기·삭제 호출이 **0회**"로 뒤집는다.
+- DB 테스트 15.8의 "삭제"(DELETE 뒤 `GET {url}` 404, 같은 DELETE 재호출 404)와 "PATCH와의 관계(D97)"(업로드 URL을 뺀 PATCH 뒤 `GET {url}` 404) → 각각 `GET {url}` **200이고 업로드한 바이트와 동일**, 같은 DELETE 재호출 **204**로 바꾼다.
+
+추가:
+- **domain**: `Product.detach_image` 반환값(있음 True·없음 False), `ensure_can_attach_image`가 떼어낸 사진을 세지 않음(목록 9개 + 떼어낸 사진 다수여도 통과), `apply_changes`가 떼어낸 사진 id를 계속 반환하고 떼어낸 사진 주소를 다시 넣으면 `ValueError`(되살리기 불가).
+- **구조**: `ProductImageRepository`의 추상 메서드 이름 집합에 `delete`로 시작하는 것이 **없음**을 단언(D117 구조 보장).
+- **application(fake)**: #16 — 목록에 있음 → 주소 제거·`commit` 1회·바이트 레포지토리 쓰기 0회; 행 있고 목록에 없음 → 204(예외 없음)·`commit` 0회; 행 없음·다른 상품 id → `ProductImageNotFoundError`; 타인 상품은 이미지 유무와 무관하게 `NotStoreOwnerError`(403이 404보다 먼저).
+- **DB·통합**: ① PATCH로 업로드 주소 제거 → `product_images` 행 수 불변·`GET` 200·바이트 동일·`#4` 응답 목록에서는 빠짐 ② DELETE → 같은 확인, 외부 URL 항목은 유지 ③ 숨김 상품·폐점 상점·정지 상점의 사진 `GET` 200(D121 고정) ④ 목록에서 뺀 사진은 다시 `PATCH`로 넣으면 400 ⑤ 떼어낸 사진은 개수에 세지 않음: 사진 10개 → 1개 떼어냄 → 업로드 성공, 목록 10개·행 11개 ⑥ 목록에 없는 사진에 DELETE → 204·변경 없음, 다른 상품 id 경로의 image_id → 404 ⑦ 비소유자·고객·비로그인 DELETE 403·403·401.
+- 완료 게이트(backend-invariants §7)는 15.8과 같다.
+
+### 17.9 구현 파일 목록 (철회, 구현 없음)
+
+**철회 (사용자, 2026-11-11).** 구현할 catalog 변경이 없다(D123은 명세 문구만, 반영 완료). 아래는 기록이다.
+
+- `src/catalog/domain/product.py`(`detach_image` 반환값만), `src/catalog/domain/repository/product_image_repository.py`(`delete`·`delete_many` 제거, `exists` 추가)
+- `src/catalog/infrastructure/repositories.py`(`SqlAlchemyProductImageRepository`: 삭제 제거, `exists` 추가)
+- `src/catalog/application/service.py`(`update_product`에서 삭제 호출 제거, `delete_product_image` 재정의)
+- `tests/catalog/test_service.py`·`test_product_image_service.py`·`test_product_image_domain.py`·`test_product_image_api_db.py`(17.8)
+- 구현 순서: domain → infrastructure → application → 테스트. `presentation/`·`container.py`·`main.py` 변경 없음.
+
+### 17.10 정합 이슈 (CI-32~)
+
+**CI-32~CI-36 전부 철회 (사용자, 2026-11-11 — 예약 사진 기록 철회에 따라 보존도 철회, 현행 D97·Q49 유지).** CI-32(reservations 정합)는 reservations 17절 철회로 대상이 없어졌고, CI-33(15절 불변식 약화)은 보존이 없으므로 15절 불변식이 그대로 유효하며, CI-34(명세 §16 문구 충돌)는 명세가 현행 그대로라 충돌이 없고, CI-35(삭제한 사진 잔존 위험)·CI-36(어댑터)은 발생하지 않는다. 아래 행은 기록이다.
+
+| # | 위치 | 이슈 | 영향·제안 |
+| --- | --- | --- | --- |
+| CI-32 **[철회]** | catalog 17절 ↔ reservations 설계 17절 | **닫힘 (2026-11-11, `docs/design/reservations.md` 17절과 대조)**. catalog가 보장하는 것: **(a)** 한 번 만들어진 업로드 사진 행은 앱 코드로 지워지지 않는다(D117) **(b)** `GET {업로드 주소}`는 목록·상품·상점 상태와 무관하게 200(D118·D121) **(c)** 외부 URL 사진은 catalog가 보존하지 않는다(상대 서버 사정, Q69). 맞춘 항목: ① 복사 vs 참조 → **주소 문자열 복사, FK 없음**(reservations D-48, Q68) ② 포트 이름·정의 위치 → **새 포트·catalog 메서드 없음**, 예약이 기존 `catalog_stock_adapter.py`로 잠금 없이 읽은 `Product.product_image[0]`을 쓴다(reservations D-51, catalog D122 채택 안 함) ③ 필드 이름 `product_image_url`(D-47), 생성 응답과 목록 2개에 포함(D-50), 고객 예약 상세 GET은 없음(C-26) ④ 기존 예약 행은 NULL(D-53) ⑤ 상대 경로 주소는 프론트가 호스트를 붙인다 | catalog 쪽 남은 조건은 하나: 예약의 `Product` 읽기는 상품 행을 잠그지 않는다(17.4). reservations 파일은 읽기만 했고 수정하지 않았다 |
+| CI-33 **[철회]** | D117 ↔ 15절의 "고아 없음·두 저장소 일치" 불변식, 15.1·15.5의 서술 | 이전 설계의 불변식("목록의 업로드 주소 ⟺ 행")이 "목록의 업로드 주소 ⊆ 행"으로 약해진다. 15.5(`delete_product_image`의 "행은 있는데 URL이 목록에 없으면 행만 지워져 스스로 복구")는 더 이상 성립하지 않는다 | 15.5 상단에 대체 표시를 넣었다(이 절 기준). 구현자는 15.5의 해당 서술 대신 17.4를 따른다 |
+| CI-34 **[철회]** | D119 B ↔ 명세 §16("저장된 파일도 지운다. 되돌릴 수 없다"), D97 | 사용자가 정한 보존 정책이 명세 문구와 정반대다 | 열림(명세 반영 대기). 17.7의 §16 문구 교체. 명세는 R15의 정본이므로 반영 전 구현은 이 설계안의 동작을 임시로 따르고 이유를 보고한다 |
+| CI-35 **[철회]** | D117 ↔ 상점주 기대 | 상점주가 "삭제"한 사진이 서버·URL에 남는다. 잘못 올린 사진(개인정보 등)도 지울 방법이 없다 | 열림(수용된 위험). D120 = 저장 상한 없음 결정으로 고아 바이트 누적도 같은 위험이다. 둘 다 **Q71(고아 사진 정리 정책, 후속, 이번에 하지 않음)**로 연결한다. 필요해지면 별도 관리자 전용 정리 도구를 후속 설계한다 |
+| CI-36 **[철회]** | `src/reservations/application/catalog_adapters.py` 등 기존 어댑터 | reservations에는 catalog를 부르는 어댑터가 이미 있다 | 닫힘: 예약의 대표 사진 읽기는 그 어댑터(reservations D-51)가 한다. catalog는 추가 제공물이 없다 |
+
+### 17.11 질문 목록과 임시 기본값
+
+**Q65~Q71 전부 철회 (사용자, 2026-11-11 — 예약 사진 기록 철회에 따라 보존도 철회, 현행 D97·Q49 유지).** 질문 자체가 사라졌고 열린 질문은 없다. 현행 답: Q65 DELETE는 바이트도 삭제(15.5), Q66 10개는 목록 기준(D92), Q67 공개 범위는 D96·Q48 그대로, Q68~Q69 예약 기록 없음, Q70 목록에 없는 사진 DELETE는 현행 동작, Q71 정리 정책 불필요(즉시 삭제). 아래 표의 "결정 값 — 확정" 표기는 철회 전 상태이며 기록이다.
+
+| # | 확인 필요 항목 | 출처 | 결정 값 | 근거 | 바뀔 때 고칠 곳 |
+| --- | --- | --- | --- | --- | --- |
+| Q65 **[철회]** | DELETE의 의미: 바이트 삭제(A) / 목록에서만 빼기(B) / 예약에 쓰인 사진이면 거부(C) / B+`detached_at` 열(D) | 요청서 변경 1, D119 | **B — 확정, 해소** | 17.6 D119 | `delete_product_image`, 명세 §16, (D 선택 시) `schema.sql`·`models.py` |
+| Q66 **[철회]** | 10개 상한: 목록 기준 유지 + 저장 안전 상한(30), 또는 저장 행 수 기준(10), 또는 상한 없음. 저장 상한의 값과 초과 시 문구 | 요청서 변경 1, D120 | **목록 10개만 센다, 저장 상한 없음 — 확정, 해소**(설계자 권고 30과 다른 결정) | 17.6 D120 | 저장 상한이 필요해지면 Q71과 함께 후속 설계 |
+| Q67 **[철회]** | 숨김·폐점·정지 상품, 그리고 떼어낸 사진의 조회 공개 여부 | 요청서 변경 1, D96·Q48, D121 | **모두 공개(상태·목록 무관) — 확정, 해소.** 삭제한 사진이 URL로 계속 보이는 위험은 CI-35·Q71 | `<img>`는 인증 헤더 불가, 예약 고객 화면 보존 | `get_product_image`(`OptionalUser`+가시성 검사 추가 시 #10 이미지가 깨짐 CI-19), 명세 §17 |
+| Q68 **[철회]** | 예약이 사진을 기록하는 방식: 주소 문자열 복사 / 이미지 id 참조(FK) | 요청서 변경 2, D122, CI-32 | **문자열 복사 — 확정, 해소**(reservations D-48). catalog 제공물 없음(D122 채택 안 함) | 17.6 D122, CI-32 | reservations 설계 |
+| Q69 **[철회]** | 대표(첫) 사진이 외부 URL일 때: 그대로 복사(나중에 외부 서버가 지우면 깨짐) / 업로드 사진만 기록 / 첫 업로드 사진 | D122, CI-32(c) | **첫 항목을 그대로 복사 — 확정, 해소** | catalog가 외부 URL을 보존할 수 없고, 목록 첫 항목이 화면의 대표 사진 규칙(요청서) | reservations 어댑터(D-51) 한 곳 |
+| Q70 **[철회]** | 이미 목록에 없는 사진에 DELETE: 204(멱등) / 404 | D119 | **204(변경 없음, `commit` 없음) — 확정, 해소**(D119와 함께) | 프론트가 실패 롤백(D-13)을 재시도해도 안전 | `delete_product_image`, 명세 §16 |
+| Q71 **[철회]** | 고아(떼어낸) 사진의 정리 정책(예약에 쓰인 적 없는 사진의 청소, 관리자 도구)은 언제·어떻게 | CI-35 | **하지 않는다(후속, 이번에 하지 않음) — 확정.** D120의 저장 상한 없음과 연결: 고아 바이트 누적을 막는 장치가 지금은 없다 | 정리 정책 자체가 후속 과제 | 후속 설계(정리 작업·관리자 도구, 필요하면 저장 상한도 이때) |
