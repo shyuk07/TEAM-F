@@ -4,7 +4,6 @@ import { readToken } from './tokenStorage';
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal; auth?: boolean };
 
-// open-issues: NETWORK_ERROR 문구는 임시 문구, content.md 확정 시 교체
 export async function request<T = never>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -21,6 +20,9 @@ export async function request<T = never>(path: string, opts: Options = {}): Prom
     });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
+    // TODO: NETWORK_ERROR 문구는 임시 문구(해요체, 사용자 결정)다. content.md의 네트워크 오류 문구로 교체한다.
+    //   왜: content.md에 네트워크 오류 문구가 없다 (api-client SKILL §2)
+    //   언제: 결정 후 (디자인 시스템: content.md 네트워크 오류 문구 확정)
     throw new ApiError(
       0,
       'NETWORK_ERROR',
@@ -29,7 +31,9 @@ export async function request<T = never>(path: string, opts: Options = {}): Prom
   }
   if (!res.ok) throw await toApiError(res);
   if (res.status === 204) return undefined as T;
-  // TODO: 2xx인데 본문이 JSON이 아니면 SyntaxError가 그대로 올라감 → ApiError(res.status, 'UNKNOWN')로 감쌀지 결정 필요 (fe-reviewer 지적)
+  // TODO: 2xx인데 본문이 JSON이 아니면 SyntaxError가 그대로 올라감 → ApiError(res.status, 'UNKNOWN')로 감쌀지 결정 필요
+  //   왜: 배포 환경에서 proxy가 빠져 index.html(200)을 받으면 화면이 ApiError로 분기하지 못한다 (fe-reviewer 지적)
+  //   언제: 결정 후 (사용자: 비JSON 2xx를 ApiError로 감쌀지)
   return (await res.json()) as T;
 }
 
