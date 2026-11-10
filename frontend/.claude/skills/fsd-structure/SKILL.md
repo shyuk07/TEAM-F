@@ -148,3 +148,6 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
 | M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
 | M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |
+| O0 첫 화면·상점 개설 | `pages/owner-start` | `features/stores`, `features/auth`(`useAuth`), `entities/store`, `widgets/owner-nav`(`OwnerLogoutLink`) | `../docs/design/frontend/stores.md` |
+| O7 상점 폐점 확인 | `pages/store-close` | `features/stores`, `entities/store` | `../docs/design/frontend/stores.md` |
+| 상점 유무 가드(O0·O1 분기) | 없음(`app/layouts/OwnerStoreGate`) | `entities/store`(`MyStoreProvider`, `decideOwnerEntry`), `features/auth` | `../docs/design/frontend/stores.md` |

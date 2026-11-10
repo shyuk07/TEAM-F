@@ -30,6 +30,8 @@
 | O4 매장·상품 | `/owner/store` | OwnerLayout | 있음(매장 활성) | 자리 page 「O4 매장」 | products 구현 시 교체 |
 | O6 상품 등록 | `/owner/products/new` | OwnerLayout | 없음 | 자리 page 「O6 상품 등록」 | |
 | O11 상품 수정 | `/owner/products/:productId` | OwnerLayout | 없음 | 자리 page 「O11 상품 수정」 + `productId` 표시 | `useParams`로 읽음 |
+| O0 상점 개설 | `/owner/start` | OwnerLayout | 없음 | `pages/owner-start` `OwnerStartPage` | stores.md D-1에 추가(C-5 해소) |
+| O7 상점 폐점 | `/owner/store/close` | OwnerLayout | 없음 | `pages/store-close` `StoreClosePage` | stores.md D-12에 추가(C-5 해소) |
 | `/owner` | 리다이렉트 → `/owner/today` | | | `<Navigate replace>` | 최종 이동은 auth가 결정 |
 | `/` | 기존 `HomePlaceholder` 유지 | 없음 | | D-7 | |
 | 그 외 `*` | 리다이렉트 → `/` | 없음 | | `<Navigate to="/" replace>` | Q-4 확정. NotFound 문구는 나중 |
@@ -116,7 +118,7 @@ OwnerLayout (app/layouts)                  <div className="app"> 프레임
 | D-11 | 토큰 보관 | `localStorage` | 확정 | `api-client` §2.1 | |
 | D-12 | 테스트 위치 | `tests/` | 확정 | `react-implementation` §7 | |
 | D-13 | DI 도구 | `shared/lib/di.ts` + `DepsProvider.tsx` | 확정 | 구현 완료 | |
-| D-14 | O4 폐점 링크(O7)·계정 행 | 자리만 | 확정 | 사용자 | |
+| D-14 | O4 폐점 링크(O7)·계정 행 | 자리만 → 폐점 링크 부분은 stores.md D-12로 대체(구현 시 해소): stores 구현 시 O4 자리 page에 「상점 폐점」 링크(`/owner/store/close`)를 채운다. 계정 행은 자리 그대로 | 확정 | 사용자(stores.md Q-5) | |
 | D-15 | 자리 page 문구 | 화면 ID 표시(예: 「O1 오늘」). 개발용 임시값이며 해당 화면 구현 때 교체 | 확정 | 사용자(Q-1) | |
 | D-16 | 정의되지 않은 경로 | `/`로 리다이렉트 | 확정 | 사용자(Q-4) | |
 | D-17 | 경로 상수(`ROUTES`, `ROUTE_PATTERNS`) 위치 | `src/shared/lib/routes.ts` | 확정 | 사용자 결정. 골격 단계 layer-check 위반 `[외부의존] widgets/owner-nav/domain/ownerTabs.ts:1 domain → shared/config (F6)`: domain은 shared 중 `shared/lib`만 쓸 수 있고, 경로 상수는 업무 로직 없는 순수 값이다. 검토했으나 채택하지 않은 안: 탭 목록을 인자로 주입, F6 예외 인정 | |

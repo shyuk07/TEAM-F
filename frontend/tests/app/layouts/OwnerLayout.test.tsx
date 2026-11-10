@@ -10,6 +10,7 @@ import { adminUser, customerUser, ownerUser } from '../../features/auth/fakes/us
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
 import type { User } from '@/features/auth';
+import { renderRoutesWithOwnerStore } from '../../support/renderWithOwnerStore';
 
 function Page() {
   return (
@@ -167,5 +168,34 @@ describe('OwnerLayout error 대체 문구', () => {
     renderGuard(fakes);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('불러오지 못했어요. 잠시 후 다시 시도해 주세요.');
+  });
+});
+
+describe('OwnerLayout 가드가 상점 조회를 시작하지 않는 경우', () => {
+  const routes: RouteObject[] = [
+    { path: '/login', element: <p>로그인 화면</p> },
+    { path: '/', element: <p>홈 화면</p> },
+    {
+      element: <OwnerLayout />,
+      children: [{ path: '/owner/today', element: <p>본문</p>, handle: { tabBar: true } }],
+    },
+  ];
+
+  it('로그인 안 함(anonymous) → 상점 조회(findMine)를 시작하지 않는다', async () => {
+    const { router, repo } = renderRoutesWithOwnerStore(routes, {
+      initialEntries: ['/owner/today'],
+      fakes: anonymousFakes(),
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(repo.findMine).not.toHaveBeenCalled();
+  });
+
+  it('CUSTOMER → 홈으로 갈 때 상점 조회(findMine)를 시작하지 않는다', async () => {
+    const { router, repo } = renderRoutesWithOwnerStore(routes, {
+      initialEntries: ['/owner/today'],
+      fakes: signedInFakes(customerUser),
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    expect(repo.findMine).not.toHaveBeenCalled();
   });
 });

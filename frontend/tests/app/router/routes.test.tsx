@@ -1,4 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
+import { FakeStoreRepository } from '../../entities/store/fakes/fakeStoreRepository.fake';
+import { ownerUser } from '../../features/auth/fakes/users';
+import { renderRoutesWithOwnerStore } from '../../support/renderWithOwnerStore';
 import { routes } from '@/app/router/routes';
 import { customerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
@@ -133,5 +136,48 @@ describe('routes: 고객 셸 (customer-home §4)', () => {
   it('/me/points는 비로그인이면 /login으로 이동한다', async () => {
     const router = renderAt('/me/points', anonymousFakes());
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+  });
+});
+
+describe('routes stores 화면 추가', () => {
+  function renderStoreAt(
+    path: string,
+    authFakes = signedInFakes(),
+    repo = new FakeStoreRepository(),
+  ) {
+    return renderRoutesWithOwnerStore(routes, { initialEntries: [path], fakes: authFakes, repo });
+  }
+
+  const noneRepo = () => {
+    const repo = new FakeStoreRepository();
+    repo.findMine.mockResolvedValue(null);
+    return repo;
+  };
+
+  it('/owner/start는 상점주 셸 안(OwnerLayout)이고 TabBar가 없다', () => {
+    renderStoreAt('/owner/start', signedInFakes(ownerUser));
+    expect(document.querySelector('.app')).not.toBeNull();
+    expect(screen.queryAllByRole('link', { name: '오늘' })).toHaveLength(0);
+  });
+
+  it('/owner/store/close는 상점주 셸 안이고 TabBar가 없다', () => {
+    renderStoreAt('/owner/store/close', signedInFakes(ownerUser));
+    expect(document.querySelector('.app')).not.toBeNull();
+    expect(screen.queryAllByRole('link', { name: '오늘' })).toHaveLength(0);
+  });
+
+  it('계정 APPROVED + 상점 없음 + /owner → 최종 O0 폼이 보인다', async () => {
+    renderStoreAt('/owner', signedInFakes(ownerUser), noneRepo());
+    expect(await screen.findByLabelText(/픽업 주소/)).toBeInTheDocument();
+  });
+
+  it('계정 PENDING + /owner/today → O0 승인 대기', async () => {
+    renderStoreAt('/owner/today', signedInFakes({ ...ownerUser, status: 'PENDING' }), noneRepo());
+    expect(await screen.findByText('승인 대기 중이에요')).toBeInTheDocument();
+  });
+
+  it('상점 ACTIVE + /owner → O1 자리 page가 보인다', async () => {
+    renderStoreAt('/owner', signedInFakes(ownerUser));
+    expect(await screen.findByRole('heading', { name: 'O1 오늘' })).toBeInTheDocument();
   });
 });

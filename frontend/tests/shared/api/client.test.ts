@@ -178,4 +178,94 @@ describe('shared/api/client', () => {
     expect(init.body).toBe('{"a":1}');
     expect(init.signal).toBe(ctrl.signal);
   });
+
+  describe('401 · TOKEN_REVOKED 알림 (authFailure)', () => {
+    async function setup(res: Response) {
+      fetchMock.mockResolvedValue(res);
+      const mod = await loadClient('');
+      const { onAuthFailure } = await import('@/shared/api/authFailure');
+      const handler = vi.fn();
+      const off = onAuthFailure(handler);
+      await mod.saveToken('tok-1');
+      const err = await mod.request('/v1/stores/me').catch((e) => e);
+      return { ...mod, handler, off, err };
+    }
+
+    it('401 + UNAUTHORIZED: 핸들러가 정확히 1번 불리고 ApiError가 그대로 던져진다', async () => {
+      const { handler, err, ApiError } = await setup(
+        jsonRes({ success: false, error_code: 'UNAUTHORIZED', message: 'x' }, 401),
+      );
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(err.status).toBe(401);
+    });
+
+    it('401 + TOKEN_REVOKED: 핸들러가 1번 불린다', async () => {
+      const { handler } = await setup(
+        jsonRes({ success: false, error_code: 'TOKEN_REVOKED', message: 'x' }, 401),
+      );
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('401 + 다른 errorCode(INVALID_CREDENTIALS)는 불리지 않는다', async () => {
+      const { handler } = await setup(
+        jsonRes({ success: false, error_code: 'INVALID_CREDENTIALS', message: 'x' }, 401),
+      );
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('auth: false 요청의 401은 불리지 않는다(로그인 실패)', async () => {
+      const mod = await loadClient('');
+      const { onAuthFailure } = await import('@/shared/api/authFailure');
+      const handler = vi.fn();
+      onAuthFailure(handler);
+      fetchMock.mockResolvedValue(
+        jsonRes({ success: false, error_code: 'INVALID_CREDENTIALS', message: 'x' }, 401),
+      );
+      await expect(
+        mod.request('/v1/auth/login', { method: 'POST', body: {}, auth: false }),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [403, 'FORBIDDEN'],
+      [404, 'NOT_FOUND'],
+      [400, 'VALIDATION_ERROR'],
+      [500, 'INTERNAL_ERROR'],
+    ])('%i + %s는 불리지 않는다', async (status, errorCode) => {
+      const { handler } = await setup(
+        jsonRes({ success: false, error_code: errorCode, message: 'x' }, status as number),
+      );
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('NETWORK_ERROR는 불리지 않는다', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+      const mod = await loadClient('');
+      const { onAuthFailure } = await import('@/shared/api/authFailure');
+      const handler = vi.fn();
+      onAuthFailure(handler);
+      await expect(mod.request('/v1/stores/me')).rejects.toMatchObject({ status: 0 });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('등록 해제 함수를 부른 뒤에는 불리지 않는다', async () => {
+      const { off, handler } = await setup(
+        jsonRes({ success: false, error_code: 'UNAUTHORIZED', message: 'x' }, 401),
+      );
+      expect(handler).toHaveBeenCalledTimes(1);
+      off();
+      await setup(jsonRes({ success: false, error_code: 'UNAUTHORIZED', message: 'x' }, 401));
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('핸들러가 없어도 오류 없이 ApiError를 던진다', async () => {
+      const mod = await loadClient('');
+      fetchMock.mockResolvedValue(
+        jsonRes({ success: false, error_code: 'UNAUTHORIZED', message: 'x' }, 401),
+      );
+      await expect(mod.request('/v1/stores/me')).rejects.toMatchObject({ status: 401 });
+    });
+  });
 });
