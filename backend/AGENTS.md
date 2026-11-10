@@ -5,7 +5,7 @@
 1. AGENTS.md
 2. README.md
 3. .claude/skills/layer-architecture/SKILL.md
-4. ../docs/operations/orchestration.md
+4. ../docs/operations/backend-orchestration.md
 5. ../docs/reference/README.md
 
 ## 문서 맵
@@ -15,7 +15,7 @@
 | 관심사 | 위치 |
 |--------|------|
 | 프로젝트 개요·스택·로컬 실행 | `README.md` |
-| 오케스트레이션·에이전트 중계·쓰기 소유권 | `../docs/operations/orchestration.md` |
+| 오케스트레이션·에이전트 중계·쓰기 소유권 | `../docs/operations/backend-orchestration.md` |
 | API 명세 (공통 에러 형식·권한·전체 목록) | `../docs/reference/README.md` |
 | 모듈별 API 명세 | `../docs/reference/<모듈>.md` |
 
@@ -65,7 +65,7 @@
 - **근거로 말한다.** 주장과 완료 보고에는 실행한 명령과 결과, 또는 `파일:위치`를 붙인다. 실행하지 않은 것을 통과로 말하지 않는다.
 - **만든 사람과 확인하는 사람을 나눈다.** 자기 산출물을 스스로 합격 판정하지 않는다.
 - **검사를 약하게 만들지 않는다.** 통과를 위해 규칙·테스트·검사를 끄거나 건너뛰지 않는다. 실패는 실패로 보고한다.
-- **전달은 손실 없이 한다.** 에이전트 사이 정보는 요약하지 않고 파일 경로와 ID로 넘긴다(`../docs/operations/orchestration.md`).
+- **전달은 손실 없이 한다.** 에이전트 사이 정보는 요약하지 않고 파일 경로와 ID로 넘긴다(`../docs/operations/backend-orchestration.md`).
 - **되돌리기 어려운 일은 사용자가 정한다.** git 쓰기, 외부 게시, 삭제, 설정 변경은 사용자 요청이 있을 때만 한다. 시크릿은 커밋하지 않는다.
 - **운영 문서에는 운영만 쓴다.** `AGENTS.md`와 `../docs/operations/`에는 현재 진행 상황이나 특정 기능 이야기를 넣지 않는다.
 

@@ -256,7 +256,7 @@ router는 서비스만 호출하고 예외를 잡지 않는다(R6, R7): `service
 
 ## 6. 조립 — `src/container.py` / `src/main.py` (모듈 밖 변경 제안, 이 문서는 쓰지 않는다)
 
-R9: 구현체 연결은 `src/container.py`에서만 한다. 현재 `src/container.py`는 없다(0절). **확정(D14): stores implementer가 골격(import, `wire_dependencies`, stores 구역)을 먼저 만든다.** catalog는 이후 자기 구역만 추가한다. `docs/operations/orchestration.md` §4에 따라 implementer는 자기 모듈 구역만 쓴다. 아래는 stores 구역이다.
+R9: 구현체 연결은 `src/container.py`에서만 한다. 현재 `src/container.py`는 없다(0절). **확정(D14): stores implementer가 골격(import, `wire_dependencies`, stores 구역)을 먼저 만든다.** catalog는 이후 자기 구역만 추가한다. `docs/operations/backend-orchestration.md` §4에 따라 implementer는 자기 모듈 구역만 쓴다. 아래는 stores 구역이다.
 
 ### 6.1 container.py — stores 구역
 
@@ -369,7 +369,7 @@ EP 목록(한 줄씩):
 
 ## 11. 모듈 밖 변경 제안 (이 문서는 쓰지 않는다)
 
-- `src/container.py` **신설**(6.1, D14 확정): stores implementer가 먼저 만든다. imports, 모듈 전역 `_clock`, stores 구역 팩토리 2개, `wire_dependencies(app)`(stores `provide_*` 2개 매핑)로 골격을 구성한다. auth 구역은 넣지 않는다(C10, 별도 작업). catalog 구역(`create_store_port` 등)은 이후 catalog 구현자가 자기 구역만 추가한다. 쓰기 소유권: implementer는 자기 모듈 구역만(`docs/operations/orchestration.md` §4).
+- `src/container.py` **신설**(6.1, D14 확정): stores implementer가 먼저 만든다. imports, 모듈 전역 `_clock`, stores 구역 팩토리 2개, `wire_dependencies(app)`(stores `provide_*` 2개 매핑)로 골격을 구성한다. auth 구역은 넣지 않는다(C10, 별도 작업). catalog 구역(`create_store_port` 등)은 이후 catalog 구현자가 자기 구역만 추가한다. 쓰기 소유권: implementer는 자기 모듈 구역만(`docs/operations/backend-orchestration.md` §4).
 - `src/main.py`: 6.3의 import 순서(auth → stores → catalog), `wire_dependencies(app)` 호출(`register_exception_handlers` 뒤, 라우터 등록 전), `stores_router` 등록
 - `docs/design/catalog.md`: 9절 정합 이슈 C1~C3, C8 반영 여부 검토 (이번 갱신에서 수정하지 않음)
 - `docs/reference/stores.md`: 지오코딩·승인 정의가 정해지면 확인 필요 항목 갱신
