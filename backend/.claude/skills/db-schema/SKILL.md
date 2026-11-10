@@ -231,7 +231,7 @@ erDiagram
 | `stores.approval_at VARCHAR(20)` | API 명세는 "개설 시각"(datetime)으로 사용 | `approval_at TIMESTAMPTZ` |
 | 상태·유형 값 제약 없음 | 아무 문자열이나 저장됨 | API 명세로 확정된 값에 이름 있는 `CHECK`: `discount_offers.status`(`ck_offer_status`, `SUSPENDED` 포함), `point_log.point_type`(`ck_point_log_type`, `GRANT`·`EXPIRE` 포함), `users.status`(`ck_users_status`), `pickup_reservations.cancelled_by`(`ck_reservation_cancelled_by`: `CUSTOMER`·`STORE`·`SYSTEM`, NULL 허용. `ck_reservation_cancelled_by_status`: 값이 있으면 `status = 'CANCELLED'`) |
 | FK 없음 | 참조 무결성 보장 안 됨 | FK 11개와 인덱스 추가 |
-| (신규 테이블) `product_images` | 상품 이미지 업로드용으로 추가 (`docs/design/catalog.md` 15.2) | `content_type` 3종(`ck_product_images_content_type`), `size_bytes` 1~5 MiB(`ck_product_images_size`), `octet_length(data) = size_bytes`(`ck_product_images_size_matches`) CHECK 3개 |
+| (신규 테이블) `product_images` | 상품 이미지 업로드용으로 추가 (`../docs/design/catalog.md` 15.2) | `content_type` 3종(`ck_product_images_content_type`), `size_bytes` 1~5 MiB(`ck_product_images_size`), `octet_length(data) = size_bytes`(`ck_product_images_size_matches`) CHECK 3개 |
 | PK·`created_at` 기본값 없음 | 앱에서 매번 넣어야 함 | `gen_random_uuid()`, `now()` |
 | 재고·금액 검증 없음 | 음수, 초과 재고 가능 | `remaining_stock BETWEEN 0 AND initial_stock`, 금액 `>= 0`, `quantity >= 1`, `pickup_end > pickup_start` |
 | `users.email` 중복 허용 | 같은 이메일로 여러 계정 | `UNIQUE` |

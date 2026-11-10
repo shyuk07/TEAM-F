@@ -80,7 +80,7 @@ docker compose up -d
 docker compose ps
 ```
 
-**DB 스키마가 바뀐 PR을 받았을 때:** 서버는 시작할 때 DB 테이블이 모델과 맞는지 검사합니다. `create_all`은 이미 있는 테이블에 새 컬럼을 추가하지 못하므로, 컬럼이나 CHECK가 빠져 있으면 무엇이 빠졌는지 알려 주며 시작을 멈춥니다(DB를 자동으로 바꾸지 않습니다). 그때는 `docs/migrations/`의 SQL 파일을 파일명 순서대로 실행하세요(다시 실행해도 안전합니다). 예: `docker compose exec -T postgres psql -U lastcall -d lastcall < docs/migrations/<파일>.sql`. 데이터가 필요 없다면 `docker compose down -v` 후 다시 `up -d`로 DB를 새로 만드는 방법도 있습니다. 검사를 잠시 끄려면 `.env`에 `SCHEMA_CHECK=off`를 둡니다(권장하지 않음). 컬럼을 추가하는 PR은 같은 PR에 `docs/migrations/` 파일을 함께 넣습니다.
+**DB 스키마가 바뀐 PR을 받았을 때:** 서버는 시작할 때 DB 테이블이 모델과 맞는지 검사합니다. `create_all`은 이미 있는 테이블에 새 컬럼을 추가하지 못하므로, 컬럼이나 CHECK가 빠져 있으면 무엇이 빠졌는지 알려 주며 시작을 멈춥니다(DB를 자동으로 바꾸지 않습니다). 그때는 `../docs/migrations/`의 SQL 파일을 파일명 순서대로 실행하세요(다시 실행해도 안전합니다). 예: `docker compose exec -T postgres psql -U lastcall -d lastcall < ../docs/migrations/<파일>.sql`. 데이터가 필요 없다면 `docker compose down -v` 후 다시 `up -d`로 DB를 새로 만드는 방법도 있습니다. 검사를 잠시 끄려면 `.env`에 `SCHEMA_CHECK=off`를 둡니다(권장하지 않음). 컬럼을 추가하는 PR은 같은 PR에 `../docs/migrations/` 파일을 함께 넣습니다.
 
 ### 5. FastAPI 실행
 

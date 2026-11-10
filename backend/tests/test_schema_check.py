@@ -1,4 +1,4 @@
-"""서버 시작 시 스키마 검사 (docs/design/schema-check.md 9절).
+"""서버 시작 시 스키마 검사 (../docs/design/schema-check.md 9절).
 
 DB 테스트는 session_factory(lastcall_test, 앱 테이블 create_all 완료 상태)의 엔진을 쓰고,
 임시 MetaData의 t_sc_* 테이블만 만들고 지운다.
@@ -63,7 +63,7 @@ async def test_check_schema_raises_with_details(engine):
     with pytest.raises(RuntimeError) as exc:
         await check_schema(engine, _metadata())
     message = str(exc.value)
-    for expected in ("t_sc_a", "x", "ck_t_sc_a_x", "docs/migrations/"):
+    for expected in ("t_sc_a", "x", "ck_t_sc_a_x", "../docs/migrations/"):
         assert expected in message
 
 

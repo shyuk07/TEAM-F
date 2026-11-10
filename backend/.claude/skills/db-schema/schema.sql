@@ -96,7 +96,7 @@ CREATE TABLE products (
 );
 CREATE INDEX ix_products_store_id ON products (store_id);
 
--- 상품 이미지 업로드 바이트 (docs/design/catalog.md 15.2). 5242880 = 5 MiB = 앱 상수 MAX_IMAGE_BYTES
+-- 상품 이미지 업로드 바이트 (../docs/design/catalog.md 15.2). 5242880 = 5 MiB = 앱 상수 MAX_IMAGE_BYTES
 CREATE TABLE product_images (
     id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id    UUID         NOT NULL REFERENCES products (id),

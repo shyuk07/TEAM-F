@@ -1,4 +1,4 @@
-"""상품 이미지 업로드·삭제·조회 API (실제 DB, docs/design/catalog.md 15절)."""
+"""상품 이미지 업로드·삭제·조회 API (실제 DB, ../docs/design/catalog.md 15절)."""
 
 import asyncio
 import os

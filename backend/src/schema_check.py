@@ -1,4 +1,4 @@
-"""서버 시작 시 DB 스키마 검사 (docs/design/schema-check.md).
+"""서버 시작 시 DB 스키마 검사 (../docs/design/schema-check.md).
 
 모델(`Base.metadata`)에 있는데 DB에 없는 컬럼과 이름 있는 CHECK를 찾아 알린다.
 DB는 바꾸지 않는다(읽기 전용). 타입·NULL·인덱스·FK, CHECK 식은 비교하지 않는다(D-4, D-5).
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from database import Base
 
-MIGRATIONS_DIR = "docs/migrations/"  # D-11: 안내 문구는 이 상수 한 곳
+MIGRATIONS_DIR = "../docs/migrations/"  # D-11: 안내 문구는 이 상수 한 곳
 MIGRATIONS_HINT = (
     f"{MIGRATIONS_DIR} 의 SQL을 파일명 순서대로 실행하세요. "
     "이미 반영된 항목은 건너뛰도록 작성돼 있어 다시 실행해도 안전합니다.\n"
