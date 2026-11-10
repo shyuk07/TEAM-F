@@ -13,7 +13,8 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, onClose: () =>
 
   useEffect(() => {
     const items = () => Array.from(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    items()[0]?.focus();
+    // 안쪽 컴포넌트가 이미 포커스를 정했으면(예: 로그아웃 확인의 「취소」) 덮어쓰지 않는다
+    if (!ref.current?.contains(document.activeElement)) items()[0]?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

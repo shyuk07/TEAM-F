@@ -88,6 +88,7 @@ describe('MyPage (C6·C10)', () => {
     renderMy(withRecentPoints());
     await userEvent.click(await screen.findByRole('button', { name: /로그아웃/ }));
     const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    await waitFor(() => expect(within(sheet).getByRole('button', { name: '취소' })).toHaveFocus());
     expect(sheet.closest('.dim')).not.toBeNull();
     expect(
       within(sheet).getByText('진행 중인 예약은 그대로 남아요. 다시 로그인하면 볼 수 있어요.'),

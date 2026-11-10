@@ -2,11 +2,15 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '@/features/auth';
 import {
+  KEYWORD_MAX_LENGTH,
+  LOAD_MORE_LABEL,
   LocationSheet,
   NearbyEmpty,
   OFFERS_LOAD_FAILED_MESSAGE,
   OfferCard,
   OfferCardSkeleton,
+  OWNER_APPLY_LINK,
+  SEARCH_LABEL,
   SortChips,
   locationChipLabel,
   nextRadius,
@@ -102,9 +106,9 @@ export function HomePage() {
               className="in"
               type="search"
               name="q"
-              aria-label="상품명 검색"
-              placeholder="상품명 검색"
-              maxLength={100}
+              aria-label={SEARCH_LABEL}
+              placeholder={SEARCH_LABEL}
+              maxLength={KEYWORD_MAX_LENGTH}
               defaultValue={filter.keyword}
             />
           </form>
@@ -151,7 +155,7 @@ export function HomePage() {
                 if (!offers.loadingMore) offers.loadMore();
               }}
             >
-              {offers.loadingMore ? '처리 중…' : '더 보기'}
+              {offers.loadingMore ? '처리 중…' : LOAD_MORE_LABEL}
             </button>
           ) : null}
         </div>
@@ -159,7 +163,7 @@ export function HomePage() {
       {auth.status !== 'authenticated' ? (
         // 탭 바 바로 위 고정 위치(wireframe.html:320, screens.md C1, D-18).
         <Link className="link" style={{ padding: 'var(--s2)' }} to={ROUTES.ownerSignup}>
-          사장님이신가요? 입점 신청
+          {OWNER_APPLY_LINK}
         </Link>
       ) : null}
     </>
