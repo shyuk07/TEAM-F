@@ -10,11 +10,11 @@
 | 파일 | 모듈 | API 수 |
 | --- | --- | --- |
 | [auth.md](auth.md) | `src/auth` 회원·인증·포인트 | 12 |
-| [stores.md](stores.md) | `src/stores` 상점 | 2 |
-| [catalog.md](catalog.md) | `src/catalog` 상품·할인·재고 | 14 |
+| [stores.md](stores.md) | `src/stores` 상점 | 3 |
+| [catalog.md](catalog.md) | `src/catalog` 상품·이미지·할인·재고 | 17 |
 | [reservations.md](reservations.md) | `src/reservations` 예약·픽업 | 5 |
 | [payments.md](payments.md) | `src/payments` 결제·환불 | 4 |
-| [admin.md](admin.md) | `src/admin` 관리자 기능 | 9 |
+| [admin.md](admin.md) | `src/admin` 관리자 기능 | 10 |
 
 DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
@@ -70,6 +70,11 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 | 44 | auth | [비밀번호 재설정 확인](auth.md#11-비밀번호-재설정-확인) | POST | `/v1/auth/password-reset/confirm` | 공개 | 204 |
 | 45 | auth | [회원 탈퇴](auth.md#12-회원-탈퇴-자진) | POST | `/v1/users/me/withdraw` | 회원 | 200 |
 | 46 | reservations | [상점주용 매장 예약 목록 조회](reservations.md#5-상점주용-매장-예약-목록-조회) | GET | `/v1/stores/{store_id}/reservations` | 상점주(본인 상점) | 200 |
+| 47 | stores | [내 상점 조회](stores.md#3-내-상점-조회) | GET | `/v1/stores/me` | 상점주(정지 포함) | 200 |
+| 48 | admin | [회원 목록 조회](admin.md#10-회원-목록-조회) | GET | `/v1/admin/users` | 관리자 | 200 |
+| 49 | catalog | [상품 이미지 업로드](catalog.md#15-상품-이미지-업로드) | POST | `/v1/products/{product_id}/images` | 상점주(본인) | 201 |
+| 50 | catalog | [상품 이미지 삭제](catalog.md#16-상품-이미지-삭제) | DELETE | `/v1/products/{product_id}/images/{image_id}` | 상점주(본인) | 204 |
+| 51 | catalog | [상품 이미지 조회](catalog.md#17-상품-이미지-조회) | GET | `/v1/products/{product_id}/images/{image_id}` | 공개 | 200 |
 
 ### URI를 정한 규칙
 - 모든 경로는 노션에 있는 `/v1` 접두사를 씁니다.
@@ -133,7 +138,7 @@ DB 테이블과 컬럼은 `.claude/skills/db-schema/SKILL.md`를 따릅니다.
 
 노션에 나온 `error_code`: `VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `EMAIL_DUPLICATED`, `UNAUTHORIZED`, `TOKEN_REVOKED`
 
-auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
+auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일치, 400), `INVALID_RESET_CODE`(재설정 코드 불일치·만료·횟수 초과, 400), `ACCOUNT_LOCKED`(로그인 연속 5회 실패 잠금, 429, `Retry-After`, 맞는 비밀번호일 때만). 비밀번호 변경·재설정 뒤 이전 토큰은 `401 TOKEN_REVOKED`입니다.
 
 ### 상태 코드
 | 코드 | 쓰임 |
@@ -142,6 +147,7 @@ auth 추가 `error_code`: `CURRENT_PASSWORD_MISMATCH`(현재 비밀번호 불일
 | 400 | 도메인 규칙 위반 (도메인의 `ValueError`) |
 | 401 | 토큰 없음, 만료, 로그아웃된 토큰, 로그인 실패 |
 | 403 | 역할이나 소유권 없음 (`PermissionError`) |
+| 429 | 로그인 연속 실패 잠금 (auth `ACCOUNT_LOCKED`, `Retry-After` 헤더) |
 | 404 | 대상 없음 (`LookupError`) |
 | 409 | 중복이나 상태 충돌 (노션 예약·결제·회원가입 페이지에서 사용) |
 | 422 | 요청 형식 오류 (FastAPI·Pydantic 기본) |

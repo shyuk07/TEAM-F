@@ -170,3 +170,24 @@ class OfferStatusNotAllowedError(ValueError):
 
     def __init__(self, message: str = "status: SUSPENDED은(는) 상점주만 지정할 수 있습니다."):
         super().__init__(message)
+
+
+class ProductImageNotFoundError(LookupError):
+    """404 NOT_FOUND"""
+
+    def __init__(self, message: str = "이미지를 찾을 수 없습니다."):
+        super().__init__(message)
+
+
+class UnsupportedImageTypeError(ValueError):
+    error_code = "UNSUPPORTED_IMAGE_TYPE"
+
+    def __init__(self, message: str = "JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다."):
+        super().__init__(message)
+
+
+class ImageTooLargeError(ValueError):
+    error_code = "IMAGE_TOO_LARGE"
+
+    def __init__(self, message: str = "이미지 크기는 5MB 이하여야 합니다."):
+        super().__init__(message)

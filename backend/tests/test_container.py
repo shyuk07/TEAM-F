@@ -47,18 +47,22 @@ def test_placeholder_raises_when_not_wired():
 
 def test_create_auth_service_builds_with_abstractions():
     marker = object()
-    service = create_auth_service(marker, marker, marker, marker)
+    service = create_auth_service(marker, marker, marker, marker, marker)
     assert isinstance(service, AuthApplicationService)
     assert service.session is marker
     assert isinstance(service.hasher, PasswordHasher)
     assert isinstance(service.tokens, TokenProvider)
     assert isinstance(service.clock, AuthClock)
+    assert service.codes is marker
 
 
 def test_build_auth_service_builds_with_abstractions():
+    from auth.domain.repository.password_reset_code_repository import PasswordResetCodeRepository
+
     marker = object()
     service = build_auth_service(marker)
     assert isinstance(service, AuthApplicationService)
+    assert isinstance(service.codes, PasswordResetCodeRepository)
     assert service.session is marker
     assert isinstance(service.hasher, PasswordHasher)
     assert isinstance(service.tokens, TokenProvider)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,12 +15,31 @@ from auth.domain.repository.token_blacklist_repository import TokenBlacklistRepo
 from auth.domain.repository.user_repository import UserRepository
 from auth.domain.token_blacklist import BlacklistedToken
 from auth.domain.user import Role, User, UserStatus
+from auth.domain.user_list_query import UserListQuery
 from auth.infrastructure.models import (
     PasswordResetCodeModel,
     PointLogModel,
     TokenBlacklistModel,
     UserModel,
 )
+
+
+def _status_clause(status: UserStatus, now: datetime):
+    """실효 상태 필터. User.effective_status와 같은 규칙이다(until <= now는 만료).
+    한쪽을 고치면 다른 쪽도 함께 고친다(일관성 테스트: tests/auth/test_user_list_repository_db.py)."""
+    expired = and_(
+        UserModel.status == "SUSPENDED",
+        UserModel.suspended_until.is_not(None),
+        UserModel.suspended_until <= now,
+    )
+    if status is UserStatus.APPROVED:
+        return or_(UserModel.status == "APPROVED", expired)
+    if status is UserStatus.SUSPENDED:
+        return and_(
+            UserModel.status == "SUSPENDED",
+            or_(UserModel.suspended_until.is_(None), UserModel.suspended_until > now),
+        )
+    return UserModel.status == status.value
 
 
 class SqlAlchemyUserRepository(UserRepository):
@@ -56,6 +75,8 @@ class SqlAlchemyUserRepository(UserRepository):
                 business_number=user.business_number,
                 token_version=user.token_version,
                 token_keep_jti=user.token_keep_jti,
+                failed_login_count=user.failed_login_count,
+                login_locked_until=user.login_locked_until,
             )
             self._write_status(model, user)
             if user.created_at is not None:
@@ -77,9 +98,38 @@ class SqlAlchemyUserRepository(UserRepository):
             model.password_hash = user.password_hash
             model.token_version = user.token_version
             model.token_keep_jti = user.token_keep_jti
+            model.failed_login_count = user.failed_login_count
+            model.login_locked_until = user.login_locked_until
             self._write_status(model, user)
             await self.session.flush()
         return user
+
+    async def find_all(self, query: UserListQuery, now: datetime) -> list[User]:
+        stmt = (
+            select(UserModel)
+            .where(*self._conditions(query, now))
+            .order_by(UserModel.created_at.asc(), UserModel.id.asc())
+            .offset(query.offset)
+            .limit(query.size)
+        )
+        models = (await self.session.execute(stmt)).scalars().all()
+        return [self._to_domain(m) for m in models]
+
+    async def count_all(self, query: UserListQuery, now: datetime) -> int:
+        stmt = select(func.count()).select_from(UserModel).where(*self._conditions(query, now))
+        return (await self.session.execute(stmt)).scalar_one()
+
+    @staticmethod
+    def _conditions(query: UserListQuery, now: datetime) -> list:
+        conditions = []
+        if query.role is not None:
+            conditions.append(UserModel.role == query.role.value)
+        if query.status is not None:
+            conditions.append(_status_clause(query.status, now))
+        if query.email is not None:
+            # ILIKE ... ESCAPE '/': %, _ 는 글자 그대로
+            conditions.append(UserModel.email.icontains(query.email, autoescape=True))
+        return conditions
 
     @staticmethod
     def _write_status(model: UserModel, user: User) -> None:
@@ -116,6 +166,8 @@ class SqlAlchemyUserRepository(UserRepository):
             deleted_reason=model.deleted_reason,
             token_version=model.token_version,
             token_keep_jti=model.token_keep_jti,
+            failed_login_count=model.failed_login_count,
+            login_locked_until=model.login_locked_until,
         )
 
 

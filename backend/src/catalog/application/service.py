@@ -18,6 +18,7 @@ from catalog.application.views import (
     OfferSuspensionView,
     OfferView,
     Page,
+    ProductImageUploadResult,
     ProductDetailView,
     StockAdjustResult,
 )
@@ -31,11 +32,14 @@ from catalog.domain.exceptions import (
     NotStoreOwnerError,
     OfferNotFoundError,
     OpenOfferExistsError,
+    ProductImageNotFoundError,
     ProductNotFoundError,
     StoreNotFoundError,
 )
 from catalog.domain.product import Product
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
+from catalog.domain.product_image import ProductImage
+from catalog.domain.repository.product_image_repository import ProductImageRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
 from catalog.domain.search import OfferSort, SearchArea, normalize_keyword, round_distance
@@ -55,6 +59,7 @@ class CatalogApplicationService:
         clock: Clock,
         reservations: ReservationLookupPort,
         reservation_cancel: ReservationCancelPort,
+        product_images: ProductImageRepository,
     ):
         self.session = session
         self.stores = stores
@@ -64,6 +69,7 @@ class CatalogApplicationService:
         self.clock = clock
         self.reservations = reservations
         self.reservation_cancel = reservation_cancel
+        self.product_images = product_images
 
     # ── 내부 헬퍼 ──────────────────────────
     async def _load_store(self, store_id: uuid.UUID) -> StoreRef:
@@ -228,10 +234,44 @@ class CatalogApplicationService:
         if "original_price" in changes:
             open_offer = await self.offers.find_open_by_product(product_id, now)
             open_price = open_offer.sale_price if open_offer else None
-        product.apply_changes(changes, open_price)
+        removed = product.apply_changes(changes, open_price)
         await self.products.save(product)
+        if removed:  # D97: 목록에서 빠진 업로드 이미지는 같은 트랜잭션에서 바이트도 지운다
+            await self.product_images.delete_many(product.id, removed)
         await self.session.commit()
         return product
+
+    async def upload_product_image(
+        self, user_id: uuid.UUID, product_id: uuid.UUID, data: bytes
+    ) -> ProductImageUploadResult:
+        product = await self._get_product(product_id, for_update=True)
+        store = await self._load_store(product.store_id)
+        store.ensure_owner(user_id, "본인 상점의 상품만 수정할 수 있습니다.")  # D95: 상태 검사 없음
+        image = ProductImage.create(product.id, data)
+        product.ensure_can_attach_image()
+        await self.product_images.add(image)
+        product.attach_image(image)
+        await self.products.save(product)
+        await self.session.commit()
+        return ProductImageUploadResult(image=image, product=product)
+
+    async def delete_product_image(
+        self, user_id: uuid.UUID, product_id: uuid.UUID, image_id: uuid.UUID
+    ) -> None:
+        product = await self._get_product(product_id, for_update=True)
+        store = await self._load_store(product.store_id)
+        store.ensure_owner(user_id, "본인 상점의 상품만 수정할 수 있습니다.")
+        if not await self.product_images.delete(product_id, image_id):
+            raise ProductImageNotFoundError()
+        product.detach_image(image_id)
+        await self.products.save(product)
+        await self.session.commit()
+
+    async def get_product_image(self, product_id: uuid.UUID, image_id: uuid.UUID) -> ProductImage:
+        image = await self.product_images.find_by_id(product_id, image_id)
+        if image is None:
+            raise ProductImageNotFoundError()
+        return image
 
     async def deactivate_product(self, user_id: uuid.UUID, product_id: uuid.UUID) -> Product:
         now = self.clock.now()

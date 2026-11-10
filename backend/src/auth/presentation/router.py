@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 
 from auth.application.password_reset_service import PasswordResetService
 from auth.application.service import AuthApplicationService
@@ -78,8 +78,12 @@ async def logout(principal: PrincipalAllowSuspended, service: Service):
     tags=["인증"],
     summary="비밀번호 재설정 코드 요청 (가입 여부와 무관하게 204)",
 )
-async def request_password_reset(body: PasswordResetRequest, service: ResetService):
-    await service.request_reset(body.email)
+async def request_password_reset(
+    body: PasswordResetRequest, service: ResetService, background: BackgroundTasks
+):
+    delivery = await service.request_reset(body.email)
+    if delivery is not None:
+        background.add_task(service.deliver, delivery)  # 전달은 응답 뒤 (REQ-27)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

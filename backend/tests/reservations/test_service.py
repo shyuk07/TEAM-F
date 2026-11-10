@@ -4,6 +4,7 @@ import pytest
 
 from reservations.application.lifecycle_service import ReservationLifecycleService
 from reservations.application.service import ReservationApplicationService
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
     NotPickupStoreOwnerError,
     NotReservationOwnerError,
@@ -220,7 +221,9 @@ async def test_lifecycle_commit_flag():
     _, lifecycle, session, *_ = env
     r, uid = await created(env)
     session.commits = 0
-    await lifecycle.cancel(r.id, reason="x", actor_user_id=uid, commit=True)
+    await lifecycle.cancel(
+        r.id, reason="x", actor_user_id=uid, cancelled_by=CancelActor.CUSTOMER, commit=True
+    )
     assert session.commits == 1
 
 
@@ -252,3 +255,29 @@ async def test_cancel_all_aborts_without_changes_when_picked_up_exists():
     with pytest.raises(PickedUpReservationExistsError):
         await service.cancel_all_for_offer(stock.offer_id, reason="x")
     assert a.status == S.PENDING_PAYMENT and refunds.calls == [] and session.commits == 0
+
+
+# ── 취소 주체 (설계 16.4) ──
+async def test_cancel_actor_p1_customer_p2_customer_idempotent_keeps_actor():
+    env = build()
+    service, lifecycle, *_ = env
+    r, uid = await created(env)
+    out = await service.cancel_reservation(uid, r.id)
+    assert out.cancelled_by == CancelActor.CUSTOMER
+    r2, _ = await created(env)
+    set_status(r2, S.RESERVED)
+    await lifecycle.cancel_for_refund(r2.id, "환불")
+    assert r2.cancelled_by == CancelActor.CUSTOMER
+    r2.cancelled_by = CancelActor.STORE  # 멱등: 이미 취소된 예약의 주체를 덮어쓰지 않는다
+    await lifecycle.cancel_for_refund(r2.id, "환불")
+    assert r2.cancelled_by == CancelActor.STORE
+
+
+async def test_cancel_actor_p3_offer_close_is_store():
+    env = build()
+    service, _, _, _, stock, *_ = env
+    a, _ = await created(env, qty=1)
+    b, _ = await created(env, qty=1)
+    set_status(b, S.RESERVED)
+    assert await service.cancel_all_for_offer(stock.offer_id, reason="판매 중단") == 2
+    assert a.cancelled_by == b.cancelled_by == CancelActor.STORE

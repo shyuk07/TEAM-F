@@ -5,6 +5,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from catalog.application.views import (
+    ProductImageUploadResult,
     DeactivateOfferResult,
     NearbyOfferView,
     OfferDetailView,
@@ -323,3 +324,23 @@ class NearbyOfferListResponse(BaseModel):
     page: int
     size: int
     total: int
+
+
+class ProductImageResponse(BaseModel):
+    id: uuid.UUID = Field(..., description="이미지 ID")
+    product_id: uuid.UUID = Field(..., description="상품 ID")
+    url: str = Field(..., description="이미지 조회 주소 (상대 경로)")
+    content_type: str = Field(..., description="image/jpeg, image/png, image/webp")
+    size_bytes: int = Field(..., description="파일 크기(바이트)")
+    product_image: list[str] = Field(..., description="업로드 후 상품의 전체 이미지 URL 목록")
+
+    @classmethod
+    def from_result(cls, result: ProductImageUploadResult) -> "ProductImageResponse":
+        return cls(
+            id=result.image.id,
+            product_id=result.image.product_id,
+            url=result.image.url,
+            content_type=result.image.content_type,
+            size_bytes=result.image.size_bytes,
+            product_image=list(result.product.product_image),
+        )

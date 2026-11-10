@@ -36,6 +36,7 @@ from payments.domain.payment import Payment, PaymentStatus
 from payments.domain.refund import Refund
 from payments.domain.repository.payment_repository import PaymentRepository
 from payments.domain.repository.refund_repository import RefundRepository
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.offer_ref import OfferRef
 from reservations.domain.pickup_reservation import PickupReservation
 from reservations.domain.pickup_reservation import ReservationStatus as S
@@ -119,6 +120,9 @@ class ResRepo(ReservationRepository):
 
     async def exists_by_offer(self, offer_id):
         return any(r.offer_id == offer_id for r in self.store.all())
+
+    async def exists_non_cancelled_by_offer(self, offer_id):
+        return any(r.offer_id == offer_id and r.status != S.CANCELLED for r in self.store.all())
 
     async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
         return [r for r in self.store.all() if r.user_id == user_id and r.status in statuses]
@@ -319,7 +323,7 @@ class Env:
         if status == S.RESERVED:
             reservation.mark_paid()
         elif status == S.CANCELLED:
-            reservation.cancel(NOW)
+            reservation.cancel(NOW, CancelActor.CUSTOMER)
         await self.res.save(reservation)
         await self.tx.commit()
         self._reset()

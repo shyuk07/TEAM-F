@@ -79,6 +79,9 @@ class FakeRepo(ReservationRepository):
     async def exists_by_offer(self, offer_id):
         return any(r.offer_id == offer_id for r in self.items.values())
 
+    async def exists_non_cancelled_by_offer(self, offer_id):
+        return any(r.offer_id == offer_id and r.status != ReservationStatus.CANCELLED for r in self.items.values())
+
     async def find_by_user_and_statuses(self, user_id, statuses, *, for_update=False):
         self.log.events.append("res_lock_user" if for_update else "res_read_user")
         rows = [r for r in self.items.values() if r.user_id == user_id and r.status in statuses]

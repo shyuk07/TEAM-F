@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from reservations.domain import rules
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
     NotReservationOwnerError,
     PendingReservationExistsError,
@@ -69,6 +70,7 @@ class PickupReservation:
         cancelled_at: datetime | None = None,
         picked_up_at: datetime | None = None,
         id: uuid.UUID | None = None,
+        cancelled_by: CancelActor | None = None,
     ):
         if user_id is None or offer_id is None:
             raise ValueError("회원과 할인 상품은 필수입니다.")
@@ -92,6 +94,9 @@ class PickupReservation:
             raise ValueError("취소 시각은 취소된 예약에만 있어야 합니다.")
         if (self.picked_up_at is not None) != (self.status == ReservationStatus.PICKED_UP):
             raise ValueError("픽업 시각은 픽업 완료된 예약에만 있어야 합니다.")
+        self.cancelled_by = None if cancelled_by is None else CancelActor(cancelled_by)
+        if self.cancelled_by is not None and self.status != ReservationStatus.CANCELLED:
+            raise ValueError("취소 주체는 취소된 예약에만 있어야 합니다.")
 
     @staticmethod
     def validate_new_quantity(quantity: int) -> int:
@@ -172,12 +177,14 @@ class PickupReservation:
             raise ReservationStateError()
         self.status = ReservationStatus.RESERVED
 
-    def cancel(self, now: datetime) -> None:
+    def cancel(self, now: datetime, cancelled_by: CancelActor) -> None:
         self._raise_terminal()
         if _aware(now, "현재 시각") is None:
             raise ValueError("현재 시각에는 시간대 정보가 필요합니다.")
+        actor = CancelActor(cancelled_by)
         self.status = ReservationStatus.CANCELLED
         self.cancelled_at = now
+        self.cancelled_by = actor
 
     def pick_up(self, pickup_code: str, now: datetime) -> None:
         """검사 순서: 상태 -> 코드 (D-9)."""

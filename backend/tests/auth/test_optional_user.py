@@ -14,7 +14,7 @@ from auth.domain.user import User
 from auth.infrastructure.security import JwtTokenProvider
 from auth.infrastructure.settings import AuthSettings
 from auth.presentation.dependencies import OptionalUser, provide_auth_service
-from tests.auth.fakes import FakeClock
+from tests.auth.fakes import FakeClock, FakeCodes
 from error_handlers import register_exception_handlers
 
 pytestmark = pytest.mark.anyio
@@ -65,6 +65,12 @@ class FakeUsers(UserRepository):
         self.items[user.id] = user
         return user
 
+    async def find_all(self, query, now):
+        return []
+
+    async def count_all(self, query, now):
+        return 0
+
 
 class FakeLogs(PointLogRepository):
     async def add(self, log):
@@ -106,7 +112,7 @@ class Env:
         self.tokens = JwtTokenProvider(AuthSettings(secret_key=SECRET))
         self.service = CountingService(
             FakeSession(), self.users, FakeLogs(), self.blacklist, FakeHasher(), self.tokens,
-            FakeClock(),
+            FakeClock(), FakeCodes(),
         )
         self.user = User.register(
             email="a@b.com", password_hash="x", role="CUSTOMER", name="n", phone="010-1"

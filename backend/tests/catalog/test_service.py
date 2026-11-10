@@ -31,6 +31,7 @@ from catalog.domain.exceptions import (
 )
 from catalog.domain.product import Product
 from catalog.domain.repository.discount_offer_repository import DiscountOfferRepository
+from catalog.domain.repository.product_image_repository import ProductImageRepository
 from catalog.domain.repository.product_repository import ProductRepository
 from catalog.domain.repository.stock_log_repository import StockLogRepository
 from catalog.domain.service import Clock
@@ -242,6 +243,39 @@ class FakeStockLogs(StockLogRepository):
         return log
 
 
+class FakeProductImages(ProductImageRepository):
+    def __init__(self, events=None):
+        self.items = {}  # (product_id, image_id) -> ProductImage
+        self.events = events if events is not None else []
+        self.add_calls = 0
+        self.delete_many_calls = []
+        self.find_calls = 0
+
+    async def add(self, image):
+        self.events.append("image_add")
+        self.add_calls += 1
+        image.id = uuid.uuid4()
+        self.items[(image.product_id, image.id)] = image
+        return image
+
+    async def find_by_id(self, product_id, image_id):
+        self.find_calls += 1
+        return self.items.get((product_id, image_id))
+
+    async def delete(self, product_id, image_id):
+        self.events.append("image_delete")
+        return self.items.pop((product_id, image_id), None) is not None
+
+    async def delete_many(self, product_id, image_ids):
+        self.events.append("image_delete_many")
+        self.delete_many_calls.append((product_id, set(image_ids)))
+        n = 0
+        for i in image_ids:
+            if self.items.pop((product_id, i), None) is not None:
+                n += 1
+        return n
+
+
 class Ctx:
     def __init__(self):
         self.session = FakeSession()
@@ -253,10 +287,12 @@ class Ctx:
         self.reservations = FakeReservations()
         self.cancel = FakeReservationCancel(self.products.events)
         self.logs = FakeStockLogs()
+        self.images = FakeProductImages(self.products.events)
         self.service = CatalogApplicationService(
             session=self.session, stores=self.stores, products=self.products,
             offers=self.offers, stock_logs=self.logs, clock=FakeClock(),
             reservations=self.reservations, reservation_cancel=self.cancel,
+            product_images=self.images,
         )
         self.owner = uuid.uuid4()
         self.store = self.stores.add(FakeStoreInfo(self.owner))

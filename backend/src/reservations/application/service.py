@@ -7,6 +7,7 @@ from reservations.application.lifecycle_service import ReservationLifecycleServi
 from reservations.application.ports import RefundPort, StockPort
 from reservations.application.views import Page, RefundTarget
 from reservations.domain import rules
+from reservations.domain.cancel_actor import CancelActor
 from reservations.domain.exceptions import (
     DataInconsistentError,
     InconsistencyDetail,
@@ -106,6 +107,7 @@ class ReservationApplicationService:
                 reservation_id,
                 reason=rules.CUSTOMER_CANCEL_REASON,
                 actor_user_id=user_id,
+                cancelled_by=CancelActor.CUSTOMER,
                 commit=False,
             )
         except DataInconsistentError as error:

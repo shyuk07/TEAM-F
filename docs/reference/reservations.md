@@ -105,6 +105,7 @@
 | `reservations[].total_price` | integer | 총 금액 |
 | `reservations[].status` | string | 예약 상태 |
 | `reservations[].created_at` | datetime | 예약 생성 시간 |
+| `reservations[].cancelled_by` | string 또는 null | 취소 주체. `CUSTOMER` 고객 직접 취소, `STORE` 매장 사정 취소, `SYSTEM` 시스템 처리, `null` 취소되지 않았거나 취소 주체를 알 수 없음(기존 취소 건) |
 
 ```json
 {
@@ -117,7 +118,8 @@
       "quantity": 2,
       "total_price": 6000,
       "status": "RESERVED",
-      "created_at": "2025-10-29T15:00:00+09:00"
+      "created_at": "2025-10-29T15:00:00+09:00",
+      "cancelled_by": null
     }
   ]
 }
@@ -162,12 +164,14 @@
 | `id` | UUID | 예약 ID |
 | `status` | string | 변경된 예약 상태 |
 | `cancelled_at` | datetime | 예약 취소 시간 |
+| `cancelled_by` | string 또는 null | 취소 주체. 이 API로는 항상 `CUSTOMER` |
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440002",
   "status": "CANCELLED",
-  "cancelled_at": "2025-10-29T16:00:00+09:00"
+  "cancelled_at": "2025-10-29T16:00:00+09:00",
+  "cancelled_by": "CUSTOMER"
 }
 ```
 

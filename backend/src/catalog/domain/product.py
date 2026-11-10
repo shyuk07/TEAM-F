@@ -1,5 +1,6 @@
 import uuid
 
+from catalog.domain.product_image import ProductImage, image_path, looks_like_image_path, parse_image_path
 from catalog.domain.exceptions import (
     ProductAlreadyActiveError,
     ProductAlreadyInactiveError,
@@ -11,6 +12,7 @@ MAX_NAME_LENGTH = 200
 MAX_CATEGORY_LENGTH = 80
 MAX_IMAGES = 10
 MAX_PRICE = 99_999_999  # requirements REQ-3: 1억 이상 거부
+_UPLOAD_URL_MESSAGE = "업로드한 이미지 주소는 직접 추가할 수 없습니다. 이미지 업로드를 이용하세요."
 _CHANGEABLE = {"name", "category", "description", "original_price", "product_image"}
 
 
@@ -87,6 +89,8 @@ class Product:
         description: str | None = None,
         product_image: list[str] | None = None,
     ) -> "Product":
+        if any(looks_like_image_path(i) for i in product_image or []):
+            raise ValueError(_UPLOAD_URL_MESSAGE)
         return cls(
             store_id=store_id,
             name=name,
@@ -96,7 +100,8 @@ class Product:
             product_image=product_image,
         )
 
-    def apply_changes(self, changes: dict, open_offer_sale_price: int | None) -> None:
+    def apply_changes(self, changes: dict, open_offer_sale_price: int | None) -> set[uuid.UUID]:
+        """반환: 이번 변경으로 목록에서 빠진 업로드 이미지 id (바이트 삭제 대상)."""
         if not changes:
             raise ValueError("수정할 항목이 없습니다.")
         unknown = set(changes) - _CHANGEABLE
@@ -118,9 +123,46 @@ class Product:
         if "product_image" in changes:
             if changes["product_image"] is None:  # D16: null 거부
                 raise ValueError("이미지 목록은 비울 수 없습니다. 빈 목록([])을 보내 주세요.")
-            new["product_image"] = self._validate_images(changes["product_image"])
+            images = self._validate_images(changes["product_image"])
+            current = self.uploaded_image_ids()
+            for url in images:
+                if not looks_like_image_path(url):
+                    continue
+                parsed = parse_image_path(url)  # 정규형이 아니면 None
+                if parsed is None or not (parsed[0] == self.id and parsed[1] in current):
+                    raise ValueError(_UPLOAD_URL_MESSAGE)
+            new["product_image"] = images
+        removed: set[uuid.UUID] = set()
+        if "product_image" in new:
+            kept = {p[1] for p in map(parse_image_path, new["product_image"]) if p is not None}
+            removed = self.uploaded_image_ids() - kept
         for key, value in new.items():
             setattr(self, key, value)
+        return removed
+
+    def uploaded_image_ids(self) -> set[uuid.UUID]:
+        ids: set[uuid.UUID] = set()
+        for url in self.product_image:
+            parsed = parse_image_path(url)
+            if parsed is not None and parsed[0] == self.id:
+                ids.add(parsed[1])
+        return ids
+
+    def ensure_can_attach_image(self) -> None:
+        if len(self.product_image) >= MAX_IMAGES:
+            raise ValueError("이미지는 최대 10개까지 등록할 수 있습니다.")
+
+    def attach_image(self, image: ProductImage) -> None:
+        if image.id is None:
+            raise ValueError("저장되지 않은 이미지는 붙일 수 없습니다.")
+        if image.product_id != self.id:
+            raise ValueError("다른 상품의 이미지는 붙일 수 없습니다.")
+        self.ensure_can_attach_image()
+        self.product_image.append(image.url)
+
+    def detach_image(self, image_id: uuid.UUID) -> None:
+        target = image_path(self.id, image_id)
+        self.product_image = [u for u in self.product_image if u != target]
 
     def deactivate(self, has_open_offer: bool) -> None:
         if not self.is_active:

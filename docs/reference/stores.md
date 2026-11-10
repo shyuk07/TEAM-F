@@ -1,6 +1,6 @@
 # stores API
 
-상점 개설과 폐점. 모듈: `src/stores`
+상점 개설·폐점과 내 상점 조회. 모듈: `src/stores`
 테이블: `stores` (상점주 정보는 `users`)
 
 [← 전체 목록](README.md)
@@ -132,3 +132,60 @@
 > **미연계 (reservations):** 픽업 대기 예약 검사는 현재 자리표시자(`NoPickupPendingReservations`)라 항상 통과한다. reservations 연동 후 `src/container.py`의 바인딩만 바꾼다.
 >
 > **알려진 경합 (설계 D22, 후속):** 할인 등록은 상점 행을 잠그지 않으므로, 폐점 확인과 커밋 사이에 같은 상점주가 할인을 등록하면 폐점된 상점에 할인이 남을 수 있다.
+
+---
+
+## 3. 내 상점 조회
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| GET | `/v1/stores/me` | 상점주 (정지된 상점주 포함) | 200 OK |
+
+로그인한 상점주의 상점을 돌려준다. 상점 ID는 개설 응답에서 한 번만 나오므로, 로그아웃하거나 다른 기기에서 로그인한 상점주는 이 API로 상점 ID를 다시 얻는다.
+
+- 계정이 정지된 상점주도 호출할 수 있다(픽업 완료·매장 예약 목록과 같은 규칙). 정지 중에도 픽업을 처리하려면 상점 ID가 필요하기 때문이다(설계 D55).
+- 폐점·정지된 상점도 본인에게는 돌려준다. 상태는 `status`로 알 수 있다.
+- 승인 대기·거부된 상점주는 상점이 없으므로 404를 받는다.
+
+**헤더**
+- `Authorization: Bearer {access_token}`
+
+**요청 본문:** 없음
+
+**응답**
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `id` | UUID | 상점 ID |
+| `owner_id` | UUID | 상점주 ID |
+| `name` | string | 상점명 |
+| `pickup_address` | string | 픽업 주소 |
+| `latitude` | double \| null | 위도. 주소 좌표 변환 도입 전에 개설된 상점은 `null` |
+| `longitude` | double \| null | 경도. 위와 같음 |
+| `created_at` | datetime | 생성 시각 |
+| `approval_at` | datetime \| null | 개설 시각 |
+| `closed_at` | datetime \| null | 폐점 시각 |
+| `status` | string | `ACTIVE` / `SUSPENDED` / `CLOSED`. 폐점이 정지보다 우선한다 |
+
+```json
+{
+  "id": "1a2b3c4d-...",
+  "owner_id": "7f1c2a9e-...",
+  "name": "마감베이커리",
+  "pickup_address": "서울특별시 강남구 테헤란로 152",
+  "latitude": 37.5000242405515,
+  "longitude": 127.036508620542,
+  "created_at": "2026-11-09T10:00:00Z",
+  "approval_at": "2026-11-09T10:00:00Z",
+  "closed_at": null,
+  "status": "ACTIVE"
+}
+```
+
+- 관리자가 적은 정지 사유·폐점 사유는 응답에 넣지 않는다(설계 D58).
+- 개설 응답(`POST /v1/stores`)에는 `status`가 없다. 개설 직후는 항상 `ACTIVE`다(설계 C26).
+
+**에러**
+| HTTP | error_code | 메시지 |
+| --- | --- | --- |
+| 401 | `UNAUTHORIZED` | 로그인이 필요합니다. |
+| 403 | `FORBIDDEN` | 접근 권한이 없습니다. (상점주가 아님) |
+| 404 | `NOT_FOUND` | 상점을 찾을 수 없습니다. (아직 개설한 상점이 없음) |

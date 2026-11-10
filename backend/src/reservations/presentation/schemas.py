@@ -38,6 +38,9 @@ class ReservationListItem(BaseModel):
     # 제안 필드 (Q-4, D-19): 명세 확정 전
     pickup_code: str
     pickup_address: str
+    cancelled_by: str | None = Field(
+        None, description="취소 주체: CUSTOMER / STORE / SYSTEM. 취소되지 않았거나 주체를 모르면 null"
+    )
 
 
 class ReservationListResponse(BaseModel):
@@ -74,6 +77,7 @@ class ReservationCancelResponse(BaseModel):
     id: uuid.UUID
     status: str
     cancelled_at: datetime
+    cancelled_by: str | None = Field(None, description="취소 주체: CUSTOMER / STORE / SYSTEM")
 
 
 class PickupRequest(BaseModel):

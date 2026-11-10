@@ -1,7 +1,7 @@
 # catalog API
 
-상품, 마감 할인, 재고. 모듈: `src/catalog`
-테이블: `products`, `discount_offers`, `stock_log`
+상품, 상품 이미지, 마감 할인, 재고. 모듈: `src/catalog`
+테이블: `products`, `product_images`, `discount_offers`, `stock_log`
 
 [← 전체 목록](README.md)
 
@@ -722,3 +722,112 @@
 > - 남은 재고보다 많이 빼는 경우(400), `amount = 0`(400 또는 422), 중단된 할인을 조정하는 경우 에러가 없습니다.
 > - 재고가 0이 되면 `SOLD_OUT`, 0에서 늘면 `ON_SALE`로 바꾸는지
 > - `reason`을 저장할 컬럼이 `stock_log`에 없습니다.
+
+---
+
+## 15. 상품 이미지 업로드
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| POST | `/v1/products/{product_id}/images` | 상점주 (본인 상점의 상품) | 201 Created |
+
+상점주가 이미지 파일 1개를 올린다. 파일은 서버 DB(`product_images`)에 저장되고, 그 이미지의 조회 주소가 상품의 `product_image` 목록 끝에 추가된다. 상품 응답 형식은 그대로이며 `product_image`에 업로드 이미지 주소와 기존 외부 URL이 함께 들어 있을 수 있다.
+
+- 권한은 [상품 수정](#5-상품-수정)과 같다. 노출 중단 상품, 폐점·정지 상점의 상품에도 올릴 수 있다.
+- 허용 형식: JPEG, PNG, WebP. 파일 이름이나 `Content-Type`이 아니라 **파일 내용**으로 판별한다(이름만 `.jpg`인 다른 파일은 거부).
+- 크기: 파일 하나당 5MB(5 MiB = 5,242,880바이트) 이하. 빈 파일은 형식 오류다.
+- 개수: 업로드 이미지와 외부 URL을 합쳐 상품당 10개 이하(기존 규칙).
+- 업로드 이미지 주소(`/v1/products/{product_id}/images/{image_id}` 형태)는 [상품 등록](#1-상품-등록)·[상품 수정](#5-상품-수정)의 `product_image`에 직접 넣을 수 없다. 이 API로만 추가한다.
+
+**헤더**
+- `Authorization: Bearer {access_token}`
+- `Content-Type: multipart/form-data`
+
+**요청 본문 (multipart)**
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `file` | file | O | 이미지 파일 1개 |
+
+**응답**
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `id` | UUID | 이미지 ID |
+| `product_id` | UUID | 상품 ID |
+| `url` | string | 이미지 조회 주소 (상대 경로) |
+| `content_type` | string | `image/jpeg` / `image/png` / `image/webp` |
+| `size_bytes` | int | 파일 크기(바이트) |
+| `product_image` | string[] | 업로드 후 상품의 전체 이미지 주소 목록 |
+
+```json
+{
+  "id": "9c1d2e3f-...",
+  "product_id": "5a6b7c8d-...",
+  "url": "/v1/products/5a6b7c8d-.../images/9c1d2e3f-...",
+  "content_type": "image/jpeg",
+  "size_bytes": 482133,
+  "product_image": [
+    "https://example.com/bread.jpg",
+    "/v1/products/5a6b7c8d-.../images/9c1d2e3f-..."
+  ]
+}
+```
+
+**에러** (위에서부터 먼저 검사)
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 400 | `IMAGE_TOO_LARGE` | 요청 크기(`Content-Length`)가 상한을 넘음. 인증보다 먼저 검사 | 이미지 크기는 5MB 이하여야 합니다. |
+| 401 | `UNAUTHORIZED` | 토큰 없음·유효하지 않음 | 로그인이 필요합니다. |
+| 403 | `FORBIDDEN` | 상점주가 아님 | 접근 권한이 없습니다. |
+| 400 | `VALIDATION_ERROR` | `product_id`가 UUID가 아님, `file` 없음 | (요청 형식 오류 공통 메시지) |
+| 404 | `NOT_FOUND` | 상품 없음 | 상품을 찾을 수 없습니다. |
+| 403 | `FORBIDDEN` | 남의 상점 상품 | 본인 상점의 상품만 수정할 수 있습니다. |
+| 400 | `VALIDATION_ERROR` | 이미 10개 | 이미지는 최대 10개까지 등록할 수 있습니다. |
+| 400 | `IMAGE_TOO_LARGE` | 파일이 5MB 초과 | 이미지 크기는 5MB 이하여야 합니다. |
+| 400 | `UNSUPPORTED_IMAGE_TYPE` | JPEG·PNG·WebP가 아님, 빈 파일 | JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다. |
+
+> **확인 필요:** 깨진 multipart 본문(경계 없음·형식 깨짐)은 지금 400 `HTTP_ERROR`("Invalid multipart data." 등)로 나간다. 공통 형식 오류(`VALIDATION_ERROR`)로 맞출지는 미정이다(설계 CI-24).
+
+---
+
+## 16. 상품 이미지 삭제
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| DELETE | `/v1/products/{product_id}/images/{image_id}` | 상점주 (본인 상점의 상품) | 204 No Content |
+
+업로드한 이미지를 상품의 `product_image` 목록에서 빼고 저장된 파일도 지운다. 되돌릴 수 없다. 외부 URL은 이 API가 아니라 [상품 수정](#5-상품-수정)으로 뺀다.
+
+- [상품 수정](#5-상품-수정)으로 `product_image`에서 업로드 이미지 주소를 빼도 같은 요청 안에서 그 파일이 지워진다. 수정이 다른 이유로 실패하면 파일도 그대로 남는다.
+
+**헤더**
+- `Authorization: Bearer {access_token}`
+
+**응답:** 본문 없음
+
+**에러** (위에서부터 먼저 검사)
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 401 | `UNAUTHORIZED` | 토큰 없음·유효하지 않음 | 로그인이 필요합니다. |
+| 403 | `FORBIDDEN` | 상점주가 아님 | 접근 권한이 없습니다. |
+| 400 | `VALIDATION_ERROR` | ID가 UUID가 아님 | (요청 형식 오류 공통 메시지) |
+| 404 | `NOT_FOUND` | 상품 없음 | 상품을 찾을 수 없습니다. |
+| 403 | `FORBIDDEN` | 남의 상점 상품 | 본인 상점의 상품만 수정할 수 있습니다. |
+| 404 | `NOT_FOUND` | 이 상품의 이미지가 아님(다른 상품의 이미지 포함) | 이미지를 찾을 수 없습니다. |
+
+---
+
+## 17. 상품 이미지 조회
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| GET | `/v1/products/{product_id}/images/{image_id}` | 공개 | 200 OK |
+
+이미지 파일을 그대로 돌려준다. `product_image` 목록의 업로드 이미지 주소가 이 API다. 화면의 `<img src>`에 서버 주소를 붙여 쓴다.
+
+- 상품·상점 상태와 관계없이 누구나 받을 수 있다(노출 중단 상품, 폐점·정지 상점 포함. 설계 Q48).
+- 응답 헤더: `Content-Type`은 저장된 형식(`image/jpeg`·`image/png`·`image/webp`), `Cache-Control: public, max-age=3600`, `X-Content-Type-Options: nosniff`. 삭제 후에도 브라우저·프록시 캐시에는 최대 1시간 남을 수 있다.
+
+**응답:** 이미지 바이트
+
+**에러**
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | ID가 UUID가 아님 | (요청 형식 오류 공통 메시지) |
+| 404 | `NOT_FOUND` | 이미지 없음, 또는 다른 상품의 이미지 | 이미지를 찾을 수 없습니다. |

@@ -12,7 +12,7 @@ CREATE TABLE users (
     role             VARCHAR(20)  NOT NULL,                -- 원본 `role/admin`. CUSTOMER, ADMIN, 상점주(값 이름 확인 필요)
     name             VARCHAR(100),
     phone            VARCHAR(100),
-    users_point      INTEGER      NOT NULL DEFAULT 0 CHECK (users_point >= 0),
+    users_point      INTEGER      NOT NULL DEFAULT 0 CONSTRAINT ck_users_point_nonneg CHECK (users_point >= 0),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     business_number  TEXT,                                 -- 매장 운영자만 사용
     -- 계정 상태 (../docs/design/admin.md §2.1 S1~S5, D3·D4). 기존 행은 DEFAULT로 APPROVED
@@ -28,7 +28,11 @@ CREATE TABLE users (
     -- 토큰 세대 (비밀번호 변경·재설정 시 기존 토큰 무효화, auth D-토큰무효화, S-A2)
     token_version    INTEGER      NOT NULL DEFAULT 0,
     token_keep_jti   TEXT,                                 -- 비밀번호 변경에 쓴 토큰 하나만 유지
-    CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN'))
+    -- 로그인 잠금 (auth D-로그인잠금, REQ-13). 5번째 연속 실패에서 locked_until을 정하고 횟수는 0으로 되돌린다
+    failed_login_count INTEGER    NOT NULL DEFAULT 0,
+    login_locked_until TIMESTAMPTZ,                        -- NULL이거나 과거면 잠금 아님
+    CONSTRAINT ck_users_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'WITHDRAWN')),
+    CONSTRAINT ck_users_failed_login_nonneg CHECK (failed_login_count >= 0)
 );
 
 CREATE TABLE point_log (
@@ -86,17 +90,34 @@ CREATE TABLE products (
     name            VARCHAR(200) NOT NULL,
     category        VARCHAR(80),
     description     TEXT,
-    original_price  INTEGER      NOT NULL CHECK (original_price >= 0),
+    original_price  INTEGER      NOT NULL CONSTRAINT ck_products_original_price CHECK (original_price >= 0),
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     product_image   JSON
 );
 CREATE INDEX ix_products_store_id ON products (store_id);
 
+-- 상품 이미지 업로드 바이트 (docs/design/catalog.md 15.2). 5242880 = 5 MiB = 앱 상수 MAX_IMAGE_BYTES
+CREATE TABLE product_images (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id    UUID         NOT NULL REFERENCES products (id),
+    content_type  VARCHAR(20)  NOT NULL,
+    size_bytes    INTEGER      NOT NULL,
+    data          BYTEA        NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_product_images_content_type
+        CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+    CONSTRAINT ck_product_images_size
+        CHECK (size_bytes BETWEEN 1 AND 5242880),
+    CONSTRAINT ck_product_images_size_matches
+        CHECK (octet_length(data) = size_bytes)
+);
+CREATE INDEX ix_product_images_product_id ON product_images (product_id);
+
 CREATE TABLE discount_offers (
     id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id       UUID        NOT NULL REFERENCES products (id),
-    sale_price       INTEGER     NOT NULL CHECK (sale_price >= 0),
-    initial_stock    INTEGER     NOT NULL CHECK (initial_stock >= 0),
+    sale_price       INTEGER     NOT NULL CONSTRAINT ck_offer_sale_price CHECK (sale_price >= 0),
+    initial_stock    INTEGER     NOT NULL CONSTRAINT ck_offer_initial_stock CHECK (initial_stock >= 0),
     remaining_stock  INTEGER     NOT NULL,
     sales_end        TIMESTAMPTZ NOT NULL,
     pickup_start     TIMESTAMPTZ NOT NULL,
@@ -128,7 +149,7 @@ CREATE TABLE pickup_reservations (
     id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID         NOT NULL REFERENCES users (id),
     offer_id        UUID         NOT NULL REFERENCES discount_offers (id),
-    quantity        INTEGER      NOT NULL CHECK (quantity >= 1),
+    quantity        INTEGER      NOT NULL CONSTRAINT ck_reservations_quantity CHECK (quantity >= 1),
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     total_price     INTEGER,
     status          VARCHAR(20),                           -- PENDING_PAYMENT, RESERVED(?), CANCELLED, PICKED_UP (확인 필요)
@@ -139,7 +160,10 @@ CREATE TABLE pickup_reservations (
     store_name      VARCHAR(150),                          -- 예약 시점 스냅샷
     pickup_address  VARCHAR(500),                          -- 예약 시점 스냅샷
     product_name    VARCHAR(200),                          -- 예약 시점 스냅샷
-    price           INTEGER                                -- 확인 필요: unit_price/total_price와 중복
+    price           INTEGER,                               -- 확인 필요: unit_price/total_price와 중복
+    cancelled_by    VARCHAR(20),                           -- 취소 주체. 기존 취소 행·미취소 행은 NULL (reservations.md 16.3)
+    CONSTRAINT ck_reservation_cancelled_by CHECK (cancelled_by IN ('CUSTOMER', 'STORE', 'SYSTEM')),
+    CONSTRAINT ck_reservation_cancelled_by_status CHECK (cancelled_by IS NULL OR status = 'CANCELLED')
 );
 CREATE INDEX ix_pickup_reservations_user_id ON pickup_reservations (user_id);
 CREATE INDEX ix_pickup_reservations_offer_id ON pickup_reservations (offer_id);
@@ -149,7 +173,7 @@ CREATE TABLE payments (
     id                   UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id       UUID         NOT NULL REFERENCES pickup_reservations (id),
     amount               INTEGER      CHECK (amount >= 0),           -- 실제 결제 금액 = 예약 총액 - point_used
-    point_used           INTEGER      NOT NULL DEFAULT 0 CHECK (point_used >= 0),  -- 결제에 사용한 포인트 (payments.md S-6)
+    point_used           INTEGER      NOT NULL DEFAULT 0 CONSTRAINT ck_payments_point_used CHECK (point_used >= 0),  -- 결제에 사용한 포인트 (payments.md S-6)
     status               VARCHAR(30),                      -- READY, PAID, 실패 상태(확인 필요)
     provider_payment_id  VARCHAR(255),
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),

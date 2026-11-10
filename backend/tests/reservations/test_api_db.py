@@ -167,7 +167,7 @@ async def test_list_my_reservations(client):
     assert (body["page"], body["size"], body["total"]) == (1, 20, 3) and len(body["reservations"]) == 3
     assert set(body["reservations"][0]) == {
         "id", "offer_id", "store_name", "product_name", "quantity", "total_price", "status",
-        "created_at", "pickup_code", "pickup_address",
+        "created_at", "pickup_code", "pickup_address", "cancelled_by",
     }
     r = await client.get("/v1/users/me/reservations?page=2&size=2", headers=bearer(me))
     assert len(r.json()["reservations"]) == 1 and r.json()["total"] == 3
@@ -193,6 +193,9 @@ async def test_cancel_unpaid_ok_and_errors(client):
     r = await client.post(url, headers=bearer(me))
     assert r.status_code == 200, r.text
     assert r.json()["id"] == rid and r.json()["status"] == "CANCELLED"
+    assert r.json()["cancelled_by"] == "CUSTOMER"
+    listed = (await client.get("/v1/users/me/reservations", headers=bearer(me))).json()["reservations"]
+    assert listed[0]["cancelled_by"] == "CUSTOMER"
     r = await client.post(url, headers=bearer(me))
     assert r.status_code == 409
     assert r.json() == err("RESERVATION_ALREADY_CANCELLED", "이미 취소된 예약입니다.")

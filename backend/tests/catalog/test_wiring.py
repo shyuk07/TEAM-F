@@ -124,6 +124,9 @@ def test_catalog_routes_registered():
         ("POST", "/v1/offers/{offer_id}/deactivate"),
         ("POST", "/v1/offers/{offer_id}/relist"),
         ("POST", "/v1/offers/{offer_id}/stock-adjustments"),
+        ("POST", "/v1/products/{product_id}/images"),
+        ("DELETE", "/v1/products/{product_id}/images/{image_id}"),
+        ("GET", "/v1/products/{product_id}/images/{image_id}"),
     ]:
         assert (m, p) in paths, (m, p)
 
@@ -131,3 +134,24 @@ def test_catalog_routes_registered():
 def test_service_constructor_requires_all_args():
     with pytest.raises(TypeError):
         CatalogApplicationService()  # type: ignore[call-arg]
+
+
+def test_image_route_path_matches_stored_url_format():
+    import uuid
+
+    from catalog.domain.product_image import image_path
+
+    pid, iid = uuid.uuid4(), uuid.uuid4()
+    assert str(app.url_path_for("get_product_image", product_id=pid, image_id=iid)) == image_path(pid, iid)
+
+
+def test_service_requires_product_images_arg():
+    params = inspect.signature(CatalogApplicationService.__init__).parameters
+    assert params["product_images"].default is inspect.Parameter.empty
+
+
+def test_create_product_image_repository_returns_abstract_impl():
+    from catalog.domain.repository.product_image_repository import ProductImageRepository
+    from container import create_product_image_repository
+
+    assert isinstance(create_product_image_repository(session=None), ProductImageRepository)
