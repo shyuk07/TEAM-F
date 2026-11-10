@@ -1,5 +1,11 @@
 export const ROUTES = {
   login: '/login',
+  signup: '/signup',
+  ownerSignup: '/signup?role=owner',
+  passwordReset: '/password-reset',
+  account: '/account',
+  accountProfile: '/account/profile',
+  accountPassword: '/account/password',
   home: '/',
   owner: '/owner',
   ownerToday: '/owner/today',

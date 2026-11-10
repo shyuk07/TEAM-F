@@ -1,13 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, type RouteObject } from 'react-router';
 import { useAuth } from '@/features/auth';
 import { ApiError } from '@/shared/api/error';
 import { OwnerAccountButton } from '@/widgets/owner-nav';
 import { deferred } from '../../../features/auth/fakes/deferred';
-import { ownerUser } from '../../../features/auth/fakes/users';
+import { adminUser, ownerUser } from '../../../features/auth/fakes/users';
 import { signedInFakes, type AuthFakes } from '../../../support/authFakes';
-import { renderWithAuth } from '../../../support/renderWithAuth';
+import { renderRoutesWithAuth, renderWithAuth } from '../../../support/renderWithAuth';
 
 function AuthProbe() {
   const { state } = useAuth();
@@ -141,6 +141,90 @@ describe('OwnerAccountMenu (O8·C10)', () => {
     await user.click(within(confirm).getByRole('button', { name: '로그아웃' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(fakes.session.clear).toHaveBeenCalled();
+  });
+});
+
+function OwnerScreen() {
+  return (
+    <div className="app">
+      <OwnerAccountButton />
+      <AuthProbe />
+    </div>
+  );
+}
+
+const menuRoutes: RouteObject[] = [
+  { path: '/owner/offers', element: <OwnerScreen /> },
+  { path: '/owner/store', element: <OwnerScreen /> },
+  { path: '/account/profile', element: <p>프로필 화면</p> },
+  { path: '/account/password', element: <p>비밀번호 화면</p> },
+];
+
+async function renderMenuInRoutes(fakes: AuthFakes = signedInFakes(), path = '/owner/store') {
+  const result = renderRoutesWithAuth(menuRoutes, { initialEntries: [path], fakes });
+  await waitFor(() => expect(screen.getByTestId('auth')).toHaveTextContent('authenticated'));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '계정' }));
+  return { ...result, user };
+}
+
+const profileRow = () => within(menu()).getByRole('link', { name: /^내 정보 \(전화번호\)/ });
+const passwordRow = () => within(menu()).getByRole('link', { name: /^비밀번호 변경/ });
+
+describe('OwnerAccountMenu C8·C9 행 (auth-account D-23)', () => {
+  it('메뉴 행 순서는 「내 정보 (전화번호)」, 「비밀번호 변경」, 「로그아웃」이다', async () => {
+    await renderMenuInRoutes();
+    const list = menu().querySelector('.list');
+    expect(list).not.toBeNull();
+    const rows = Array.from((list as HTMLElement).children).map((el) => el.textContent ?? '');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatch(/^내 정보 \(전화번호\)/);
+    expect(rows[1]).toMatch(/^비밀번호 변경/);
+    expect(rows[2]).toMatch(/^로그아웃/);
+  });
+
+  it('「내 정보 (전화번호)」는 /account/profile, 「비밀번호 변경」은 /account/password 링크다', async () => {
+    await renderMenuInRoutes();
+    expect(profileRow()).toHaveAttribute('href', '/account/profile');
+    expect(passwordRow()).toHaveAttribute('href', '/account/password');
+  });
+
+  it('/owner/offers?x=1에서 「내 정보 (전화번호)」를 누르면 /account/profile로 가고 from을 넘기며 시트가 없다', async () => {
+    const { router, user } = await renderMenuInRoutes(signedInFakes(), '/owner/offers?x=1');
+    await user.click(profileRow());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/account/profile'));
+    expect(router.state.location.state).toEqual({ from: '/owner/offers?x=1' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('OWNER면 매장 탭 안내가 있고 ADMIN이면 없다', async () => {
+    const owner = await renderMenuInRoutes(signedInFakes(ownerUser));
+    expect(within(menu()).getByText('상점 정보·폐점은 매장 탭(O4)에 있어요.')).toBeInTheDocument();
+    owner.unmount();
+
+    await renderMenuInRoutes(signedInFakes(adminUser));
+    expect(
+      within(menu()).queryByText('상점 정보·폐점은 매장 탭(O4)에 있어요.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('열면 포커스가 「내 정보 (전화번호)」 링크에 있다', async () => {
+    await renderMenuInRoutes();
+    expect(profileRow()).toHaveFocus();
+  });
+
+  it('시트 안 Tab 순환이 링크 2개와 「로그아웃」 버튼 사이에서 돈다', async () => {
+    const { user } = await renderMenuInRoutes();
+    const logoutRow = within(menu()).getByRole('button', { name: /^로그아웃/ });
+    logoutRow.focus();
+    await user.tab();
+    expect(profileRow()).toHaveFocus();
+    await user.tab();
+    expect(passwordRow()).toHaveFocus();
+    await user.tab();
+    expect(logoutRow).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(passwordRow()).toHaveFocus();
   });
 });
 

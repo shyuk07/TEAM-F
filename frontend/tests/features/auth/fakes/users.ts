@@ -19,6 +19,13 @@ export const customerUser: User = {
   role: 'CUSTOMER',
 };
 
+/** 이름이 없는 기존 고객(REQ-23 경계). */
+export const legacyCustomerUser: User = {
+  ...customerUser,
+  id: 'u-legacy',
+  name: null,
+};
+
 export const adminUser: User = {
   ...ownerUser,
   id: 'u-admin',

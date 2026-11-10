@@ -158,3 +158,19 @@ describe('useAuthController', () => {
     errorSpy.mockRestore();
   });
 });
+
+describe('useAuthController.replaceUser', () => {
+  it('인증 상태에서 replaceUser(u2)면 {authenticated, user: u2}가 된다', async () => {
+    const { result } = setup(signedInFakes());
+    await waitFor(() => expect(result.current.state.status).toBe('authenticated'));
+    const u2: User = { ...ownerUser, phone: '010-9999-0000' };
+    act(() => result.current.replaceUser(u2));
+    expect(result.current.state).toEqual({ status: 'authenticated', user: u2 });
+  });
+
+  it('anonymous에서 replaceUser는 상태를 바꾸지 않는다', () => {
+    const { result } = setup(anonymousFakes());
+    act(() => result.current.replaceUser(ownerUser));
+    expect(result.current.state).toEqual(anonymousOther);
+  });
+});
