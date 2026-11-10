@@ -2,28 +2,41 @@ import { Navigate, type RouteObject } from 'react-router';
 import { ROUTES, ROUTE_PATTERNS } from '@/shared/lib/routes';
 import { AccountLayout } from '@/app/layouts/AccountLayout';
 import { AdminLayout } from '@/app/layouts/AdminLayout';
+import { CustomerLayout } from '@/app/layouts/CustomerLayout';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
 import { PasswordChangePage } from '@/pages/account-password';
 import { ProfilePage } from '@/pages/account-profile';
 import { AdminApprovalsPage } from '@/pages/admin-approvals';
 import { AdminOffersPage, AdminStoresPage } from '@/pages/admin-moderation';
 import { AdminUsersPage } from '@/pages/admin-users';
+import { HomePage } from '@/pages/home';
 import { LoginPage } from '@/pages/login';
+import { MyPage } from '@/pages/my';
 import { PasswordResetPage } from '@/pages/password-reset';
+import { PointHistoryPage } from '@/pages/point-history';
 import { SignupPage } from '@/pages/signup';
+import { WithdrawPage } from '@/pages/withdraw';
 import { TAB_BAR_HANDLE } from './handle';
 import {
-  HomePlaceholder,
+  OfferDetailPlaceholder,
   OwnerOfferNewPlaceholder,
   OwnerOffersPlaceholder,
   OwnerProductEditPlaceholder,
   OwnerProductNewPlaceholder,
   OwnerStorePlaceholder,
   OwnerTodayPlaceholder,
+  ReservationsPlaceholder,
 } from './placeholders';
 
 export const routes: RouteObject[] = [
-  { path: ROUTES.home, element: <HomePlaceholder /> },
+  {
+    element: <CustomerLayout access="public" />,
+    children: [
+      { path: ROUTES.home, element: <HomePage />, handle: TAB_BAR_HANDLE },
+      // C2: catalog 담당이 <OfferDetailPage />로 바꾼다(customer-home.md §5.3)
+      { path: ROUTE_PATTERNS.offerDetail, element: <OfferDetailPlaceholder /> },
+    ],
+  },
   { path: ROUTES.login, element: <LoginPage /> },
   { path: ROUTES.signup, element: <SignupPage /> },
   { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
@@ -33,6 +46,21 @@ export const routes: RouteObject[] = [
     children: [
       { path: ROUTES.accountProfile, element: <ProfilePage /> },
       { path: ROUTES.accountPassword, element: <PasswordChangePage /> },
+    ],
+  },
+  {
+    element: <CustomerLayout access="customer" />,
+    children: [
+      // C5: reservations 담당이 <ReservationsPage />로 바꾼다(customer-home.md §5.3)
+      {
+        path: ROUTES.reservations,
+        element: <ReservationsPlaceholder />,
+        handle: TAB_BAR_HANDLE,
+      },
+      { path: ROUTES.me, element: <MyPage />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.mePoints, element: <PointHistoryPage /> },
+      { path: ROUTES.meWithdraw, element: <WithdrawPage /> },
+      // 탭 바 없는 고객 전용 화면(결제 C3·C4, 예약 하위 화면)은 여기에 handle 없이 한 줄씩(customer-home.md §5.5)
     ],
   },
   { path: ROUTES.owner, element: <Navigate to={ROUTES.ownerToday} replace /> },

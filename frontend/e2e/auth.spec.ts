@@ -131,5 +131,5 @@ test('A1 → C1: CUSTOMER 계정으로 로그인하면 /로 이동한다', async
   await page.goto('/login');
   await login(page);
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { name: '마감 직전' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '마감직전' })).toBeVisible();
 });

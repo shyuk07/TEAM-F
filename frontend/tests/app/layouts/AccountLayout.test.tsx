@@ -78,6 +78,19 @@ describe('AccountLayout (역할 무관 로그인 필요 가드)', () => {
     expect(router.state.location.pathname).toBe('/account/profile');
   });
 
+  it('CUSTOMER면 본문이 고객 셸 프레임([data-shell="customer"]) 안에 있고, OWNER면 프레임이 없다', async () => {
+    const { unmount } = renderGuard(signedInFakes(customerUser));
+    const body = await screen.findByText('본문');
+    const frame = document.querySelector('[data-shell="customer"]');
+    expect(frame).not.toBeNull();
+    expect(frame).toContainElement(body);
+    unmount();
+
+    renderGuard(signedInFakes(ownerUser));
+    expect(await screen.findByText('본문')).toBeInTheDocument();
+    expect(document.querySelector('[data-shell="customer"]')).toBeNull();
+  });
+
   it('error면 오류 문구와 「다시 시도」가 있고 누르면 재시도 성공 뒤 본문이 보인다', async () => {
     const fakes = signedInFakes();
     fakes.auth.findMe.mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '네트워크 문구'));

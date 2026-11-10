@@ -3,6 +3,7 @@ import {
   isSafeInternalPath,
   loginRedirectState,
   readFrom,
+  readLoginEntry,
   readLoginNotice,
   resolvePostLoginPath,
 } from '@/features/auth/domain/redirect';
@@ -117,6 +118,34 @@ describe('resolvePostLoginPath: /account/* 복귀(역할 무관)', () => {
     ['ADMIN', '/account/profile', adminUser],
   ])('%s + from %s → 그대로', (_name, from, user) => {
     expect(resolvePostLoginPath(user, from)).toBe(from);
+  });
+});
+
+describe('loginRedirectState: entry (customer-home §3.1)', () => {
+  it("('other', '/me', 'customerTab') → {from, entry}", () => {
+    expect(loginRedirectState('other', '/me', 'customerTab')).toEqual({
+      from: '/me',
+      entry: 'customerTab',
+    });
+  });
+
+  // 골격에서도 통과한다(기존 loggedOut 규칙). entry가 있어도 바뀌지 않음을 고정한다.
+  it("('loggedOut', '/me', 'customerTab') → undefined", () => {
+    expect(loginRedirectState('loggedOut', '/me', 'customerTab')).toBeUndefined();
+  });
+});
+
+describe('readLoginEntry', () => {
+  it("{entry:'reservation'} → 'reservation'", () => {
+    expect(readLoginEntry({ from: '/offers/1', entry: 'reservation' })).toBe('reservation');
+  });
+
+  it.each<[string, unknown]>([
+    ["{entry:'x'}", { entry: 'x' }],
+    ['null', null],
+    ['entry 없음', { from: '/me' }],
+  ])('%s → null', (_name, state) => {
+    expect(readLoginEntry(state)).toBeNull();
   });
 });
 

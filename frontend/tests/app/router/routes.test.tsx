@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { routes } from '@/app/router/routes';
 import { customerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
@@ -46,9 +46,12 @@ describe('routes', () => {
     expect(screen.getByRole('heading', { name: '로그인' })).toBeInTheDocument();
   });
 
-  it('/는 「마감 직전」을 보여 준다', () => {
-    renderAt('/');
-    expect(screen.getByRole('heading', { name: '마감 직전' })).toBeInTheDocument();
+  // D-27: 기존 「/는 「마감 직전」을 보여 준다」를 교체
+  it('/는 heading 「마감직전」과 고객 탭 바(홈 현재)를 보여 준다', async () => {
+    renderAt('/', anonymousFakes());
+    expect(await screen.findByRole('heading', { name: '마감직전' })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: '고객 메뉴' });
+    expect(within(nav).getByRole('link', { name: '홈' })).toHaveAttribute('aria-current', 'page');
   });
 
   it.each(['/nope', '/owner/nope'])('%s는 /로 이동한다', (path) => {
@@ -106,5 +109,29 @@ describe('routes: 계정 화면 (auth-account §4)', () => {
   it('/signup은 이미 로그인한 OWNER를 /owner/today로 보낸다', async () => {
     const router = renderAt('/signup', signedInFakes());
     await waitFor(() => expect(router.state.location.pathname).toBe('/owner/today'));
+  });
+});
+
+describe('routes: 고객 셸 (customer-home §4)', () => {
+  it('/offers/abc는 비로그인이면 C2 자리 page에 offerId를 보이고 탭 바는 없다', async () => {
+    renderAt('/offers/abc', anonymousFakes());
+    expect(await screen.findByRole('heading', { name: 'C2 할인 상세' })).toBeInTheDocument();
+    expect(screen.getByText('abc')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '고객 메뉴' })).not.toBeInTheDocument();
+  });
+
+  it('/reservations는 CUSTOMER에게 C5 자리 page와 탭 「내 예약」 현재를 보인다', async () => {
+    renderAt('/reservations', signedInFakes(customerUser));
+    expect(await screen.findByRole('heading', { name: 'C5 내 예약' })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: '고객 메뉴' });
+    expect(within(nav).getByRole('link', { name: '내 예약' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('/me/points는 비로그인이면 /login으로 이동한다', async () => {
+    const router = renderAt('/me/points', anonymousFakes());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
   });
 });

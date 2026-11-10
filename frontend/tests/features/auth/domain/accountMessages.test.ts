@@ -6,6 +6,7 @@ import {
   passwordRuleMessage,
   resetConfirmErrorMessage,
   signupErrorView,
+  withdrawErrorView,
 } from '@/features/auth/domain/accountMessages';
 import type { PasswordCheck } from '@/features/auth/domain/passwordRule';
 
@@ -84,6 +85,22 @@ describe('changePasswordErrorView', () => {
     expect(
       changePasswordErrorView({ errorCode: 'FORBIDDEN', message: '정지된 계정입니다.' }),
     ).toEqual({ field: 'form', message: '정지된 계정입니다.' });
+  });
+});
+
+describe('withdrawErrorView (C7, customer-home §3.1)', () => {
+  it('FORBIDDEN이면 폼 오류 자리에 서버 문구', () => {
+    expect(withdrawErrorView({ errorCode: 'FORBIDDEN', message: '정지된 계정입니다.' })).toEqual({
+      field: 'form',
+      message: '정지된 계정입니다.',
+    });
+  });
+
+  it('서버 문구가 비어 있으면 폼 오류 자리에 기본 문구', () => {
+    expect(withdrawErrorView({ errorCode: 'DATA_INCONSISTENT', message: '' })).toEqual({
+      field: 'form',
+      message: ACCOUNT_FALLBACK_MESSAGE,
+    });
   });
 });
 

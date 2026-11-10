@@ -1,17 +1,16 @@
 import { Link, Navigate, useLocation } from 'react-router';
 import {
   LoginForm,
+  loginEntryMessage,
   loginNoticeMessage,
   readFrom,
+  readLoginEntry,
   readLoginNotice,
   resolvePostLoginPath,
   useAuth,
 } from '@/features/auth';
 import { ROUTES } from '@/shared/lib/routes';
 
-// TODO: 진입 경로별 안내 한 줄(예약을 이어가려면…)이 없다.
-//   왜: 고객 흐름(C2·내 예약 탭)이 없어 진입 경로를 구분할 수 없다 (screens.md A1 동작 메모)
-//   언제: C2 구현 시
 export function LoginPage() {
   const { state } = useAuth();
   const location = useLocation();
@@ -25,6 +24,8 @@ export function LoginPage() {
   // A2·A3로 갈 때 from을 넘겨 가입·재설정 뒤에도 원래 화면으로 돌아오게 한다(auth-account.md D-7).
   const linkState = from !== null ? { from } : undefined;
   const notice = readLoginNotice(location.state);
+  // 진입 경로별 안내 한 줄(wireframe.html:170). 고객 가드는 customerTab, C2는 reservation(customer-home.md §3.7, §5.6)
+  const entry = readLoginEntry(location.state);
 
   return (
     <div className="app">
@@ -36,6 +37,7 @@ export function LoginPage() {
       </div>
       <div className="body">
         <h1>로그인</h1>
+        {entry !== null ? <div className="m">{loginEntryMessage(entry)}</div> : null}
         {notice !== null ? (
           <div className="box done" role="status">
             {loginNoticeMessage(notice)}

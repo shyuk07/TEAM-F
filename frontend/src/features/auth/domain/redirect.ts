@@ -3,7 +3,10 @@ import { isAdminPath, isOwnerPath, type User } from './user';
 
 export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
 
-export type LoginLocationState = { from?: string; notice?: LoginNotice };
+// A1 진입 안내 한 줄의 진입 경로(customer-home.md D-7)
+export type LoginEntry = 'reservation' | 'customerTab';
+
+export type LoginLocationState = { from?: string; notice?: LoginNotice; entry?: LoginEntry };
 
 function hasControlChar(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
@@ -38,6 +41,14 @@ export function readLoginNotice(state: unknown): LoginNotice | null {
   return LOGIN_NOTICES.find((n) => n === notice) ?? null;
 }
 
+const LOGIN_ENTRIES: readonly LoginEntry[] = ['reservation', 'customerTab'];
+
+export function readLoginEntry(state: unknown): LoginEntry | null {
+  if (typeof state !== 'object' || state === null) return null;
+  const entry = (state as { entry?: unknown }).entry;
+  return LOGIN_ENTRIES.find((e) => e === entry) ?? null;
+}
+
 export function isAccountPath(path: string): boolean {
   return path === ROUTES.account || path.startsWith(`${ROUTES.account}/`);
 }
@@ -45,8 +56,10 @@ export function isAccountPath(path: string): boolean {
 export function loginRedirectState(
   cause: 'loggedOut' | 'other',
   currentPath: string,
+  entry?: LoginEntry,
 ): LoginLocationState | undefined {
-  return cause === 'loggedOut' ? undefined : { from: currentPath };
+  if (cause === 'loggedOut') return undefined;
+  return entry !== undefined ? { from: currentPath, entry } : { from: currentPath };
 }
 
 export function resolvePostLoginPath(user: User, from: string | null): string {

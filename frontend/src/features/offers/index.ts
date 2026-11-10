@@ -1,0 +1,23 @@
+export type { Offer, OfferStatus, NearbyOffer, OfferPage } from './domain/offer';
+export { isSoldOut } from './domain/offer';
+export type { GeoPoint, OfferSort, RadiusKm } from './domain/nearbyQuery';
+export type { HomeFilter } from './domain/homeFilter';
+export { readHomeFilter, toHomeSearch, nextRadius, locationChipLabel } from './domain/homeFilter';
+export type { OfferRepository } from './domain/offerRepository';
+export { salesCountdown, pickupWindow, formatDistance, formatWon } from './domain/offerFormat';
+export {
+  OFFERS_LOAD_FAILED_MESSAGE,
+  OWNER_APPLY_LINK,
+  LOAD_MORE_LABEL,
+  SEARCH_LABEL,
+} from './domain/offerMessages';
+export { KEYWORD_MAX_LENGTH } from './domain/nearbyQuery';
+export type { LocationProvider } from './application/ports';
+export { OfferRepositoryToken, LocationProviderToken } from './application/tokens';
+export { useDeviceLocation } from './application/useDeviceLocation';
+export { useNearbyOffers } from './application/useNearbyOffers';
+export { OfferCard } from './presentation/OfferCard';
+export { OfferCardSkeleton } from './presentation/OfferCardSkeleton';
+export { SortChips } from './presentation/SortChips';
+export { LocationSheet } from './presentation/LocationSheet';
+export { NearbyEmpty } from './presentation/NearbyEmpty';
