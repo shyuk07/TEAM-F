@@ -145,14 +145,20 @@ export function useReserveOffer() {
 
 ## 7. 테스트 (Vitest + Testing Library)
 
-| 대상 | 방법 | 위치 |
+**위치 (정본):** 단위·통합 테스트는 `src`에 두지 않고 `frontend/tests/` 아래 **`src`와 같은 경로**에 둡니다. `src/features/products/domain/price.ts`의 테스트는 `tests/features/products/domain/price.test.ts`입니다.
+- 가짜 구현체(`*.fake.ts`)는 `tests/<계층>/<slice>/fakes/`에 둡니다. 운영 코드(`src`)에서 import하지 않습니다.
+- 공통 setup은 `tests/setup.ts` 하나입니다(`vite.config.ts`의 `test.setupFiles`).
+- 테스트에서 대상 코드는 `@/` 별칭으로 import합니다. slice 내부 경로(`@/features/products/domain/price`)도 테스트에서는 허용합니다.
+- E2E는 `e2e/`(`qa-verification` §4)이며 이 폴더와 섞지 않습니다.
+
+| 대상 | 방법 | 위치 (`tests/` 아래) |
 | --- | --- | --- |
-| domain 함수 | 순수 함수 단위 테스트. 경계값(0, 마감 시각 정각, 재고 1) 포함 | `<slice>/domain/*.test.ts` |
-| infrastructure 구현체 | `shared/api`를 `vi.mock`하고 DTO → domain 변환, 엔드포인트·쿼리 확인 | `<slice>/infrastructure/*.test.ts` |
-| application 유스케이스 | 포트에 가짜 객체를 넘겨 호출 순서·결과 확인 (React 없음) | `<slice>/application/*.test.ts` |
-| application 훅 | 가짜 구현체로 만든 `Container`를 `DepsProvider`로 감싸 `renderHook`. 로딩 → 성공/에러 전이, 언마운트 시 abort | `<slice>/application/*.test.ts` |
-| presentation | 가짜 구현체 `DepsProvider` + `render` + `screen.getByRole`. 로딩·빈·에러·성공 네 상태를 모두 확인 | `<slice>/presentation/*.test.tsx` |
-| 조립 | `createContainer()`가 중복 없이 만들어지고 핵심 토큰이 풀리는지 | `src/app/container.test.ts` |
+| domain 함수 | 순수 함수 단위 테스트. 경계값(0, 마감 시각 정각, 재고 1) 포함 | `<계층>/<slice>/domain/*.test.ts` |
+| infrastructure 구현체 | `shared/api`를 `vi.mock`하고 DTO → domain 변환, 엔드포인트·쿼리 확인 | `<계층>/<slice>/infrastructure/*.test.ts` |
+| application 유스케이스 | 포트에 가짜 객체를 넘겨 호출 순서·결과 확인 (React 없음) | `<계층>/<slice>/application/*.test.ts` |
+| application 훅 | 가짜 구현체로 만든 `Container`를 `DepsProvider`로 감싸 `renderHook`. 로딩 → 성공/에러 전이, 언마운트 시 abort | `<계층>/<slice>/application/*.test.ts` |
+| presentation | 가짜 구현체 `DepsProvider` + `render` + `screen.getByRole`. 로딩·빈·에러·성공 네 상태를 모두 확인 | `<계층>/<slice>/presentation/*.test.tsx` |
+| 조립 | `createContainer()`가 중복 없이 만들어지고 핵심 토큰이 풀리는지 | `app/container.test.ts` |
 
 - application·presentation 테스트에서 `vi.mock`으로 모듈을 바꾸지 않습니다. 포트에 가짜 구현체를 넣습니다(`layer-architecture` §6.8). `vi.mock`은 infrastructure 테스트의 `shared/api`에만 씁니다.
 

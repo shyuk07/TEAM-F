@@ -18,9 +18,9 @@
 | 상황 | 에이전트 | 쓰기 범위 | 병렬 |
 | --- | --- | --- | --- |
 | 화면·slice 설계, 구조 점검 | `fe-architect` | `../docs/design/frontend/<slice>.md`, `fsd-structure` §7 대응표 | 설계는 slice가 다르면 가능. 대응표는 한 번에 한 명 |
-| slice 구현·수정 | `fe-developer` | 맡은 slice와 그 테스트(features면 `wiring.ts` 포함), `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄 | 영역(slice)이 다를 때. entities 포트를 바꾸면 그 포트를 쓰는 영역은 순차 |
+| slice 구현·수정 | `fe-developer` | 맡은 slice(features면 `wiring.ts` 포함)와 `tests/` 아래 그 slice 경로의 테스트, `app/router`의 자기 라우트 한 줄, `app/container.ts`의 자기 영역 `wire*()` 한 줄 | 영역(slice)이 다를 때. entities 포트를 바꾸면 그 포트를 쓰는 영역은 순차 |
 | 변경 코드 정확성 리뷰 | `fe-reviewer` | 없음 (읽기 전용, npm·서버 실행 안 함) | 가능 |
-| 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
+| 실행 검증·E2E·머지 전 점검·Red 테스트 | `fe-qa` | 요청받은 `e2e/*.spec.ts`, 요청받은 slice의 `tests/<계층>/<slice>/**/*.test.ts(x)` | 한 번에 하나 (`node_modules`·포트 공유) |
 
 선택 순서:
 1. 설계안이 없거나 결정 표에 차단 항목이 남아 있으면 `fe-architect`. 구현자를 부르지 않는다.
@@ -81,9 +81,9 @@
 | `src/entities/<개체>/**` | 그 개체를 소유한 영역(`fsd-structure` §1.1)의 `fe-developer`. 다른 영역이 바꿔야 하면 오케스트레이터가 소유 영역 담당에게 발주 |
 | `src/app/container.ts` | 각 developer는 자기 영역의 `wire*()` 한 줄씩. 토큰 중복 등록 조정은 오케스트레이터 |
 | `src/shared/lib/di.tsx` | 처음 한 번 발주서에 명시한 `fe-developer`. 이후 변경은 사용자 승인 후 |
-| `src/<계층>/<slice>/**/*.test.ts(x)` | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
+| `tests/<계층>/<slice>/**` (테스트·가짜 구현체, `react-implementation` §7) | 구현 단계는 `fe-developer`. Red 테스트 단계는 발주받은 `fe-qa` (순차) |
 | `src/app/router/**` | 각 developer는 자기 라우트 한 줄씩. 순서·레이아웃 조정은 오케스트레이터가 발주 |
-| `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html` | 발주서에 명시한 `fe-developer`만 |
+| `src/shared/**`, `src/app/providers/**`, `src/main.tsx`, `index.html`, `tests/setup.ts` | 발주서에 명시한 `fe-developer`만 |
 | `src/app/styles/tokens.css`, `bundle.css` | `sync_styles.mjs copy`로만 갱신. 사용자 요청 시 `fe-developer` |
 | `package.json`, `package-lock.json`, `vite.config.ts`, `tsconfig*.json`, ESLint·Prettier·Playwright 설정 | 사용자 승인 후 발주서에 명시한 `fe-developer`만 |
 | `e2e/**` | 발주받은 `fe-qa` |

@@ -23,7 +23,7 @@ node .claude/skills/layer-check/check_layers.mjs
 | `[같은계층]` | F1 | 같은 계층의 다른 slice를 import (features/a → features/b) |
 | `[공개API]` | F2, F18 | 다른 slice의 내부 경로를 import (`@/entities/offer/domain/offer`), `index.ts`가 infrastructure를 내보냄 |
 | `[wiring위치]` | F18 | `app` 밖에서 다른 slice의 `wiring`을 import, 같은 slice 안에서 `wiring`을 import |
-| `[구조]` | F3, F4, F18 | 계층 바로 아래 파일, slice 루트의 `index.ts`·`wiring.ts` 외 파일, features 밖(entities·widgets·pages)의 `wiring.ts`, entities 안의 `infrastructure/`, 영역 목록(`FEATURE_DOMAINS`)에 없는 features slice, slice 안 4계층 외 폴더(`ui`, `model` 등), `app`·`shared` 안 4계층 폴더, FSD 계층 밖 폴더 |
+| `[구조]` | F3, F4, F18 | `src` 안의 테스트·가짜 구현체 파일(`*.test.ts(x)`·`*.spec.ts(x)`·`*.fake.ts(x)`), 계층 바로 아래 파일, slice 루트의 `index.ts`·`wiring.ts` 외 파일, features 밖(entities·widgets·pages)의 `wiring.ts`, entities 안의 `infrastructure/`, 영역 목록(`FEATURE_DOMAINS`)에 없는 features slice, slice 안 4계층 외 폴더(`ui`, `model` 등), `app`·`shared` 안 4계층 폴더, FSD 계층 밖 폴더 |
 | `[의존방향]` | F5, F8, F18 | slice 안 금지 방향(application → infrastructure, presentation → infrastructure, domain → 다른 계층), infrastructure → application을 `import type` 없이 가져옴, presentation·application의 `shared/api` import |
 | `[외부의존]` | F6, F18 | domain의 `react`·`react-router` import, `window`·`document`·`localStorage`·`import.meta.env` 사용, `shared/lib` 외 shared import, domain의 `shared/lib/di` import |
 | `[fetch위치]` | F8 | `shared/api` 밖의 `fetch(` 호출 |
@@ -31,7 +31,7 @@ node .claude/skills/layer-check/check_layers.mjs
 
 ## 검사 범위와 한계
 - 경로 해석은 `@/`(= `src/`) 별칭과 상대 경로만 합니다. 다른 별칭을 추가하면 `resolveSpec`을 고칩니다.
-- `*.test.ts(x)`·`*.spec.ts(x)`·`*.fake.ts(x)`는 `[구조]`와 `[하드코딩색]`만 검사합니다. 테스트와 가짜 구현체는 여러 계층을 함께 참조할 수 있습니다.
+- 검사 대상은 `src/`뿐입니다. 테스트와 가짜 구현체는 `tests/`에 두며(`react-implementation` §7) 검사하지 않습니다. 테스트는 여러 계층을 함께 참조할 수 있습니다. `src` 안에서 테스트 파일이 발견되면 `[구조]` 위반입니다.
 - import는 문장 단위로 읽습니다. 여러 줄에 걸친 `import type { ... } from` 도 타입 전용으로 판정합니다. `import { type A }`처럼 괄호 안에만 `type`을 붙이면 타입 전용으로 보지 않으므로 `import type`을 씁니다.
 - `//`·`/* */` 주석은 무시하고, 문자열 안의 `'**/*'`·`'http://'`는 주석으로 보지 않습니다. 문자열 안의 `window.` 같은 글자는 잡힐 수 있으니, 오탐이면 보고서에 "오탐"으로 적습니다. 스크립트를 고쳐 끄지 않습니다(F16).
 - 정독이 필요한 규칙(F7 비즈니스 로직 위치, F9 DTO 노출, F10 비동기 상태, F13 문구, F14 명세, F17 토큰 위치, F18의 포트 위치 판단·유스케이스 기본값)은 잡지 못합니다. `fe-architect`·`fe-reviewer`가 판정합니다.

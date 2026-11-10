@@ -189,6 +189,7 @@ function checkFile(abs) {
   const isTest = TEST_FILE.test(rel)
   const isCss = rel.endsWith('.css')
   checkStructure(rel, loc)
+  if (isTest) report('[구조]', rel, 1, '테스트·가짜 구현체는 src에 두지 않는다. tests/ 아래 src와 같은 경로에 둔다 (react-implementation §7)')
 
   const code = stripComments(readFileSync(abs, 'utf8'))
   code.split('\n').forEach((line, i) => {

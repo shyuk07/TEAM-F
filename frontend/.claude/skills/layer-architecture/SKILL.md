@@ -343,7 +343,7 @@ createRoot(document.getElementById('root')!).render(
 )
 ```
 - 영역은 7개로 고정이므로 이 파일은 영역이 생길 때만 바뀝니다. 순서는 상관없습니다.
-- 등록을 빠뜨리면 그 포트를 쓰는 화면이 처음 렌더될 때 "의존성 미등록: <이름>" 오류가 납니다. `app/container.test.ts`(§6.8)와 E2E로 잡습니다.
+- 등록을 빠뜨리면 그 포트를 쓰는 화면이 처음 렌더될 때 "의존성 미등록: <이름>" 오류가 납니다. `tests/app/container.test.ts`(§6.8)와 E2E로 잡습니다.
 
 ### 6.8 테스트 — 가짜 구현체를 넣는다
 
@@ -367,7 +367,7 @@ for (const token of [SessionStoreToken, OfferRepositoryToken /* entities 토큰 
 ```
 - application·presentation 테스트에서 `vi.mock`으로 모듈을 바꾸지 않습니다. 포트에 가짜 구현체를 넣습니다.
 - `vi.mock`은 infrastructure 테스트에서 `shared/api`를 바꿀 때만 씁니다.
-- 가짜 구현체는 테스트 파일 안이나 같은 계층의 `*.fake.ts`에 둡니다. 운영 코드에서 import하지 않습니다.
+- 가짜 구현체는 테스트 파일 안이나 `tests/<계층>/<slice>/fakes/*.fake.ts`에 둡니다(`react-implementation` §7). 운영 코드에서 import하지 않습니다.
 
 ### 6.9 새 포트 체크리스트
 1. 위치를 정한다: 도메인 데이터 접근이면 domain, 유스케이스 전용 기술 기능이면 application (§6.3)
@@ -375,6 +375,6 @@ for (const token of [SessionStoreToken, OfferRepositoryToken /* entities 토큰 
 3. `interface`를 만들고, 같은 slice의 `application/tokens.ts`에 토큰을 만든다
 4. 소유 영역의 infrastructure에 `implements` 구현체를 만든다
 5. 소유 영역의 `wiring.ts`에서 `bind`한다 (토큰당 한 곳)
-6. entities 포트면 `fsd-structure` §1.1 "구현을 맡는 entities"에 적고 `app/container.test.ts`의 토큰 목록에 추가한다
+6. entities 포트면 `fsd-structure` §1.1 "구현을 맡는 entities"에 적고 `tests/app/container.test.ts`의 토큰 목록에 추가한다
 7. 다른 slice가 쓸 포트면 `index.ts`에서 포트 타입과 토큰을 내보낸다 (구현체·wiring은 내보내지 않음)
 8. `node .claude/skills/layer-check/check_layers.mjs`가 0건인지 확인한다

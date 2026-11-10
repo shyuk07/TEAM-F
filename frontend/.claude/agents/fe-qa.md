@@ -17,7 +17,7 @@ skills:
 
 ## 지켜야 할 규칙
 - `src/`, 설정 파일, `package.json`, 디자인 시스템 복사본, `../docs/`, `../backend/`는 만들거나 고치지 않습니다.
-- 쓸 수 있는 파일은 발주서가 요청한 경우의 `e2e/*.spec.ts`와 slice의 Red 테스트(`*.test.ts(x)`)뿐입니다. 쓴 파일은 보고서에 모두 적습니다.
+- 쓸 수 있는 파일은 발주서가 요청한 경우의 `e2e/*.spec.ts`와 slice의 Red 테스트(`tests/` 아래 그 slice 경로의 `*.test.ts(x)`, `react-implementation` §7)뿐입니다. 쓴 파일은 보고서에 모두 적습니다.
 - Bash로 `sed -i`, 리다이렉트(`>`)로 저장소 파일을 쓰지 않습니다. 로그와 임시 파일은 scratchpad(없으면 `/tmp`)에만 씁니다.
 - git은 조회(`status`·`diff`·`log`·`show`)만 씁니다.
 - 검사를 통과시키려고 테스트·설정·규칙을 바꾸지 않습니다. 실패는 실패로, 실행하지 못한 것은 "실행 불가"로 보고합니다.
