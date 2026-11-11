@@ -32,25 +32,101 @@ for _stream in (sys.stdout, sys.stderr):
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 # ── 샘플 데이터 상수 (로컬 개발 전용 계정. 실제 서비스에서 쓰지 않는다) ──
-OWNER_EMAIL = "owner@example.com"
-OWNER_PASSWORD = "seed-owner-1234"
-OWNER_NAME = "마감직전 샘플 베이커리"  # 상점명은 상점주 이름(상호)으로 정해진다
-OWNER_PHONE = "010-0000-0001"
-
 CUSTOMER_EMAIL = "customer@example.com"
 CUSTOMER_PASSWORD = "seed-customer-1234"
 CUSTOMER_NAME = "샘플 고객"
 CUSTOMER_PHONE = "010-0000-0002"
 
-# 카카오 키가 없으면 서버의 MockGeocoder가 주소와 관계없이 강남역 부근 좌표를 준다.
-# 키가 있어도 강남역 근처로 잡히도록 강남역 주변 주소를 쓴다.
-STORE_ADDRESS = "서울특별시 강남구 강남대로 396"
 
-PRODUCTS = [
-    {"name": "통밀 식빵", "category": "베이커리", "description": "오늘 아침 구운 통밀 식빵입니다.", "original_price": 6000, "sale_price": 3000, "stock": 5},
-    {"name": "크루아상 3개 세트", "category": "베이커리", "description": "버터 크루아상 3개 묶음입니다.", "original_price": 9000, "sale_price": 4500, "stock": 4},
-    {"name": "닭가슴살 샐러드", "category": "샐러드", "description": "신선한 채소와 닭가슴살 샐러드입니다.", "original_price": 8500, "sale_price": 5000, "stock": 3},
-    {"name": "아이스 아메리카노", "category": "음료", "description": "원두를 바로 내린 아메리카노입니다.", "original_price": 4500, "sale_price": 2000, "stock": 10},
+def _p(name: str, category: str, description: str, original_price: int, sale_price: int, stock: int) -> dict:
+    return {
+        "name": name,
+        "category": category,
+        "description": description,
+        "original_price": original_price,
+        "sale_price": sale_price,
+        "stock": stock,
+    }
+
+
+# 상점주 1명 = 상점 1개. 상점명은 상점주 이름(상호)으로 정해진다.
+# 카카오 키가 없으면 서버의 MockGeocoder가 주소와 관계없이 강남역 부근 좌표를 준다.
+# 키가 있어도 강남역 근처로 잡히도록 강남역 주변 주소를 쓴다. 이름+주소가 같은 상점은 만들 수 없어 주소를 다르게 둔다.
+STORES = [
+    {
+        "email": "owner@example.com",
+        "password": "seed-owner-1234",
+        "name": "마감직전 샘플 베이커리",
+        "phone": "010-0000-0001",
+        "address": "서울특별시 강남구 강남대로 396",
+        "products": [
+            _p("통밀 식빵", "베이커리", "오늘 아침 구운 통밀 식빵입니다.", 6000, 3000, 5),
+            _p("크루아상 3개 세트", "베이커리", "버터 크루아상 3개 묶음입니다.", 9000, 4500, 4),
+            _p("닭가슴살 샐러드", "샐러드", "신선한 채소와 닭가슴살 샐러드입니다.", 8500, 5000, 3),
+            _p("아이스 아메리카노", "음료", "원두를 바로 내린 아메리카노입니다.", 4500, 2000, 10),
+        ],
+    },
+    {
+        "email": "owner2@example.com",
+        "password": "seed-owner-1234",
+        "name": "샘플 김밥천국",
+        "phone": "010-0000-0011",
+        "address": "서울특별시 강남구 테헤란로 101",
+        "products": [
+            _p("참치김밥", "분식", "참치마요 듬뿍 김밥입니다.", 4500, 2500, 8),
+            _p("떡볶이 1인분", "분식", "매콤달콤 국물 떡볶이입니다.", 5000, 3000, 6),
+            _p("유부초밥 6개", "분식", "새콤한 유부초밥 6개입니다.", 5500, 3000, 5),
+        ],
+    },
+    {
+        "email": "owner3@example.com",
+        "password": "seed-owner-1234",
+        "name": "샘플 초밥집",
+        "phone": "010-0000-0012",
+        "address": "서울특별시 강남구 강남대로 410",
+        "products": [
+            _p("모둠초밥 10피스", "일식", "연어·광어·새우 모둠초밥입니다.", 15000, 8900, 4),
+            _p("연어덮밥", "일식", "생연어를 올린 덮밥입니다.", 12000, 7000, 3),
+            _p("유자 우동", "일식", "향긋한 유자 우동입니다.", 9000, 5000, 5),
+        ],
+    },
+    {
+        "email": "owner4@example.com",
+        "password": "seed-owner-1234",
+        "name": "샘플 동네반찬",
+        "phone": "010-0000-0013",
+        "address": "서울특별시 서초구 서초대로 77길 17",
+        "products": [
+            _p("반찬 3종 세트", "반찬", "멸치볶음·진미채·시금치나물입니다.", 12000, 6000, 6),
+            _p("제육볶음 도시락", "도시락", "밥과 제육볶음 도시락입니다.", 8000, 4500, 5),
+            _p("계란말이", "반찬", "두툼한 계란말이입니다.", 5000, 2500, 7),
+        ],
+    },
+    {
+        "email": "owner5@example.com",
+        "password": "seed-owner-1234",
+        "name": "샘플 과일가게",
+        "phone": "010-0000-0014",
+        "address": "서울특별시 강남구 역삼로 120",
+        "products": [
+            _p("제철 과일컵", "과일", "딸기·포도·키위 과일컵입니다.", 6000, 3000, 10),
+            _p("사과 5개", "과일", "흠집이 조금 있는 사과 5개입니다.", 10000, 5000, 4),
+            _p("수박 1/4통", "과일", "잘라 둔 수박 1/4통입니다.", 9000, 4000, 3),
+        ],
+    },
+    {
+        "email": "owner6@example.com",
+        "password": "seed-owner-1234",
+        "name": "샘플 카페",
+        "phone": "010-0000-0015",
+        "address": "서울특별시 강남구 논현로 508",
+        "products": [
+            _p("치즈케이크 조각", "디저트", "꾸덕한 뉴욕 치즈케이크입니다.", 6500, 3500, 5),
+            _p("샌드위치", "브런치", "햄치즈 에그 샌드위치입니다.", 7000, 3900, 6),
+            _p("마카롱 4개", "디저트", "색색 마카롱 4개입니다.", 10000, 5500, 4),
+            _p("카페라떼", "음료", "고소한 카페라떼입니다.", 5000, 2500, 8),
+        ],
+    },
 ]
 
 KST = timezone(timedelta(hours=9))  # 고정 오프셋이라 Windows에 tzdata가 없어도 동작한다
@@ -144,8 +220,8 @@ def find_user(client: httpx.Client, admin_token: str, email: str, role: str) -> 
     raise fail(step, detail=f"{email} 계정이 회원 목록에 없습니다.")
 
 
-def ensure_owner_approved(client: httpx.Client, admin_token: str) -> str:
-    owner = find_user(client, admin_token, OWNER_EMAIL, "OWNER")
+def ensure_owner_approved(client: httpx.Client, admin_token: str, owner_email: str) -> str:
+    owner = find_user(client, admin_token, owner_email, "OWNER")
     status = owner["status"]
     if status == "APPROVED":
         return "이미 승인됨"
@@ -160,7 +236,7 @@ def ensure_owner_approved(client: httpx.Client, admin_token: str) -> str:
     return "승인 완료"
 
 
-def ensure_store(client: httpx.Client, owner_token: str) -> tuple[dict, str]:
+def ensure_store(client: httpx.Client, owner_token: str, address: str) -> tuple[dict, str]:
     res = client.get("/v1/stores/me", headers=auth_header(owner_token))
     if res.status_code == 200:
         store = res.json()
@@ -172,20 +248,20 @@ def ensure_store(client: httpx.Client, owner_token: str) -> tuple[dict, str]:
         return store, "기존 상점 재사용"
     if res.status_code != 404:
         raise fail("내 상점 조회", res)
-    res = client.post("/v1/stores", json={"pickup_address": STORE_ADDRESS}, headers=auth_header(owner_token))
+    res = client.post("/v1/stores", json={"pickup_address": address}, headers=auth_header(owner_token))
     if res.status_code != 201:
         raise fail("상점 개설", res)
     return res.json(), "새로 개설"
 
 
-def ensure_products(client: httpx.Client, owner_token: str, store_id: str) -> dict[str, dict]:
+def ensure_products(client: httpx.Client, owner_token: str, store_id: str, specs: list[dict]) -> dict[str, dict]:
     """샘플 상품을 이름으로 찾아 재사용하고, 없으면 등록한다. 이름 -> 상품."""
     res = client.get(f"/v1/stores/{store_id}/products", params={"page": 1, "size": 100}, headers=auth_header(owner_token))
     if res.status_code != 200:
         raise fail("상품 목록 조회", res)
     existing = {p["name"]: p for p in res.json()["items"]}
     result: dict[str, dict] = {}
-    for spec in PRODUCTS:
+    for spec in specs:
         product = existing.get(spec["name"])
         if product is None:
             res = client.post(
@@ -225,7 +301,9 @@ def offer_times() -> dict[str, str]:
     }
 
 
-def ensure_offers(client: httpx.Client, owner_token: str, store_id: str, products: dict[str, dict]) -> int:
+def ensure_offers(
+    client: httpx.Client, owner_token: str, store_id: str, products: dict[str, dict], specs: list[dict]
+) -> int:
     """상품마다 판매 중인 할인을 하나씩 보장한다. 판매 중 할인 수를 돌려준다."""
     # 상점주가 조회하면 기본으로 SCHEDULED, ON_SALE, SOLD_OUT, SUSPENDED가 나온다 (진행 중인 할인)
     res = client.get(f"/v1/stores/{store_id}/offers", params={"page": 1, "size": 100}, headers=auth_header(owner_token))
@@ -233,7 +311,7 @@ def ensure_offers(client: httpx.Client, owner_token: str, store_id: str, product
         raise fail("상점 할인 목록 조회", res)
     open_offers = {o["product_id"]: o for o in res.json()["items"]}
     on_sale = 0
-    for spec in PRODUCTS:
+    for spec in specs:
         product = products[spec["name"]]
         current = open_offers.get(product["id"])
         if current is not None:
@@ -296,30 +374,28 @@ def run(base_url: str) -> None:
             "값을 새로 넣었다면 서버를 다시 켜야 관리자 계정이 만들어집니다.",
         )["access_token"]
 
-        print("2. 상점주 가입")
-        created = signup(client, "상점주 가입", email=OWNER_EMAIL, password=OWNER_PASSWORD, name=OWNER_NAME, phone=OWNER_PHONE, role="OWNER")
-        print(f"  - {'새로 가입' if created else '이미 있는 계정'}: {OWNER_EMAIL}")
+        summaries: list[tuple[str, int, int]] = []  # (상점명, 판매 중 할인 수, 홈 노출 수)
+        for index, spec in enumerate(STORES, start=1):
+            print(f"2-{index}. 상점 {index}/{len(STORES)}: {spec['name']}")
+            created = signup(
+                client, f"상점주 가입 ({spec['email']})",
+                email=spec["email"], password=spec["password"], name=spec["name"], phone=spec["phone"], role="OWNER",
+            )
+            print(f"  - 상점주 {'새로 가입' if created else '이미 있는 계정'}: {spec['email']}")
+            print(f"  - 관리자 승인: {ensure_owner_approved(client, admin_token, spec['email'])}")
+            owner_token = login(
+                client, f"상점주 로그인 ({spec['email']})", spec["email"], spec["password"],
+                f"{spec['email']} 계정이 다른 비밀번호로 이미 있으면 이 스크립트의 STORES 비밀번호와 맞추거나 계정을 정리하세요.",
+            )["access_token"]
+            store, how = ensure_store(client, owner_token, spec["address"])
+            print(f"  - 상점 {how}: {store['name']} ({store['pickup_address']}, 위도 {store['latitude']}, 경도 {store['longitude']})")
+            products = ensure_products(client, owner_token, store["id"], spec["products"])
+            on_sale = ensure_offers(client, owner_token, store["id"], products, spec["products"])
+            visible = count_home_offers(client, store["id"])
+            print(f"  - 고객 홈에 이 상점 할인 {visible}개가 보입니다.")
+            summaries.append((store["name"], on_sale, visible))
 
-        print("3. 관리자: 상점주 승인")
-        print(f"  - {ensure_owner_approved(client, admin_token)}")
-
-        print("4. 상점주 로그인")
-        owner_token = login(
-            client, "상점주 로그인", OWNER_EMAIL, OWNER_PASSWORD,
-            f"{OWNER_EMAIL} 계정이 다른 비밀번호로 이미 있으면 이 스크립트의 OWNER_PASSWORD와 맞추거나 계정을 정리하세요.",
-        )["access_token"]
-
-        print("5. 상점 개설")
-        store, how = ensure_store(client, owner_token)
-        print(f"  - {how}: {store['name']} ({store['pickup_address']}, 위도 {store['latitude']}, 경도 {store['longitude']})")
-
-        print("6. 상품 등록")
-        products = ensure_products(client, owner_token, store["id"])
-
-        print("7. 할인 등록")
-        on_sale = ensure_offers(client, owner_token, store["id"], products)
-
-        print("8. 고객 가입")
+        print("3. 고객 가입")
         created = signup(client, "고객 가입", email=CUSTOMER_EMAIL, password=CUSTOMER_PASSWORD, name=CUSTOMER_NAME, phone=CUSTOMER_PHONE, role="CUSTOMER")
         print(f"  - {'새로 가입' if created else '이미 있는 계정'}: {CUSTOMER_EMAIL}")
         login(
@@ -327,15 +403,12 @@ def run(base_url: str) -> None:
             f"{CUSTOMER_EMAIL} 계정이 다른 비밀번호로 이미 있으면 이 스크립트의 CUSTOMER_PASSWORD와 맞추세요.",
         )
 
-        print("9. 고객 홈 노출 확인 (GET /v1/offers)")
-        visible = count_home_offers(client, store["id"])
-        print(f"  - 이 상점의 판매 중 할인 {visible}개가 보입니다.")
-
     print()
     print("=== 샘플 데이터 준비 완료 ===")
-    print(f"상점: {store['name']} / 판매 중 할인 {on_sale}개 (홈 목록에서 확인 {visible}개)")
+    for name, on_sale, visible in summaries:
+        print(f"상점: {name} / 판매 중 할인 {on_sale}개 (홈 목록에서 확인 {visible}개)")
     print(f"고객 계정:   {CUSTOMER_EMAIL} / {CUSTOMER_PASSWORD}")
-    print(f"상점주 계정: {OWNER_EMAIL} / {OWNER_PASSWORD}")
+    print("상점주 계정: " + ", ".join(s["email"] for s in STORES) + f" (비밀번호 {STORES[0]['password']})")
     print(f"확인할 주소: {FRONTEND_URL}")
     print("참고: 브라우저 위치 권한을 허용하면 현재 위치 기준 반경으로 검색합니다. 상점 좌표는 강남역 부근이라")
     print("      멀리 있으면 카드가 안 보일 수 있으니, 그때는 위치 권한을 거부하고 전체 목록으로 확인하세요.")
