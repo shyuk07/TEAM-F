@@ -1,4 +1,4 @@
-import type { MouseEventHandler, ReactNode } from 'react';
+import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 
 export type ButtonProps = {
   variant?: 'default' | 'primary' | 'dark';
@@ -9,6 +9,7 @@ export type ButtonProps = {
   type?: 'button' | 'submit';
   form?: string;
   onClick?: MouseEventHandler<HTMLButtonElement>;
+  style?: CSSProperties;
   children: ReactNode;
 };
 
@@ -21,6 +22,7 @@ export function Button({
   type = 'button',
   form,
   onClick,
+  style,
   children,
 }: ButtonProps) {
   const blocked = pending === true || disabled === true;
@@ -48,6 +50,7 @@ export function Button({
       type={type}
       className={cls}
       form={form}
+      style={style}
       aria-disabled={blocked ? 'true' : undefined}
       onClick={handleClick}
     >

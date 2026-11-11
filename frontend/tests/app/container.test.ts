@@ -1,9 +1,11 @@
 import { createContainer } from '@/app/container';
+import { ProductRepositoryToken } from '@/entities/product';
 import { SessionStoreToken } from '@/entities/session';
 import { StoreRepositoryToken } from '@/entities/store';
 import { AdminRepositoryToken } from '@/features/admin';
 import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
 import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
+import { ProductCommandsToken } from '@/features/products/application/tokens';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
 import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
 import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
@@ -19,6 +21,8 @@ const TOKENS: readonly Token<unknown>[] = [
   AdminRepositoryToken,
   StoreRepositoryToken,
   StoreCommandsToken,
+  ProductRepositoryToken,
+  ProductCommandsToken,
   ReservationRepositoryToken,
   PaymentRepositoryToken,
 ];

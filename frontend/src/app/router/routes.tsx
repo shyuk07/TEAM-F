@@ -18,6 +18,9 @@ import { PointHistoryPage } from '@/pages/point-history';
 import { SignupPage } from '@/pages/signup';
 import { WithdrawPage } from '@/pages/withdraw';
 import { OwnerStartPage } from '@/pages/owner-start';
+import { OwnerStorePage } from '@/pages/owner-store';
+import { ProductEditPage } from '@/pages/product-edit';
+import { ProductNewPage } from '@/pages/product-new';
 import { StoreClosePage } from '@/pages/store-close';
 import { MyReservationsPage } from '@/pages/my-reservations';
 import { CheckoutPage } from '@/pages/checkout';
@@ -27,9 +30,6 @@ import { TAB_BAR_HANDLE } from './handle';
 import {
   OwnerOfferNewPlaceholder,
   OwnerOffersPlaceholder,
-  OwnerProductEditPlaceholder,
-  OwnerProductNewPlaceholder,
-  OwnerStorePlaceholder,
   OwnerTodayPlaceholder,
 } from './placeholders';
 
@@ -78,11 +78,11 @@ export const routes: RouteObject[] = [
       { path: ROUTES.ownerToday, element: <OwnerTodayPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOfferNew, element: <OwnerOfferNewPlaceholder /> },
-      { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerStore, element: <OwnerStorePage />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerStart, element: <OwnerStartPage /> },
       { path: ROUTES.ownerStoreClose, element: <StoreClosePage /> },
-      { path: ROUTES.ownerProductNew, element: <OwnerProductNewPlaceholder /> },
-      { path: ROUTE_PATTERNS.ownerProduct, element: <OwnerProductEditPlaceholder /> },
+      { path: ROUTES.ownerProductNew, element: <ProductNewPage /> },
+      { path: ROUTE_PATTERNS.ownerProduct, element: <ProductEditPage /> },
     ],
   },
   { path: ROUTES.admin, element: <Navigate to={ROUTES.adminApprovals} replace /> },

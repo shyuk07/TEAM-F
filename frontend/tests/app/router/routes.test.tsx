@@ -23,27 +23,20 @@ describe('routes', () => {
   it.each([
     ['/owner/today', 'O1 오늘'],
     ['/owner/offers', 'O2 할인'],
-    ['/owner/store', 'O4 매장'],
   ])('%s: 제목 「%s」과 TabBar·TopNav 링크가 있다', async (path, title) => {
     renderAt(path);
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(2);
   });
 
-  it.each([
-    ['/owner/offers/new', 'O3 할인 등록'],
-    ['/owner/products/new', 'O6 상품 등록'],
-    ['/owner/products/p1', 'O11 상품 수정'],
-  ])('%s: 제목 「%s」이 있고 TabBar는 없다(TopNav만)', async (path, title) => {
-    renderAt(path);
-    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
-  });
-
-  it('/owner/products/p1은 productId를 표시한다', async () => {
-    renderAt('/owner/products/p1');
-    expect(await screen.findByText(/p1/)).toBeInTheDocument();
-  });
+  it.each([['/owner/offers/new', 'O3 할인 등록']])(
+    '%s: 제목 「%s」이 있고 TabBar는 없다(TopNav만)',
+    async (path, title) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
+    },
+  );
 
   it('/login은 상점주 셸 없이 로그인 화면을 그린다', () => {
     renderAt('/login', anonymousFakes());
@@ -162,6 +155,33 @@ describe('routes: 고객 셸 (customer-home §4)', () => {
   it('/me/points는 비로그인이면 /login으로 이동한다', async () => {
     const router = renderAt('/me/points', anonymousFakes());
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+  });
+});
+
+// products.md §9.8, D-29: 자리 page 단언 3행(:23 O4, :32 O6, :33 O11)을 정식 page 단언으로 교체했다.
+// 정식 page는 상품 포트가 필요해 상품 가짜가 있는 renderRoutesWithOwnerStore로 렌더한다.
+describe('routes products 화면 (O4·O6·O11)', () => {
+  const renderProductsAt = (path: string) =>
+    renderRoutesWithOwnerStore(routes, { initialEntries: [path], fakes: signedInFakes(ownerUser) });
+
+  it('/owner/store: 제목 「매장」과 「상품 2개」가 보이고 TabBar가 있다', async () => {
+    renderProductsAt('/owner/store');
+    expect(await screen.findByText('매장', { selector: '.bar .logo' })).toBeInTheDocument();
+    expect(await screen.findByText('상품 2개')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(2);
+  });
+
+  it('/owner/products/new: 제목 「상품 등록」이 보이고 TabBar는 없다(TopNav만)', async () => {
+    renderProductsAt('/owner/products/new');
+    expect(await screen.findByText('상품 등록', { selector: '.bar .t' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
+  });
+
+  it('/owner/products/p1: 제목 「상품 수정」이 보이고 TabBar는 없다(TopNav만)', async () => {
+    renderProductsAt('/owner/products/p1');
+    expect(await screen.findByText('상품 수정', { selector: '.bar .t' })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('식빵 모둠 5종')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
   });
 });
 

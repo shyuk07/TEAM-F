@@ -1,3 +1,6 @@
+// TODO: 상품 정보(productId·productName·originalPrice)와 금액 표기가 entities/product의 Product·formatProductPrice와 겹친다.
+//   왜: products가 entities/product를 만들었다 (docs/design/frontend/products.md D-7, §1.1)
+//   언제: O3 구현 시
 export type OfferStatus = 'SCHEDULED' | 'ON_SALE' | 'SOLD_OUT' | 'CLOSED' | 'SUSPENDED';
 
 export type Offer = {
