@@ -9,7 +9,7 @@ import { renderOffersHook } from './renderOffersHook';
 
 type Props = { filter: HomeFilter; location: GeoPoint | null; ready: boolean };
 
-const BASE: HomeFilter = { sort: 'sales_end', radiusKm: 3, keyword: '' };
+const BASE: HomeFilter = { sort: 'sales_end', radiusKm: 3, keyword: '', view: 'offer' };
 
 function setup(initialProps: Props, fakes: AuthFakes = anonymousFakes()) {
   return renderOffersHook((p: Props) => useNearbyOffers(p.filter, p.location, p.ready), {

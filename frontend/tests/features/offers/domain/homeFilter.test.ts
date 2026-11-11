@@ -12,7 +12,12 @@ import {
 describe('readHomeFilter', () => {
   it("'' → 기본값", () => {
     expect(readHomeFilter('')).toEqual(DEFAULT_HOME_FILTER);
-    expect(DEFAULT_HOME_FILTER).toEqual({ sort: 'sales_end', radiusKm: 3, keyword: '' });
+    expect(DEFAULT_HOME_FILTER).toEqual({
+      sort: 'sales_end',
+      radiusKm: 3,
+      keyword: '',
+      view: 'offer',
+    });
   });
 
   it('?sort=price&radius=5&q=%20빵%20 → {price, 5, 빵}', () => {
@@ -20,6 +25,7 @@ describe('readHomeFilter', () => {
       sort: 'price',
       radiusKm: 5,
       keyword: '빵',
+      view: 'offer',
     });
   });
 
@@ -28,7 +34,15 @@ describe('readHomeFilter', () => {
       sort: 'sales_end',
       radiusKm: 3,
       keyword: '',
+      view: 'offer',
     });
+  });
+
+  it("?view=store → 'store', 모르는 값·없음 → 'offer'", () => {
+    expect(readHomeFilter('?view=store').view).toBe('store');
+    expect(readHomeFilter('?view=offer').view).toBe('offer');
+    expect(readHomeFilter('?view=x').view).toBe('offer');
+    expect(readHomeFilter('?sort=price').view).toBe('offer');
   });
 
   it('q가 101자면 앞 100자', () => {
@@ -43,13 +57,27 @@ describe('toHomeSearch', () => {
   });
 
   it('{distance, 10, 빵} → ?sort=distance&radius=10&q=빵, 왕복하면 같은 값', () => {
-    const filter: HomeFilter = { sort: 'distance', radiusKm: 10, keyword: '빵' };
+    const filter: HomeFilter = { sort: 'distance', radiusKm: 10, keyword: '빵', view: 'offer' };
     const search = toHomeSearch(filter);
     expect(new URLSearchParams(search).toString()).toBe(
       new URLSearchParams('?sort=distance&radius=10&q=빵').toString(),
     );
     expect(search.startsWith('?')).toBe(true);
     expect(readHomeFilter(search)).toEqual(filter);
+  });
+
+  it('view store는 맨 뒤에 view=store, 왕복하면 같은 값', () => {
+    const filter: HomeFilter = { sort: 'distance', radiusKm: 10, keyword: '빵', view: 'store' };
+    const search = toHomeSearch(filter);
+    expect(search.endsWith('view=store')).toBe(true);
+    expect(new URLSearchParams(search).get('view')).toBe('store');
+    expect(readHomeFilter(search)).toEqual(filter);
+    expect(toHomeSearch({ ...DEFAULT_HOME_FILTER, view: 'store' })).toBe('?view=store');
+  });
+
+  it('view offer는 view를 쓰지 않는다', () => {
+    const search = toHomeSearch({ ...DEFAULT_HOME_FILTER, sort: 'price', view: 'offer' });
+    expect(new URLSearchParams(search).has('view')).toBe(false);
   });
 });
 
