@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { openShellOverlay } from '@/shared/lib/shellOverlay';
 
 const FOCUSABLE =
   'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -11,40 +12,48 @@ const FOCUSABLE =
 export function Overlay({
   onClose,
   dismissible = true,
+  returnFocusRef,
   children,
 }: {
   onClose(): void;
   dismissible?: boolean;
+  // 닫힐 때 포커스를 돌려줄 요소. 없으면 열기 직전 activeElement (app-shell.md §11.4-7)
+  returnFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
-  const dimRef = useRef<HTMLDivElement>(null);
-  const [target, setTarget] = useState<Element | null>(null);
+  const [dim, setDim] = useState<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   const dismissibleRef = useRef(dismissible);
+  const returnFocusRefRef = useRef(returnFocusRef);
 
   useEffect(() => {
     onCloseRef.current = onClose;
     dismissibleRef.current = dismissible;
+    returnFocusRefRef.current = returnFocusRef;
   });
 
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = anchorRef.current?.closest<HTMLElement>('.app') ?? null;
-    setTarget(frame ?? document.body);
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const active = document.activeElement;
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    const handle = openShellOverlay(anchor);
+    const onDimClick = (e: MouseEvent) => {
+      if (e.target === handle.dim && dismissibleRef.current) onCloseRef.current();
+    };
+    handle.dim.addEventListener('click', onDimClick);
+    setDim(handle.dim);
     return () => {
-      if (opener?.isConnected) {
-        opener.focus();
-      } else if (frame?.isConnected) {
-        frame.tabIndex = -1;
-        frame.focus();
-      }
+      handle.dim.removeEventListener('click', onDimClick);
+      // 숨김 해제 뒤에 포커스를 돌려준다(D-23)
+      handle.close(returnFocusRefRef.current?.current ?? opener);
     };
   }, []);
 
   useEffect(() => {
-    if (target === null) return;
-    const root = dimRef.current;
+    if (dim === null) return;
+    const root = dim;
     const initial =
       root?.querySelector<HTMLElement>('[data-autofocus]') ??
       root?.querySelector<HTMLElement>(FOCUSABLE) ??
@@ -55,8 +64,11 @@ export function Overlay({
         if (dismissibleRef.current) onCloseRef.current();
         return;
       }
+      // TODO: Tab 포커스 트랩이 shared/lib/useModalFocus.ts와 중복이다. 한 구현으로 합친다.
+      //   왜: 오버레이 층 수정(app-shell.md §11) 범위를 넘는다
+      //   언제: 리팩터링 시, 고객 C10·C1a를 Overlay로 옮길 때(app-shell.md Q-8)
       if (e.key !== 'Tab') return;
-      const items = Array.from(dimRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+      const items = Array.from(dim.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
@@ -72,25 +84,12 @@ export function Overlay({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [target]);
+  }, [dim]);
 
   return (
     <>
       <span ref={anchorRef} hidden />
-      {target !== null
-        ? createPortal(
-            <div
-              className="dim"
-              ref={dimRef}
-              onClick={(e) => {
-                if (e.target === e.currentTarget && dismissibleRef.current) onCloseRef.current();
-              }}
-            >
-              {children}
-            </div>,
-            target,
-          )
-        : null}
+      {dim !== null ? createPortal(children, dim) : null}
     </>
   );
 }

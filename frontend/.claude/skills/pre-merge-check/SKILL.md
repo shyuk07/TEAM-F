@@ -50,6 +50,7 @@ node .claude/skills/vite-run/scripts/run_vite.mjs stop
 - 백엔드는 `../backend/README.md`로 띄웁니다. 꺼져 있으면 proxy·실서버 E2E는 "백엔드 필요"로 적고 통과로 치지 않습니다.
 - `npm run build` 뒤 `run_vite.mjs preview` → `check` → `stop`으로 빌드 결과의 SPA fallback도 확인합니다.
 - 서버는 성공·실패와 관계없이 `stop`으로 끕니다.
+- 화면·셸·`shared/ui`·디자인 복사본이 바뀌었으면 `qa-verification` §4.1 레이아웃 실측을 함께 실행합니다. FAIL이 있으면 머지 불가입니다.
 
 ## 6. 코드 리뷰
 `fe-reviewer` 에이전트로 `fe-code-review` 스킬 절차를 실행합니다. 차단·중요 지적이 있으면 머지 불가입니다.

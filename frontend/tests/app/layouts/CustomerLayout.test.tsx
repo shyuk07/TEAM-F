@@ -71,6 +71,11 @@ describe('CustomerLayout', () => {
     const frame = document.querySelector('[data-shell="customer"]');
     expect(frame).not.toBeNull();
     expect(frame?.querySelector('.app')).toContainElement(screen.getByText('홈 본문'));
+    // 높이·스크롤은 bundle.css의 .app이 맡는다. 프레임과 .app에 높이 관련 인라인을 두지 않는다.
+    const app = frame?.querySelector<HTMLElement>('.app');
+    expect(app?.style.flex).toBe('');
+    expect(app?.style.height).toBe('');
+    expect((frame as HTMLElement).style.minHeight).toBe('');
   });
 
   it("customer + 비로그인: /login으로 가고 state는 {from:'/me?x=1', entry:'customerTab'}", async () => {

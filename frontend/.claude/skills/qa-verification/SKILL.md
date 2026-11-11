@@ -1,6 +1,6 @@
 ---
 name: qa-verification
-description: 마감 직전 프론트엔드의 품질 검증 절차와 PASS/FAIL 판정 기준입니다. package.json 검증 스크립트 정의(lint, format:check, typecheck, test, test:e2e, build), ESLint 0 error·0 warning, Prettier 차이 0, tsc 0 error, Vitest failed 0·skip 0, Playwright E2E 시나리오 작성·실행, 빌드 산출물 확인, 화면 상태(로딩·빈·에러) 확인, 디자인 시스템 복사본 동기화 확인을 다룹니다. 구현 결과를 검증할 때, "QA 해줘", "테스트 돌려줘", "E2E 확인"을 요청받았을 때, 실패하는 테스트(Red)를 먼저 작성할 때(순서는 tdd-workflow) 사용합니다.
+description: 마감 직전 프론트엔드의 품질 검증 절차와 PASS/FAIL 판정 기준입니다. package.json 검증 스크립트 정의(lint, format:check, typecheck, test, test:e2e, build), ESLint 0 error·0 warning, Prettier 차이 0, tsc 0 error, Vitest failed 0·skip 0, Playwright E2E 시나리오 작성·실행, 빌드 산출물 확인, 화면 상태(로딩·빈·에러) 확인, 두 뷰포트 레이아웃 실측(높이·스크롤·탭·주 버튼·스크린샷 시각 확인), 디자인 시스템 복사본 동기화 확인을 다룹니다. 구현 결과를 검증할 때, "QA 해줘", "테스트 돌려줘", "E2E 확인"을 요청받았을 때, 실패하는 테스트(Red)를 먼저 작성할 때(순서는 tdd-workflow) 사용합니다.
 ---
 
 # QA 검증
@@ -69,6 +69,25 @@ node .claude/skills/design-system-usage/scripts/sync_styles.mjs check
   4. C5 → C5a 예약 취소 확인 → 취소 결과
   5. 새로고침·직접 주소 입력(SPA fallback): `/` 외 라우트에서 `page.reload()` 후 같은 화면
 
+### 4.1 레이아웃 실측
+단위 테스트(jsdom)와 요소 존재만 보는 E2E는 높이·스크롤·요소 기본 모양을 확인하지 못합니다. 아래 경우에는 실제 브라우저로 두 뷰포트(360×740, 1280×800)를 렌더해 측정합니다.
+- 언제: 새 화면 추가, 셸(`app/layouts`)·`shared/ui` 변경, 디자인 시스템 복사본 갱신, 머지 전 점검
+- 방법: `vite-run`으로 서버를 띄우고 Playwright로 각 화면을 엽니다. 백엔드 응답은 `page.route`로 대신하고 목록은 1~3건을 채웁니다. 측정 스크립트·스크린샷은 저장소가 아니라 scratchpad에 둡니다(E2E로 남길 것은 발주서가 요청할 때만 `e2e/`에).
+
+| 항목 | 측정 | PASS 기준 |
+| --- | --- | --- |
+| 가로 스크롤 | `scrollWidth` vs `clientWidth` | 같음 |
+| 고객 프레임 | 1280에서 앱 폭·위치 | 420px(+선 2px), 가운데 |
+| 탭·nav | `.tabs`·`.nav` 표시 | 탭 화면: 360은 tabs만, 1280은 nav만(고객은 tabs) / 하위 화면: tabs 없음 |
+| 주 버튼 | `.cta`·`.dk` 표시 | 주 버튼이 있는 화면에서 둘 중 정확히 하나가 보임 |
+| 높이·스크롤 | 앱 높이, `.body` 스크롤, 본문을 길게 늘린 뒤 `.bar`·`.cta`·`.tabs` 위치 | 앱 높이 = 뷰포트, `.bar`는 top 0, `.cta`·`.tabs`는 화면 하단에 고정 |
+| 넓은 배치 | `.split*`·`.tr`의 grid 열 수 | 1280에서 `design-system-usage` §3.1 열 수 |
+| 모바일 전용 | `.mob` 요소 | 1280(상점주·관리자)에서 보이지 않음 |
+| 시각 | 스크린샷을 **직접 열어** 확인 | 파란 밑줄 링크·회색 기본 버튼·좁은 입력칸·겹침·잘림 없음 |
+
+- 수치로만 판정하지 않습니다. 화면마다 두 뷰포트 스크린샷을 적어도 한 번은 직접 봅니다. 보지 않은 것은 "수치만 확인"으로 적습니다.
+- 오버레이(시트·확인 화면)가 있는 화면은 열어 둔 상태도 찍습니다(시트가 본문 자리에 뜨는지).
+
 ## 5. TDD Red 작성
 TDD 단계·담당·Red 판정 기준의 정본은 `tdd-workflow`입니다(§1 단계, §4 Red 판정, §5 테스트 변경 절차). Red는 골격이 있는 상태에서 테스트를 써서 **케이스 단위로** 실패하는지 확인합니다.
 
@@ -83,6 +102,7 @@ TDD 단계·담당·Red 판정 기준의 정본은 `tdd-workflow`입니다(§1 �
 | test | | passed·failed·skipped |
 | build | | |
 | test:e2e | | passed·failed·flaky, 모킹/실서버 |
+| 레이아웃 실측(§4.1) | | 화면×뷰포트 FAIL 수, 직접 본 스크린샷 수 / 해당 없음 |
 | 디자인 복사본 | | 동기화 / 불일치 |
 
 마지막 줄에 **PASS / FAIL**과, FAIL이면 실패 항목과 재현 명령을 적습니다.

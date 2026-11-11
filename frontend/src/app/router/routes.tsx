@@ -4,6 +4,7 @@ import { AccountLayout } from '@/app/layouts/AccountLayout';
 import { AdminLayout } from '@/app/layouts/AdminLayout';
 import { CustomerLayout } from '@/app/layouts/CustomerLayout';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { PublicFrameLayout } from '@/app/layouts/PublicFrameLayout';
 import { PasswordChangePage } from '@/pages/account-password';
 import { ProfilePage } from '@/pages/account-profile';
 import { AdminApprovalsPage } from '@/pages/admin-approvals';
@@ -40,9 +41,15 @@ export const routes: RouteObject[] = [
       { path: ROUTE_PATTERNS.offerDetail, element: <OfferDetailPage /> },
     ],
   },
-  { path: ROUTES.login, element: <LoginPage /> },
-  { path: ROUTES.signup, element: <SignupPage /> },
-  { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
+  {
+    // A1~A3: 고객과 같은 420px 가운데 프레임. 가드·TabBar 없음(app-shell.md §12)
+    element: <PublicFrameLayout />,
+    children: [
+      { path: ROUTES.login, element: <LoginPage /> },
+      { path: ROUTES.signup, element: <SignupPage /> },
+      { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
+    ],
+  },
   { path: ROUTES.account, element: <Navigate to={ROUTES.accountProfile} replace /> },
   {
     element: <AccountLayout />,

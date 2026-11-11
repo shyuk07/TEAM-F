@@ -8,9 +8,6 @@ export function CustomerFrame({ children }: { children?: ReactNode }) {
       style={{
         maxWidth: 420,
         marginInline: 'auto',
-        minHeight: '100dvh',
-        display: 'flex',
-        flexDirection: 'column',
         borderInline: '1px solid var(--line)',
       }}
     >

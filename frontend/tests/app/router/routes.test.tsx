@@ -45,12 +45,22 @@ describe('routes', () => {
     expect(await screen.findByText(/p1/)).toBeInTheDocument();
   });
 
-  it('/login은 셸 없이 로그인 자리를 그린다', () => {
+  it('/login은 상점주 셸 없이 로그인 화면을 그린다', () => {
     renderAt('/login', anonymousFakes());
     expect(screen.queryAllByRole('link', { name: '오늘' })).toHaveLength(0);
     expect(document.querySelector('a[href="/owner/today"]')).toBeNull();
     expect(screen.getByRole('heading', { name: '로그인' })).toBeInTheDocument();
   });
+
+  it.each(['/login', '/signup', '/password-reset'])(
+    '%s: 420px 프레임(data-shell="customer") 안에 그려지고 TabBar는 없다 (app-shell.md D-27)',
+    async (path) => {
+      renderAt(path, anonymousFakes());
+      await screen.findByRole('heading', { name: /로그인|회원가입|비밀번호 재설정/ });
+      expect(document.querySelector('[data-shell="customer"] > .app')).not.toBeNull();
+      expect(document.querySelector('.tabs')).toBeNull();
+    },
+  );
 
   // D-27: 기존 「/는 「마감 직전」을 보여 준다」를 교체
   it('/는 heading 「마감직전」과 고객 탭 바(홈 현재)를 보여 준다', async () => {
