@@ -9,7 +9,7 @@ export interface LocationProvider {
 export interface MapRenderer {
   render(
     el: HTMLElement,
-    opts: { center: GeoPoint; level: number },
+    opts: { center: GeoPoint; level: number; radiusM: number; interactive?: boolean },
     signal?: AbortSignal,
   ): Promise<void>;
 }

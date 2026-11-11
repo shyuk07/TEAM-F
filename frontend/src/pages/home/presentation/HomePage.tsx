@@ -21,6 +21,7 @@ import {
   useDeviceLocation,
   useNearbyOffers,
   type HomeFilter,
+  type RadiusKm,
 } from '@/features/offers';
 import { ROUTES } from '@/shared/lib/routes';
 import { useNow } from '@/shared/lib/useNow';
@@ -40,6 +41,8 @@ export function HomePage() {
   const now = useNow();
   const auth = useAuth().state;
   const [sheetOpen, setSheetOpen] = useState(false);
+  // 시트 안에서 고른(적용 전) 반경. 지도 미리보기에만 쓰고, 열 때마다 적용값으로 시작한다.
+  const [previewRadius, setPreviewRadius] = useState<RadiusKm>(filter.radiusKm);
   const chipRef = useRef<HTMLButtonElement>(null);
   const here = location.pathname + location.search;
 
@@ -66,7 +69,10 @@ export function HomePage() {
           ref={chipRef}
           aria-haspopup="dialog"
           aria-expanded={sheetOpen}
-          onClick={() => setSheetOpen(true)}
+          onClick={() => {
+            setPreviewRadius(filter.radiusKm);
+            setSheetOpen(true);
+          }}
         >
           {locationChipLabel(hasLocation, filter.radiusKm)}
         </button>
@@ -141,12 +147,13 @@ export function HomePage() {
       </div>
       {sheetOpen ? (
         <Overlay onClose={closeSheet} returnFocusRef={chipRef}>
-          <LocationMap center={device.point ?? DEFAULT_MAP_CENTER} radiusKm={filter.radiusKm} />
+          <LocationMap center={device.point ?? DEFAULT_MAP_CENTER} radiusKm={previewRadius} />
           <LocationSheet
             hasLocation={hasLocation}
             locating={device.status === 'pending'}
             radiusKm={filter.radiusKm}
             onUseCurrentLocation={device.request}
+            onSelectRadius={setPreviewRadius}
             onApply={(radiusKm) => {
               changeFilter({ radiusKm });
               closeSheet();

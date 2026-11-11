@@ -16,12 +16,15 @@ export function LocationSheet({
   radiusKm,
   onUseCurrentLocation,
   onApply,
+  onSelectRadius,
 }: {
   hasLocation: boolean;
   locating: boolean;
   radiusKm: RadiusKm;
   onUseCurrentLocation(): void;
   onApply(radiusKm: RadiusKm): void;
+  // 칩 선택(적용 전) 알림. 지도 미리보기용.
+  onSelectRadius?(radiusKm: RadiusKm): void;
 }) {
   const titleId = useId();
   // 시트 안 선택값. 처음은 지금 반경.
@@ -51,7 +54,10 @@ export function LocationSheet({
             type="button"
             className={r === selected ? 'chip on' : 'chip'}
             aria-pressed={r === selected}
-            onClick={() => setSelected(r)}
+            onClick={() => {
+              setSelected(r);
+              onSelectRadius?.(r);
+            }}
           >
             {`${r}km`}
           </button>

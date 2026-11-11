@@ -18,8 +18,8 @@ export function mapEmbedUrl(center: GeoPoint, radiusKm: RadiusKm): string {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${marker}`;
 }
 
-// 반경 → 카카오맵 확대 수준(1→5, 3→6, 5→7, 10→8).
-const KAKAO_LEVEL_BY_RADIUS: Record<RadiusKm, number> = { 1: 5, 3: 6, 5: 7, 10: 8 };
+// 반경 → 카카오맵 확대 수준(1→6, 3→8, 5→8, 10→9).
+const KAKAO_LEVEL_BY_RADIUS: Record<RadiusKm, number> = { 1: 6, 3: 8, 5: 8, 10: 9 };
 
 export function kakaoMapLevel(radiusKm: RadiusKm): number {
   return KAKAO_LEVEL_BY_RADIUS[radiusKm];
