@@ -7,7 +7,7 @@ import {
 } from 'react-router';
 import { SessionStoreToken } from '@/entities/session';
 import { AccountGatewayToken, AuthGatewayToken, AuthProvider } from '@/features/auth';
-import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
+import { LocationProviderToken, MapRendererToken, OfferRepositoryToken } from '@/features/offers';
 import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
 import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
 import { Container, bind } from '@/shared/lib/di';
@@ -23,6 +23,7 @@ export function createOfferDetailContainer(fakes: DepsFakes): Container {
     bind(SessionStoreToken, fakes.session),
     bind(OfferRepositoryToken, fakes.offers),
     bind(LocationProviderToken, fakes.location),
+    bind(MapRendererToken, fakes.map),
     bind(ReservationRepositoryToken, fakes.reservations),
     bind(PaymentRepositoryToken, fakes.payments),
   ]);
