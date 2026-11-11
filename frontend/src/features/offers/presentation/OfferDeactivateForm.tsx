@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/shared/ui/Button';
 import { FieldError } from '@/shared/ui/FieldError';
 import { Input } from '@/shared/ui/Input';
@@ -11,6 +11,7 @@ export type OfferDeactivateFormProps = {
   isPending?: boolean;
   errorMessage?: string | null;
   formId?: string;
+  onValidityChange?: (isValid: boolean) => void;
   onCancel: () => void;
   onSubmit: (reason: string, cancelReservations: boolean) => Promise<void>;
 };
@@ -20,6 +21,7 @@ export function OfferDeactivateForm({
   isPending,
   errorMessage: serverError,
   formId = 'offer-deactivate-form',
+  onValidityChange,
   onCancel,
   onSubmit,
 }: OfferDeactivateFormProps) {
@@ -27,6 +29,11 @@ export function OfferDeactivateForm({
   const [cancelReservations, setCancelReservations] = useState<boolean>(false);
 
   const issue = validateDeactivate({ reason });
+  const isValid = issue === null;
+
+  useEffect(() => {
+    onValidityChange?.(isValid);
+  }, [isValid, onValidityChange]);
   let clientError: string | null = null;
   if (reason.trim() !== '' && issue === 'reason-too-long') {
     clientError = '중단 사유는 200자 이내로 입력해 주세요.';
@@ -41,11 +48,7 @@ export function OfferDeactivateForm({
   const displayError = clientError ?? serverError;
 
   return (
-    <form
-      id={formId}
-      onSubmit={handleSubmit}
-      style={{ display: 'grid', gap: 'var(--s2)', maxWidth: 480 }}
-    >
+    <form id={formId} onSubmit={handleSubmit} className="grid" style={{ maxWidth: 480 }}>
       <div className="box">
         <div className="t">
           {offer.productName} · {formatWon(offer.salePrice)}
@@ -63,7 +66,7 @@ export function OfferDeactivateForm({
         onChange={setReason}
       />
 
-      <div className="lbl">기존 예약 처리는?</div>
+      <div className="lbl">기존 예약은?</div>
       <div
         className="box"
         role="radio"
@@ -110,7 +113,7 @@ export function OfferDeactivateForm({
 
       {displayError ? <FieldError>{displayError}</FieldError> : null}
 
-      <div className="row dk" style={{ marginTop: 'var(--s3)', gap: 'var(--s2)' }}>
+      <div className="row dk" style={{ marginTop: 'var(--s3)' }}>
         <Button onClick={onCancel} disabled={isPending}>
           취소
         </Button>

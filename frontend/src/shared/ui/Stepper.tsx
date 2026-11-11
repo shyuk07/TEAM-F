@@ -40,19 +40,14 @@ export function Stepper({
     onChange?.(next);
   };
 
+  // 브라우저 기본 스타일 리셋. 크기·배치 등 시각 스타일은 CSS(.step)가 담당한다.
   const btnStyle: CSSProperties = {
     background: 'none',
     border: 'none',
-    padding: 0,
     font: 'inherit',
     color: 'inherit',
     cursor: 'pointer',
-    fontSize: '18px',
-    lineHeight: 1,
-    userSelect: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 0,
   };
 
   const disabledBtnStyle: CSSProperties = {

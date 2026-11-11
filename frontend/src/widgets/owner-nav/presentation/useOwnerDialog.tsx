@@ -22,10 +22,13 @@ export function useOwnerDialog(onOpen?: () => void) {
     onClick: openDialog,
   };
 
+  // 액션 시트(계정 메뉴·로그아웃)는 모바일 폭으로 제한해 하단 중앙에 배치한다.
   const layer = (content: ReactNode) =>
     open ? (
       <Overlay onClose={close} returnFocusRef={buttonRef}>
-        {content}
+        <div style={{ width: '100%', maxWidth: 'var(--customer-pc-w)', alignSelf: 'center' }}>
+          {content}
+        </div>
       </Overlay>
     ) : null;
 

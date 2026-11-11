@@ -22,7 +22,7 @@ export function OwnerOfferRow({
   onRelist,
 }: OwnerOfferRowProps) {
   const tag = ownerStatusTag(offer);
-  const actions = ownerRowActions(offer, now);
+  const actions = ownerRowActions(offer);
   const { title, meta, countdown } = ownerRowSummary(offer, now);
 
   return (
@@ -64,19 +64,7 @@ export function OwnerOfferRow({
           {actions.includes('deactivate') && (
             <>
               <span className="sp" />
-              <button
-                type="button"
-                className="link"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  font: 'inherit',
-                  cursor: 'pointer',
-                  color: 'var(--mute)',
-                }}
-                onClick={() => onDeactivate?.(offer)}
-              >
+              <button type="button" className="link" onClick={() => onDeactivate?.(offer)}>
                 판매 중단
               </button>
             </>

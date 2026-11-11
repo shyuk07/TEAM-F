@@ -40,23 +40,18 @@ export function PickupCodeForm({
 
   if (variant === 'cta') {
     return (
-      <form onSubmit={handleSubmit} style={{ width: '100%', display: 'grid', gap: 'var(--s1)' }}>
+      <form onSubmit={handleSubmit} className="grid" style={{ width: '100%' }}>
         <div className="m">고객 화면의 픽업 코드 입력</div>
-        <div className="row" style={{ flexWrap: 'nowrap', gap: 'var(--s2)' }}>
+        <div className="row">
           <input
-            className="in"
+            className="in code"
             type="text"
             value={code}
             maxLength={20}
             readOnly={isPending}
             placeholder="A12345"
             onChange={(e) => setCode(e.target.value)}
-            style={{
-              flex: 1,
-              font: '600 18px var(--mono)',
-              letterSpacing: '.12em',
-              color: 'var(--fg)',
-            }}
+            style={{ flex: 1 }}
           />
           <Button
             type="submit"
@@ -75,32 +70,20 @@ export function PickupCodeForm({
 
   // variant === 'panel' (PC 우측 패널)
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--s2)', width: '100%' }}>
+    <form onSubmit={handleSubmit} className="grid">
       <div className="t">픽업 코드 입력</div>
       <div className="m">고객 화면의 코드를 입력해야 픽업 완료돼요.</div>
       <input
-        className="in"
+        className="in code"
         type="text"
         value={code}
         maxLength={20}
         readOnly={isPending}
         placeholder="A12345"
         onChange={(e) => setCode(e.target.value)}
-        style={{
-          font: '600 22px var(--mono)',
-          letterSpacing: '.15em',
-          textAlign: 'center',
-          color: 'var(--fg)',
-        }}
       />
       {displayError ? <FieldError>{displayError}</FieldError> : null}
-      <Button
-        type="submit"
-        variant="primary"
-        pending={isPending}
-        disabled={issue !== null}
-        style={{ width: '100%' }}
-      >
+      <Button type="submit" variant="primary" pending={isPending} disabled={issue !== null}>
         픽업 완료
       </Button>
     </form>

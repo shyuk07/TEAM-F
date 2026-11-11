@@ -58,7 +58,7 @@ export function OwnerTodayPage() {
       />
 
       <div className="body split r">
-        <div style={{ display: 'grid', gap: 'var(--s3)', minWidth: 0 }}>
+        <div className="grid">
           {store.status === 'SUSPENDED' && <StoreSuspendedNotice />}
 
           {lastDone && <HandoverNotice lastDone={lastDone} />}
@@ -97,7 +97,7 @@ export function OwnerTodayPage() {
         </div>
       </div>
 
-      <div className="cta" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+      <div className="cta">
         <PickupCodeForm
           variant="cta"
           isPending={pickupStatus === 'running'}

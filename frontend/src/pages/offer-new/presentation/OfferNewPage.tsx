@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useOwnerStore } from '@/entities/store';
 import {
@@ -33,6 +33,7 @@ export function OfferNewPage() {
   const { submit, status: submitStatus, errorMessage } = useCreateOffer();
 
   const isRelist = Boolean(relistFromParam);
+  const [isFormValid, setIsFormValid] = useState(false);
   const now = useMemo(() => new Date(), []);
 
   const initialDraft: OfferDraft = useMemo(() => {
@@ -134,6 +135,7 @@ export function OfferNewPage() {
             isPending={submitStatus === 'running'}
             errorMessage={errorMessage}
             submitButtonText={buttonText}
+            onValidityChange={setIsFormValid}
             onSubmit={handleSubmit}
           />
         )}
@@ -145,6 +147,7 @@ export function OfferNewPage() {
           type="submit"
           variant="primary"
           pending={submitStatus === 'running'}
+          disabled={!isFormValid}
           style={{ width: '100%' }}
         >
           {buttonText}

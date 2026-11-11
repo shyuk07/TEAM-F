@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   OfferDeactivateForm,
@@ -15,6 +16,7 @@ export function OfferDeactivatePage() {
 
   const { offer, status, failure, reload } = useOwnerOffer(offerId);
   const { submit, status: submitStatus, errorMessage } = useDeactivateOffer();
+  const [isFormValid, setIsFormValid] = useState(false);
 
   if (status === 'loading') {
     return (
@@ -85,6 +87,7 @@ export function OfferDeactivatePage() {
           offer={offer}
           isPending={submitStatus === 'running'}
           errorMessage={errorMessage}
+          onValidityChange={setIsFormValid}
           onCancel={handleCancel}
           onSubmit={handleSubmit}
         />
@@ -99,6 +102,7 @@ export function OfferDeactivatePage() {
           type="submit"
           variant="dark"
           pending={submitStatus === 'running'}
+          disabled={!isFormValid}
         >
           판매 중단
         </Button>

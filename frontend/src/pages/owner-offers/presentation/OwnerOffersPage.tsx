@@ -67,13 +67,8 @@ export function OwnerOffersPage() {
       />
 
       <div className="body split r">
-        <div style={{ display: 'grid', gap: 'var(--s3)', minWidth: 0 }}>
-          <Button
-            variant="primary"
-            desktopOnly
-            style={{ justifySelf: 'start' }}
-            onClick={() => navigate(ROUTES.ownerOfferNew)}
-          >
+        <div className="grid">
+          <Button variant="primary" desktopOnly onClick={() => navigate(ROUTES.ownerOfferNew)}>
             + 할인 등록
           </Button>
 
@@ -113,11 +108,7 @@ export function OwnerOffersPage() {
       </div>
 
       <div className="cta">
-        <Button
-          variant="primary"
-          onClick={() => navigate(ROUTES.ownerOfferNew)}
-          style={{ width: '100%' }}
-        >
+        <Button variant="primary" onClick={() => navigate(ROUTES.ownerOfferNew)}>
           + 할인 등록
         </Button>
       </div>

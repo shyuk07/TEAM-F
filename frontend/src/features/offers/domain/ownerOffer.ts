@@ -29,8 +29,7 @@ export function ownerStatusTag(offer: Offer): { label: string; tone?: 'ok' | 'mu
   }
 }
 
-export function ownerRowActions(offer: Offer, now: Date): OwnerRowAction[] {
-  void now;
+export function ownerRowActions(offer: Offer): OwnerRowAction[] {
   if (offer.status === 'SUSPENDED') {
     return [];
   }

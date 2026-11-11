@@ -85,7 +85,8 @@ describe('OwnerAccountMenu (O8·C10)', () => {
   it('딤 영역을 누르면 닫힌다', async () => {
     const { user, button } = await renderMenu();
     await user.click(button);
-    const dim = menu().parentElement;
+    // dim은 .app 직계의 .dim이고, 시트(dim > 래퍼 > .sheet)는 dim을 클릭해 닫지 않으므로 실제 dim을 찾는다.
+    const dim = document.querySelector<HTMLElement>('.app > .dim');
     expect(dim).not.toBeNull();
     await user.click(dim as HTMLElement);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

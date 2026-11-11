@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Product } from '@/entities/product';
 import { Button } from '@/shared/ui/Button';
 import { Chip } from '@/shared/ui/Chip';
@@ -25,6 +25,7 @@ export type OfferCreateFormProps = {
   errorMessage?: string | null;
   submitButtonText?: string;
   formId?: string;
+  onValidityChange?: (isValid: boolean) => void;
   onSubmit: (draft: OfferDraft) => Promise<void>;
 };
 
@@ -36,6 +37,7 @@ export function OfferCreateForm({
   errorMessage: serverError,
   submitButtonText = '할인 등록',
   formId = 'offer-create-form',
+  onValidityChange,
   onSubmit,
 }: OfferCreateFormProps) {
   const [draft, setDraft] = useState<OfferDraft>(initialDraft);
@@ -50,12 +52,19 @@ export function OfferCreateForm({
   const cancelBlocked = isCancelBlocked(draft, now);
   const deadline = cancelDeadline(draft);
 
+  const isValid = issues.length === 0 && Boolean(selectedProduct);
+
+  useEffect(() => {
+    onValidityChange?.(isValid);
+  }, [isValid, onValidityChange]);
+
   const handleProductChange = (productId: string) => {
     const prod = products.find((p) => p.id === productId);
     setDraft((prev) => ({
       ...prev,
       productId,
-      salePrice: prod ? Math.floor(prod.originalPrice * 0.7) : prev.salePrice,
+      // open-issues: 할인가 기본 자동 계산(정가의 30% 할인)은 정본이 없어 0으로 비움 — 사용자가 직접 입력
+      salePrice: prod ? 0 : prev.salePrice,
     }));
   };
 
@@ -73,7 +82,7 @@ export function OfferCreateForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div>
           <label className="lbl" htmlFor="offer-product-select">
             상품 *
@@ -97,14 +106,14 @@ export function OfferCreateForm({
         <div className="row">
           <div style={{ flex: 1 }}>
             <div className="lbl">정가</div>
-            <div className="in ro" style={{ background: 'var(--fill)' }}>
-              {originalPrice > 0 ? formatWon(originalPrice) : '0원'}
-            </div>
+            <div className="in ro">{originalPrice > 0 ? formatWon(originalPrice) : '0원'}</div>
           </div>
           <div style={{ flex: 1 }}>
             <Input
               label="할인가 *"
               type="number"
+              placeholder={selectedProduct ? '할인가 입력' : '상품 선택 필요'}
+              disabled={!selectedProduct || isPending}
               value={draft.salePrice ? String(draft.salePrice) : ''}
               readOnly={isPending}
               onChange={(val) =>
@@ -125,7 +134,7 @@ export function OfferCreateForm({
             max={9999}
             disabled={isPending}
             onChange={(val) => setDraft((prev) => ({ ...prev, initialStock: val }))}
-            style={{ justifyContent: 'space-between' }}
+            className="kv"
           />
         </div>
 
@@ -177,7 +186,7 @@ export function OfferCreateForm({
         )}
       </div>
 
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="kv">
             <span className="lbl">판매</span>
@@ -194,21 +203,9 @@ export function OfferCreateForm({
           </div>
           <div className="kv">
             <span className="lbl">고객 취소 가능</span>
-            <b>{cancelBlocked ? '취소 불가 (1시간 이내)' : `${formatHm(deadline)}까지`}</b>
+            <b>{cancelBlocked ? '취소 불가 (1시간 이내)' : `오늘 ${formatHm(deadline)}까지`}</b>
           </div>
-          <button
-            type="button"
-            className="link"
-            style={{
-              textAlign: 'left',
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              font: 'inherit',
-              cursor: 'pointer',
-            }}
-            onClick={() => setCustomSchedule(!customSchedule)}
-          >
+          <button type="button" className="link" onClick={() => setCustomSchedule(!customSchedule)}>
             시간 직접 바꾸기
           </button>
         </div>
@@ -227,7 +224,7 @@ export function OfferCreateForm({
           desktopOnly
           pending={isPending}
           disabled={isFormBlocked}
-          style={{ width: '100%' }}
+          style={{ width: '100%', alignSelf: 'start' }}
         >
           {submitButtonText}
         </Button>

@@ -1,3 +1,5 @@
+import type { ErrorInfo } from '@/shared/lib/errorInfo';
+
 // TODO: 빈 상태·오류 문구가 임시다
 //   왜: content.md에 정본이 없다 (owner-today.md Q-4)
 //   언제: 결정 후 (디자인 시스템: content.md 문구 확정)
@@ -9,12 +11,6 @@ export const PICKUP_MESSAGES = {
   CODE_MISMATCH: '코드가 맞지 않아요. 다시 확인해 주세요.',
   DEFAULT_ERROR: '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.',
 } as const;
-
-export type ErrorInfo = {
-  errorCode?: string;
-  status?: number;
-  message?: string;
-};
 
 export function pickupErrorMessage(info: ErrorInfo): string {
   switch (info.errorCode) {

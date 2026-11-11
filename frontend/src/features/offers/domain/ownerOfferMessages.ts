@@ -1,3 +1,5 @@
+import type { ErrorInfo } from '@/shared/lib/errorInfo';
+
 export const OWNER_OFFER_MESSAGES = {
   EMPTY_ON_SALE: '판매 중인 할인이 없어요.',
   EMPTY_SCHEDULED: '판매 예정인 할인이 없어요.',
@@ -8,12 +10,6 @@ export const OWNER_OFFER_MESSAGES = {
   RETRY: '다시 시도',
   EDIT_LOCKED_NOTICE: '예약이 있는 할인은 수정할 수 없어요. 판매를 중단하고 다시 올려 주세요.',
 } as const;
-
-export type ErrorInfo = {
-  errorCode?: string;
-  status?: number;
-  message?: string;
-};
 
 export function ownerOfferErrorMessage(info: ErrorInfo): string {
   switch (info.errorCode) {

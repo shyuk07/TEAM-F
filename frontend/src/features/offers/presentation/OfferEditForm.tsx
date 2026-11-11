@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/shared/ui/Button';
 import { FieldError } from '@/shared/ui/FieldError';
 import { Input } from '@/shared/ui/Input';
@@ -12,6 +12,7 @@ import {
   type OfferEditValues,
 } from '../domain/offerEdit';
 import { OWNER_OFFER_MESSAGES } from '../domain/ownerOfferMessages';
+import { ownerStatusTag } from '../domain/ownerOffer';
 import { OfferScheduleFields } from './OfferScheduleFields';
 
 export type OfferEditFormProps = {
@@ -22,6 +23,7 @@ export type OfferEditFormProps = {
   errorMessage?: string | null;
   formId?: string;
   onDeactivateClick?: () => void;
+  onValidityChange?: (isValid: boolean) => void;
   onSubmit: (values: OfferEditValues) => Promise<void>;
 };
 
@@ -33,6 +35,7 @@ export function OfferEditForm({
   errorMessage: serverError,
   formId = 'offer-edit-form',
   onDeactivateClick,
+  onValidityChange,
   onSubmit,
 }: OfferEditFormProps) {
   const [values, setValues] = useState<OfferEditValues>({
@@ -46,6 +49,11 @@ export function OfferEditForm({
   const floor = quantityFloor(offer);
   const changes = diffOfferChanges(offer, values);
   const changed = hasChanges(changes);
+  const isValid = changed && !isLocked;
+
+  useEffect(() => {
+    onValidityChange?.(isValid);
+  }, [isValid, onValidityChange]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -57,11 +65,11 @@ export function OfferEditForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="t">{offer.productName}</div>
           <div className="m">
-            {offer.status} · 최초 수량 {offer.initialStock}개 (남은 {offer.remainingStock}개)
+            {ownerStatusTag(offer).label} · 최초 수량 {offer.initialStock}개 (남은 {offer.remainingStock}개)
           </div>
         </div>
 
@@ -86,7 +94,7 @@ export function OfferEditForm({
             max={9999}
             disabled={isPending || isLocked}
             onChange={(val) => setValues((prev) => ({ ...prev, initialStock: val }))}
-            style={{ justifyContent: 'space-between' }}
+            className="kv"
           />
         </div>
 
@@ -106,7 +114,7 @@ export function OfferEditForm({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid" style={{ alignContent: 'start' }}>
         {isLocked ? (
           <div>
             <div className="lbl">예약이 생긴 할인을 열면</div>
@@ -121,7 +129,7 @@ export function OfferEditForm({
           </div>
         ) : (
           <div>
-            <div className="m" style={{ color: 'var(--mute)' }}>
+            <div className="m">
               할인 정보를 수정한 뒤 저장을 눌러주세요.
             </div>
             {onDeactivateClick && (
@@ -142,7 +150,7 @@ export function OfferEditForm({
           desktopOnly
           pending={isPending}
           disabled={isFormBlocked}
-          style={{ width: '100%', marginTop: 'var(--s2)' }}
+          style={{ width: '100%', alignSelf: 'start', marginTop: 'var(--s2)' }}
         >
           저장
         </Button>

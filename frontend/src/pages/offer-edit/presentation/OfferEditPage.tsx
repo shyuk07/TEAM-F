@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   diffOfferChanges,
@@ -17,6 +18,7 @@ export function OfferEditPage() {
 
   const { offer, status, failure, reload } = useOwnerOffer(offerId);
   const { submit, status: saveStatus, errorMessage, isLocked } = useSaveOffer();
+  const [isFormValid, setIsFormValid] = useState(false);
 
   if (status === 'loading') {
     return (
@@ -86,6 +88,7 @@ export function OfferEditPage() {
           isPending={saveStatus === 'running'}
           isLocked={isLocked}
           errorMessage={errorMessage}
+          onValidityChange={setIsFormValid}
           onDeactivateClick={() => navigate(ROUTES.ownerOfferDeactivate(offer.id))}
           onSubmit={handleSubmit}
         />
@@ -97,7 +100,7 @@ export function OfferEditPage() {
           type="submit"
           variant="primary"
           pending={saveStatus === 'running'}
-          disabled={isLocked}
+          disabled={!isFormValid || isLocked}
           style={{ width: '100%' }}
         >
           저장
