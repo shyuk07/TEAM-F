@@ -35,10 +35,10 @@ describe('locationMap', () => {
   });
 
   it.each([
-    [1, 5],
-    [3, 6],
-    [5, 7],
-    [10, 8],
+    [1, 6],
+    [3, 8],
+    [5, 8],
+    [10, 9],
   ] as const)('kakaoMapLevel(%i) = %i', (r, level) => {
     expect(kakaoMapLevel(r)).toBe(level);
   });

@@ -7,7 +7,11 @@ describe('KakaoMapRenderer', () => {
     const el = document.createElement('div');
     let result: Promise<void> | undefined;
     expect(() => {
-      result = renderer.render(el, { center: { lat: 37.5563, lng: 126.902 }, level: 6 });
+      result = renderer.render(el, {
+        center: { lat: 37.5563, lng: 126.902 },
+        level: 6,
+        radiusM: 3000,
+      });
     }).not.toThrow();
     await expect(result).rejects.toBeInstanceOf(Error);
     expect(document.querySelectorAll('script')).toHaveLength(before);
