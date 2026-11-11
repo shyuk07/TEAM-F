@@ -11,12 +11,12 @@ import {
 
 const token = (page: Page) => page.evaluate((k) => localStorage.getItem(k), TOKEN_KEY);
 
-// 주 버튼은 .cta(모바일)와 .dk(720px 이상) 두 벌이다. 지금 뷰포트에서 보이는 것을 누른다.
+// A1~A3 주 버튼은 .cta 한 벌이다. 보이는 것을 누른다(C8 등 .dk가 남은 화면도 같은 도우미를 쓴다).
 function visibleButton(page: Page, name: string) {
   return page.getByRole('button', { name }).filter({ visible: true }).first();
 }
 
-// A1 가입 안내 링크도 .cta(모바일)와 .dk(720px 이상) 두 벌이다. 지금 뷰포트에서 보이는 것을 누른다.
+// A1 가입 안내 링크는 .cta 한 벌이다. 보이는 것을 누른다.
 function visibleLink(page: Page, name: string) {
   return page.getByRole('link', { name }).filter({ visible: true }).first();
 }

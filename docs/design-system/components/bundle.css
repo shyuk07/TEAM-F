@@ -35,6 +35,10 @@ select.in {
   box-sizing: border-box;
   width: 100%;
 }
+/* hidden 속성은 컴포넌트 클래스의 display(.body 등)보다 우선 (wireframe.html과 같은 규칙) */
+[hidden]:not([hidden='until-found' i]) {
+  display: none !important;
+}
 
 /* 셸 */
 .app {

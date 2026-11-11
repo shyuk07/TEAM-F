@@ -3,6 +3,8 @@
 //   언제: 결정 후 (사용자: 오버레이 동안 탭·CTA 표시)
 // 앱 프레임(.app)의 본문(.body) 자리를 오버레이(.dim)가 대신하게 하는 DOM 도우미(app-shell.md §11.4).
 // React를 모르고 업무도 모른다.
+// 제약(app-shell.md D-31·D-32): 한 프레임에 오버레이를 둘 이상 동시에 열지 않는다(중첩은 지원하는 사용이 아님).
+// 열 때 이미 hidden인 요소는 숨김 목록에 넣지 않으므로 닫을 때 되살리지 않는다.
 
 export type ShellOverlayHandle = {
   // 포털 대상으로 쓰는 .dim 요소(마지막 직계 .body 바로 뒤에 만들어진다)
@@ -11,10 +13,9 @@ export type ShellOverlayHandle = {
   close(returnFocusTo?: HTMLElement | null): void;
 };
 
-type Hidden = { el: HTMLElement; display: string };
 type FrameState = {
   count: number;
-  hidden: Hidden[];
+  hidden: HTMLElement[];
   scrolls: Map<HTMLElement, number>;
   inerted: Element[];
   observer: MutationObserver;
@@ -26,13 +27,12 @@ function directChildren(frame: Element, selector: string): HTMLElement[] {
   return Array.from(frame.querySelectorAll<HTMLElement>(`:scope > ${selector}`));
 }
 
-// .body·.cta의 CSS display가 hidden 속성을 덮으므로 인라인 display도 함께 끈다.
+// 숨김은 hidden 속성만 쓴다. bundle.css의 [hidden] 규칙이 .body·.cta의 display를 덮어 숨긴다.
 function hide(state: FrameState, el: HTMLElement) {
-  if (state.hidden.some((h) => h.el === el)) return;
-  state.hidden.push({ el, display: el.style.display });
+  if (el.hidden) return;
+  state.hidden.push(el);
   if (el.classList.contains('body')) state.scrolls.set(el, el.scrollTop);
   el.hidden = true;
-  el.style.display = 'none';
 }
 
 function openState(frame: Element): FrameState {
@@ -61,10 +61,7 @@ function openState(frame: Element): FrameState {
 
 function releaseState(frame: Element, state: FrameState) {
   state.observer.disconnect();
-  for (const { el, display } of state.hidden) {
-    el.hidden = false;
-    el.style.display = display;
-  }
+  for (const el of state.hidden) el.hidden = false;
   for (const el of state.inerted) el.removeAttribute('inert');
   for (const [el, top] of state.scrolls) el.scrollTop = top;
   frames.delete(frame);
@@ -80,7 +77,7 @@ export function openShellOverlay(anchor: Element): ShellOverlayHandle {
       dim,
       close(returnFocusTo) {
         dim.remove();
-        if (returnFocusTo?.isConnected) returnFocusTo.focus();
+        if (returnFocusTo?.isConnected) returnFocusTo.focus({ preventScroll: true });
       },
     };
   }
@@ -105,10 +102,10 @@ export function openShellOverlay(anchor: Element): ShellOverlayHandle {
       state.count -= 1;
       if (state.count === 0) releaseState(frame, state);
       if (returnFocusTo?.isConnected) {
-        returnFocusTo.focus();
+        returnFocusTo.focus({ preventScroll: true });
       } else if (frame.isConnected && state.count === 0) {
         (frame as HTMLElement).tabIndex = -1;
-        (frame as HTMLElement).focus();
+        (frame as HTMLElement).focus({ preventScroll: true });
       }
     },
   };

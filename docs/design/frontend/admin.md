@@ -123,6 +123,9 @@ DTO 필드: snake_case → camelCase, `created_at` → `Date`, 포인트 `type`(
 | D-12 | 관리자 상단 바 위치                   | `AdminLayout`이 그림(로고 「관리자」 + 상단 nav + 계정). 모든 관리자 화면의 바가 같다                                                                              | 임시      | 상점주는 page가 그림(`app-shell.md` D-3). 관리자 화면은 제목이 바뀌지 않음                          | 아니오                            |
 | D-13 | `useAsync` 구현                       | 결과를 요청 키와 함께 저장하고, 키가 다르면 로딩으로 계산(effect 안에서 곧바로 setState하지 않음)                                                                  | 임시      | `react-implementation` §2 예시는 ESLint `react-hooks/set-state-in-effect` 오류. 스킬 예시를 맞출지  | 예 (스킬 예시 갱신)               |
 | D-14 | 버튼 문구의 화면 ID                   | 「포인트 지급 (M4)」「정지 (M2)」의 괄호는 와이어프레임 연결 표기로 보고 빼서 「포인트 지급」「정지」                                                              | 임시      | `screens.md` M3                                                                                     | 아니오                            |
+| D-15 | M3 모바일 「← 회원 목록」 위치        | 본문 안 `.mob` 링크로 **유지**(`AdminUsersPage`의 `Link className="link mob"`). 상단 `.bar`로 옮기지 않고 와이어프레임의 ← 화면도 쓰지 않음                      | 확정      | 오케스트레이터 판단(사용자 위임 2026-11-11). D-2와 같은 이유. 상단 `.bar`는 `AdminLayout`이 그리므로(D-12) 옮기려면 `AdminLayout`이 상세 라우트(`/admin/users/:userId`)를 알아야 해 범위가 큼 | 아니오                            |
+
+D-15 보충: 「← 회원 목록」 문구는 임시(D-7 계열)라 `AdminUsersPage.tsx:13`의 `TODO`(`언제: 결정 후 (디자인 시스템: content.md 관리자 문구 확정)`)는 그대로 둔다. 위치만 확정이다. 코드·테스트 변경 없음.
 
 ## 5. 정합·차단 이슈
 

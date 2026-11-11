@@ -234,6 +234,60 @@ describe('HomePage (C1·C1a)', () => {
     expect(within(dialog).getByRole('button', { name: '적용' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /소금빵 세트/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(document.querySelector('.app > .body')).toHaveAttribute('hidden');
+  });
+
+  it('C1a: 시트가 열려 있어도 .body는 마운트돼 입력한 검색어가 닫은 뒤에도 남는다', async () => {
+    renderHome({ located: true });
+    await card();
+    await userEvent.type(screen.getByRole('searchbox'), '빵');
+    const body = document.querySelector('.app > .body');
+    await userEvent.click(screen.getByRole('button', { name: '현재 위치 · 3km' }));
+    await screen.findByRole('dialog', { name: '어디서 찾을까요?' });
+    expect(document.querySelector('.app > .body')).toBe(body);
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.querySelector('.app > .body')).toBe(body);
+    expect(screen.getByRole('searchbox')).toHaveValue('빵');
+  });
+
+  it('C1a: 닫은 뒤 .body.scrollTop이 열기 전 값이다', async () => {
+    renderHome({ located: true });
+    await card();
+    const body = document.querySelector('.app > .body') as HTMLElement;
+    body.scrollTop = 120;
+    await userEvent.click(screen.getByRole('button', { name: '현재 위치 · 3km' }));
+    await screen.findByRole('dialog', { name: '어디서 찾을까요?' });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(body.scrollTop).toBe(120);
+  });
+
+  it('C1a: 바깥(.dim) 클릭은 적용 없이 닫고 URL이 그대로이며, 시트 안 클릭은 닫지 않는다', async () => {
+    const { router } = renderHome({ located: true });
+    await card();
+    await userEvent.click(screen.getByRole('button', { name: '현재 위치 · 3km' }));
+    const dialog = await screen.findByRole('dialog', { name: '어디서 찾을까요?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '10km' }));
+    await userEvent.click(within(dialog).getByText('반경'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(dialog.closest('.dim') as HTMLElement);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(router.state.location.search).toBe('');
+  });
+
+  it('C1a: 시트 안 Tab·Shift+Tab은 시트 안에서만 돈다', async () => {
+    renderHome({ located: true });
+    await card();
+    await userEvent.click(screen.getByRole('button', { name: '현재 위치 · 3km' }));
+    const dialog = await screen.findByRole('dialog', { name: '어디서 찾을까요?' });
+    const use = within(dialog).getByRole('button', { name: '◎ 현재 위치 사용' });
+    const apply = within(dialog).getByRole('button', { name: '적용' });
+    await waitFor(() => expect(use).toHaveFocus());
+    await userEvent.tab({ shift: true });
+    expect(apply).toHaveFocus();
+    await userEvent.tab();
+    expect(use).toHaveFocus();
   });
 
   it('C1a: 「10km」 → 「적용」이면 닫히고 URL ?radius=10, 요청 반경 10, 칩 「현재 위치 · 10km」', async () => {
@@ -247,6 +301,9 @@ describe('HomePage (C1·C1a)', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?radius=10'));
     await waitFor(() => expect(lastQuery(fakes)).toMatchObject({ radiusKm: 10 }));
     expect(screen.getByRole('button', { name: '현재 위치 · 10km' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '현재 위치 · 10km' })).toHaveFocus(),
+    );
   });
 
   it('C1a: Escape는 적용 없이 닫고 포커스를 위치 칩으로 돌린다', async () => {

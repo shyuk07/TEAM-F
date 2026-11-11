@@ -93,10 +93,57 @@ describe('MyPage (C6·C10)', () => {
     expect(
       within(sheet).getByText('진행 중인 예약은 그대로 남아요. 다시 로그인하면 볼 수 있어요.'),
     ).toBeInTheDocument();
+    // 본문은 DOM에 남되 숨겨진다(이전 단언 「전체 보기 링크가 없다」를 의도에 맞게 교체)
+    const body = document.querySelector('.app > .body');
+    expect(body).toHaveAttribute('hidden');
     expect(screen.queryByRole('link', { name: '전체 보기' })).not.toBeInTheDocument();
     await userEvent.click(within(sheet).getByRole('button', { name: '취소' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(screen.getByRole('link', { name: '전체 보기' })).toBeInTheDocument();
+  });
+
+  it('시트가 열려 있는 동안 .body는 hidden으로 남고 .dim이 .app 직계 자식이며, 닫으면 hidden이 풀린다', async () => {
+    renderMy(withRecentPoints());
+    await userEvent.click(await screen.findByRole('button', { name: /로그아웃/ }));
+    const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    const app = document.querySelector('.app') as HTMLElement;
+    const dim = sheet.closest('.dim');
+    expect(dim?.parentElement).toBe(app);
+    expect(Array.from(app.children).indexOf(dim as Element)).toBeGreaterThan(
+      Array.from(app.children).indexOf(app.querySelector(':scope > .body') as Element),
+    );
+    expect(app.querySelector(':scope > .body')).toHaveAttribute('hidden');
+    await userEvent.click(within(sheet).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(app.querySelector(':scope > .body')).not.toHaveAttribute('hidden');
+  });
+
+  it('시트를 닫은 뒤 .body는 같은 노드이고 scrollTop이 유지된다', async () => {
+    renderMy(withRecentPoints());
+    const logout = await screen.findByRole('button', { name: /로그아웃/ });
+    const body = document.querySelector('.app > .body') as HTMLElement;
+    body.scrollTop = 120;
+    await userEvent.click(logout);
+    const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    await userEvent.click(within(sheet).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(document.querySelector('.app > .body')).toBe(body);
+    expect(body.scrollTop).toBe(120);
+  });
+
+  it('시트 안 Tab·Shift+Tab은 시트 안에서만 돈다', async () => {
+    renderMy(withRecentPoints());
+    await userEvent.click(await screen.findByRole('button', { name: /로그아웃/ }));
+    const sheet = await screen.findByRole('alertdialog', { name: '로그아웃할까요?' });
+    const cancel = within(sheet).getByRole('button', { name: '취소' });
+    const confirm = within(sheet).getByRole('button', { name: '로그아웃' });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    await userEvent.tab();
+    expect(confirm).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(cancel).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(confirm).toHaveFocus();
   });
 
   it('로그아웃 시트를 Escape로 닫으면 포커스가 「로그아웃」 버튼으로 돌아온다', async () => {

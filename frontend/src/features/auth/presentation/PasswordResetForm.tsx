@@ -136,13 +136,6 @@ export function PasswordResetForm({ onDone }: { onDone(): void }) {
             </div>
           </>
         ) : null}
-        <button
-          type="submit"
-          className="btn pri dk"
-          aria-disabled={confirmDisabled ? 'true' : undefined}
-        >
-          {confirmLabel}
-        </button>
       </div>
       <div className="cta">
         <button

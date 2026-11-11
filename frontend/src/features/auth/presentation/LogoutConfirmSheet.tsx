@@ -1,17 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useAuth } from '../application/authContext';
 
 export function LogoutConfirmSheet({ onClose }: { onClose(): void }) {
   const { logout } = useAuth();
   const titleId = useId();
   const descId = useId();
-  const cancelRef = useRef<HTMLButtonElement>(null);
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
 
   async function confirm() {
     if (submitting.current) return;
@@ -44,7 +39,7 @@ export function LogoutConfirmSheet({ onClose }: { onClose(): void }) {
       >
         {pending ? '처리 중…' : '로그아웃'}
       </button>
-      <button type="button" className="btn" ref={cancelRef} onClick={onClose}>
+      <button type="button" className="btn" data-autofocus onClick={onClose}>
         취소
       </button>
     </div>

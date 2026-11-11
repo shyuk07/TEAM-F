@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openShellOverlay } from '@/shared/lib/shellOverlay';
 
 function frame(parts: string[] = ['bar', 'body', 'cta', 'tabs']) {
@@ -33,6 +33,14 @@ describe('openShellOverlay', () => {
     expect(app.querySelector('.bar')).toHaveAttribute('inert');
     expect(app.querySelector('.tabs')).toHaveAttribute('inert');
     expect(app.querySelector<HTMLElement>('.tabs')!.hidden).toBe(false);
+  });
+
+  it('열린 동안에도 인라인 style.display를 쓰지 않는다', () => {
+    const app = frame();
+    const h = openShellOverlay(app.querySelector('.body')!);
+    expect(app.querySelector<HTMLElement>('.body')!.style.display).toBe('');
+    expect(app.querySelector<HTMLElement>('.cta')!.style.display).toBe('');
+    h.close();
   });
 
   it('닫으면 .dim이 사라지고 hidden·inert가 모두 풀린다', () => {
@@ -86,7 +94,7 @@ describe('openShellOverlay', () => {
     expect(nested.hidden).toBe(false);
   });
 
-  it('오버레이 둘 중 하나만 닫으면 hidden이 유지되고 마지막을 닫으면 풀린다', () => {
+  it('오버레이 둘 중 하나만 닫으면 hidden이 유지되고 마지막을 닫으면 풀린다(방어, 지원하는 사용 아님)', () => {
     const app = frame();
     const body = app.querySelector<HTMLElement>('.body')!;
     const h1 = openShellOverlay(body);
@@ -114,5 +122,35 @@ describe('openShellOverlay', () => {
     const h = openShellOverlay(btn);
     h.close(btn);
     expect(btn).toHaveFocus();
+  });
+
+  it('열기 전 이미 hidden인 .body는 닫은 뒤에도 hidden이고 다른 .body는 복원된다', () => {
+    const app = frame(['bar', 'body', 'body', 'cta']);
+    const [first, second] = Array.from(app.querySelectorAll<HTMLElement>('.body'));
+    first.hidden = true;
+    const h = openShellOverlay(second);
+    h.close();
+    expect(first.hidden).toBe(true);
+    expect(second.hidden).toBe(false);
+  });
+
+  it('열기 전 이미 hidden인 .cta는 닫은 뒤에도 hidden이다', () => {
+    const app = frame();
+    const cta = app.querySelector<HTMLElement>('.cta')!;
+    cta.hidden = true;
+    const h = openShellOverlay(app.querySelector('.body')!);
+    h.close();
+    expect(cta.hidden).toBe(true);
+    expect(app.querySelector<HTMLElement>('.body')!.hidden).toBe(false);
+  });
+
+  it('포커스 복귀는 preventScroll: true로 부른다', () => {
+    const app = frame();
+    const btn = document.createElement('button');
+    app.querySelector('.body')!.appendChild(btn);
+    const spy = vi.spyOn(btn, 'focus');
+    const h = openShellOverlay(btn);
+    h.close(btn);
+    expect(spy).toHaveBeenCalledWith({ preventScroll: true });
   });
 });

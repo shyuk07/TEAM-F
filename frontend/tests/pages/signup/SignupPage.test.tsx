@@ -44,13 +44,11 @@ async function fill(
   await user.type(screen.getByLabelText('전화번호 *'), values.phone ?? '010-1');
 }
 
-const submitButtons = () => screen.getAllByRole('button', { name: '가입하기' });
+const submitButton = () => screen.getByRole('button', { name: '가입하기' });
 
-function expectAllDisabled(buttons: HTMLElement[], disabled: boolean) {
-  for (const b of buttons) {
-    if (disabled) expect(b).toHaveAttribute('aria-disabled', 'true');
-    else expect(b).not.toHaveAttribute('aria-disabled', 'true');
-  }
+function expectDisabled(button: HTMLElement, disabled: boolean) {
+  if (disabled) expect(button).toHaveAttribute('aria-disabled', 'true');
+  else expect(button).not.toHaveAttribute('aria-disabled', 'true');
 }
 
 function customerSignupFakes() {
@@ -108,24 +106,23 @@ describe('SignupPage (A2)', () => {
     expect(screen.getByLabelText('이름 *')).toBeInTheDocument();
   });
 
-  it('「가입하기」는 .cta 안과 .dk 두 벌이고 처음에는 둘 다 비활성이다', async () => {
+  it('「가입하기」는 .cta 안 한 벌이고 처음에는 비활성이다', async () => {
     renderSignup();
     await ready();
-    const buttons = submitButtons();
-    expect(buttons).toHaveLength(2);
-    expect(buttons.filter((b) => b.closest('.cta') !== null)).toHaveLength(1);
-    expect(buttons.filter((b) => b.classList.contains('dk'))).toHaveLength(1);
-    expectAllDisabled(buttons, true);
+    const button = submitButton();
+    expect(button.closest('.cta')).not.toBeNull();
+    expect(document.querySelector('.dk')).toBeNull();
+    expectDisabled(button, true);
   });
 
-  it('모두 입력하면 둘 다 활성이고 비밀번호가 7자면 비활성이다', async () => {
+  it('모두 입력하면 활성이고 비밀번호가 7자면 비활성이다', async () => {
     renderSignup();
     const user = await ready();
     await fill(user);
-    expectAllDisabled(submitButtons(), false);
+    expectDisabled(submitButton(), false);
     await user.clear(screen.getByLabelText('비밀번호 * (8자 이상)'));
     await user.type(screen.getByLabelText('비밀번호 * (8자 이상)'), '1234567');
-    expectAllDisabled(submitButtons(), true);
+    expectDisabled(submitButton(), true);
   });
 
   it('비밀번호가 공백 8칸이면 비밀번호 칸 아래 임시 문구가 보이고 비활성이다', async () => {
@@ -133,7 +130,7 @@ describe('SignupPage (A2)', () => {
     const user = await ready();
     await fill(user, { password: '        ' });
     expect(screen.getByText(PASSWORD_BLANK_MESSAGE)).toBeInTheDocument();
-    expectAllDisabled(submitButtons(), true);
+    expectDisabled(submitButton(), true);
   });
 
   it('입력 칸 maxLength: 이름·전화 100, 이메일 255', async () => {
@@ -148,7 +145,7 @@ describe('SignupPage (A2)', () => {
     const { fakes } = renderSignup({ fakes: customerSignupFakes() });
     const user = await ready();
     await fill(user, { name: ' 홍길동 ', email: ' a@b.c ', phone: ' 010-1 ' });
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     await waitFor(() => expect(fakes.auth.login).toHaveBeenCalledWith('a@b.c', 'pw123456'));
     expect(fakes.account.signup).toHaveBeenCalledTimes(1);
     expect(fakes.account.signup.mock.calls[0]?.[0]).toEqual({
@@ -166,7 +163,7 @@ describe('SignupPage (A2)', () => {
     const { router } = renderSignup({ fakes, entry: '/signup?role=owner' });
     const user = await ready();
     await fill(user, { name: '망원베이커리' });
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     await waitFor(() => expect(router.state.location.pathname).toBe('/owner/today'));
     expect(fakes.account.signup.mock.calls[0]?.[0]).toMatchObject({ role: 'OWNER' });
   });
@@ -178,7 +175,7 @@ describe('SignupPage (A2)', () => {
     });
     const user = await ready();
     await fill(user);
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     await waitFor(() => expect(router.state.location.pathname).toBe('/offers/1'));
   });
 
@@ -188,7 +185,7 @@ describe('SignupPage (A2)', () => {
     const { router } = renderSignup({ fakes });
     const user = await ready();
     await fill(user);
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('이미 가입된 이메일입니다.');
     const email = screen.getByLabelText('이메일 *');
@@ -210,7 +207,7 @@ describe('SignupPage (A2)', () => {
     renderSignup({ fakes });
     const user = await ready();
     await fill(user);
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     expect(await screen.findByRole('alert')).toHaveTextContent('이메일 형식이 올바르지 않습니다.');
   });
 
@@ -223,7 +220,7 @@ describe('SignupPage (A2)', () => {
     });
     const user = await ready();
     await fill(user);
-    await user.click(submitButtons()[0]);
+    await user.click(submitButton());
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(await screen.findByRole('status')).toHaveTextContent(SIGNUP_LOGIN_FAILED_NOTICE);
     expect(router.state.location.state).toMatchObject({ from: '/offers/1' });
@@ -236,12 +233,10 @@ describe('SignupPage (A2)', () => {
     renderSignup({ fakes });
     const user = await ready();
     await fill(user);
-    await user.click(submitButtons()[0]);
-    const busy = await screen.findAllByRole('button', { name: '처리 중…' });
-    expect(busy).toHaveLength(2);
-    expectAllDisabled(busy, true);
-    await user.click(busy[0]);
-    await user.click(busy[1]);
+    await user.click(submitButton());
+    const busy = await screen.findByRole('button', { name: '처리 중…' });
+    expectDisabled(busy, true);
+    await user.click(busy);
     expect(fakes.account.signup).toHaveBeenCalledTimes(1);
   });
 

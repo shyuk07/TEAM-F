@@ -22,6 +22,7 @@ import {
 } from '@/features/offers';
 import { ROUTES } from '@/shared/lib/routes';
 import { useNow } from '@/shared/lib/useNow';
+import { Overlay } from '@/shared/ui/Overlay';
 
 const SKELETON_COUNT = 3;
 
@@ -44,10 +45,7 @@ export function HomePage() {
     navigate({ search: toHomeSearch({ ...filter, ...next }) }, { replace: true });
   };
 
-  const closeSheet = () => {
-    setSheetOpen(false);
-    chipRef.current?.focus();
-  };
+  const closeSheet = () => setSheetOpen(false);
 
   const onSearch = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -78,13 +76,69 @@ export function HomePage() {
           </Link>
         ) : null}
       </div>
+      <div className="body">
+        <form role="search" onSubmit={onSearch}>
+          {/* 「상품명 검색」은 wireframe.html:305, 최대 길이는 API keyword 100자(catalog.md §8) */}
+          <input
+            key={filter.keyword}
+            className="in"
+            type="search"
+            name="q"
+            aria-label={SEARCH_LABEL}
+            placeholder={SEARCH_LABEL}
+            maxLength={KEYWORD_MAX_LENGTH}
+            defaultValue={filter.keyword}
+          />
+        </form>
+        <SortChips
+          value={filter.sort}
+          hasLocation={hasLocation}
+          onChange={(sort) => changeFilter({ sort })}
+        />
+        <div aria-busy={offers.status === 'loading'}>
+          {offers.status === 'loading'
+            ? Array.from({ length: SKELETON_COUNT }, (_, i) => <OfferCardSkeleton key={i} />)
+            : null}
+          {offers.status === 'error' ? (
+            <>
+              <div className="warn" role="alert">
+                {OFFERS_LOAD_FAILED_MESSAGE}
+              </div>
+              <button type="button" className="btn sm" onClick={offers.retry}>
+                다시 시도
+              </button>
+            </>
+          ) : null}
+          {offers.status === 'empty' ? (
+            <NearbyEmpty
+              action={hasLocation ? nextRadius(filter.radiusKm) : null}
+              onAction={(radiusKm) => changeFilter({ radiusKm })}
+            />
+          ) : null}
+          {offers.status === 'success'
+            ? offers.items.map((item) => <OfferCard key={item.offer.id} item={item} now={now} />)
+            : null}
+        </div>
+        {offers.loadMoreFailed ? (
+          <div className="warn" role="alert">
+            {OFFERS_LOAD_FAILED_MESSAGE}
+          </div>
+        ) : null}
+        {offers.hasMore ? (
+          <button
+            type="button"
+            className="link"
+            aria-disabled={offers.loadingMore ? 'true' : undefined}
+            onClick={() => {
+              if (!offers.loadingMore) offers.loadMore();
+            }}
+          >
+            {offers.loadingMore ? '처리 중…' : LOAD_MORE_LABEL}
+          </button>
+        ) : null}
+      </div>
       {sheetOpen ? (
-        <div
-          className="dim"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeSheet();
-          }}
-        >
+        <Overlay onClose={closeSheet} returnFocusRef={chipRef}>
           <LocationSheet
             hasLocation={hasLocation}
             locating={device.status === 'pending'}
@@ -94,72 +148,9 @@ export function HomePage() {
               changeFilter({ radiusKm });
               closeSheet();
             }}
-            onClose={closeSheet}
           />
-        </div>
-      ) : (
-        <div className="body">
-          <form role="search" onSubmit={onSearch}>
-            {/* 「상품명 검색」은 wireframe.html:305, 최대 길이는 API keyword 100자(catalog.md §8) */}
-            <input
-              key={filter.keyword}
-              className="in"
-              type="search"
-              name="q"
-              aria-label={SEARCH_LABEL}
-              placeholder={SEARCH_LABEL}
-              maxLength={KEYWORD_MAX_LENGTH}
-              defaultValue={filter.keyword}
-            />
-          </form>
-          <SortChips
-            value={filter.sort}
-            hasLocation={hasLocation}
-            onChange={(sort) => changeFilter({ sort })}
-          />
-          <div aria-busy={offers.status === 'loading'}>
-            {offers.status === 'loading'
-              ? Array.from({ length: SKELETON_COUNT }, (_, i) => <OfferCardSkeleton key={i} />)
-              : null}
-            {offers.status === 'error' ? (
-              <>
-                <div className="warn" role="alert">
-                  {OFFERS_LOAD_FAILED_MESSAGE}
-                </div>
-                <button type="button" className="btn sm" onClick={offers.retry}>
-                  다시 시도
-                </button>
-              </>
-            ) : null}
-            {offers.status === 'empty' ? (
-              <NearbyEmpty
-                action={hasLocation ? nextRadius(filter.radiusKm) : null}
-                onAction={(radiusKm) => changeFilter({ radiusKm })}
-              />
-            ) : null}
-            {offers.status === 'success'
-              ? offers.items.map((item) => <OfferCard key={item.offer.id} item={item} now={now} />)
-              : null}
-          </div>
-          {offers.loadMoreFailed ? (
-            <div className="warn" role="alert">
-              {OFFERS_LOAD_FAILED_MESSAGE}
-            </div>
-          ) : null}
-          {offers.hasMore ? (
-            <button
-              type="button"
-              className="link"
-              aria-disabled={offers.loadingMore ? 'true' : undefined}
-              onClick={() => {
-                if (!offers.loadingMore) offers.loadMore();
-              }}
-            >
-              {offers.loadingMore ? '처리 중…' : LOAD_MORE_LABEL}
-            </button>
-          ) : null}
-        </div>
-      )}
+        </Overlay>
+      ) : null}
       {auth.status === 'anonymous' ? (
         // 「로그인」과 같이 비로그인일 때만(세션 확인 중 제외). 탭 바 바로 위 고정 위치(wireframe.html:320, screens.md C1, D-18).
         <Link className="link" style={{ padding: 'var(--s2)' }} to={ROUTES.ownerSignup}>

@@ -64,9 +64,6 @@ export function Overlay({
         if (dismissibleRef.current) onCloseRef.current();
         return;
       }
-      // TODO: Tab 포커스 트랩이 shared/lib/useModalFocus.ts와 중복이다. 한 구현으로 합친다.
-      //   왜: 오버레이 층 수정(app-shell.md §11) 범위를 넘는다
-      //   언제: 리팩터링 시, 고객 C10·C1a를 Overlay로 옮길 때(app-shell.md Q-8)
       if (e.key !== 'Tab') return;
       const items = Array.from(dim.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
       if (items.length === 0) return;

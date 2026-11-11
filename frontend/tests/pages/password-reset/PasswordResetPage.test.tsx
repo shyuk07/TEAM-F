@@ -33,7 +33,7 @@ type User = ReturnType<typeof userEvent.setup>;
 
 const emailInput = () => screen.getByLabelText('가입한 이메일');
 const sendButton = () => screen.getByRole('button', { name: '코드 보내기' });
-const confirmButtons = () => screen.getAllByRole('button', { name: '비밀번호 바꾸기' });
+const confirmButton = () => screen.getByRole('button', { name: '비밀번호 바꾸기' });
 
 async function sendCode(user: User, email = 'a@b.c') {
   await user.type(emailInput(), email);
@@ -46,11 +46,9 @@ async function fillStep2(user: User, code = '123456', password = 'pw123456') {
   await user.type(screen.getByLabelText('새 비밀번호 (8자 이상)'), password);
 }
 
-function expectAllDisabled(buttons: HTMLElement[], disabled: boolean) {
-  for (const b of buttons) {
-    if (disabled) expect(b).toHaveAttribute('aria-disabled', 'true');
-    else expect(b).not.toHaveAttribute('aria-disabled', 'true');
-  }
+function expectDisabled(button: HTMLElement, disabled: boolean) {
+  if (disabled) expect(button).toHaveAttribute('aria-disabled', 'true');
+  else expect(button).not.toHaveAttribute('aria-disabled', 'true');
 }
 
 describe('PasswordResetPage (A3)', () => {
@@ -61,7 +59,7 @@ describe('PasswordResetPage (A3)', () => {
     expect(screen.getByRole('link', { name: '뒤로' })).toHaveAttribute('href', '/login');
   });
 
-  it('처음에는 1단계만 있고 「비밀번호 바꾸기」 두 벌이 비활성이다', async () => {
+  it('처음에는 1단계만 있고 「비밀번호 바꾸기」 한 벌이 비활성이다', async () => {
     renderReset();
     await ready();
     expect(screen.getByText('1단계 · 코드 받기')).toBeInTheDocument();
@@ -69,9 +67,10 @@ describe('PasswordResetPage (A3)', () => {
     expect(sendButton()).toBeInTheDocument();
     expect(screen.getByText('가입된 이메일이면 6자리 코드를 보내요.')).toBeInTheDocument();
     expect(screen.queryByText('2단계 · 새 비밀번호')).not.toBeInTheDocument();
-    const buttons = confirmButtons();
-    expect(buttons).toHaveLength(2);
-    expectAllDisabled(buttons, true);
+    const button = confirmButton();
+    expect(button.closest('.cta')).not.toBeNull();
+    expect(document.querySelector('.dk')).toBeNull();
+    expectDisabled(button, true);
   });
 
   it('이메일이 비어 있으면 「코드 보내기」가 비활성이다', async () => {
@@ -106,9 +105,9 @@ describe('PasswordResetPage (A3)', () => {
     const user = await ready();
     await sendCode(user);
     await fillStep2(user);
-    expectAllDisabled(confirmButtons(), false);
+    expectDisabled(confirmButton(), false);
     await user.type(screen.getByLabelText('6자리 코드'), '{Backspace}');
-    expectAllDisabled(confirmButtons(), true);
+    expectDisabled(confirmButton(), true);
   });
 
   it('제출하면 확인을 요청하고 세션을 정리한 뒤 /login에서 완료 안내를 보인다', async () => {
@@ -116,7 +115,7 @@ describe('PasswordResetPage (A3)', () => {
     const user = await ready();
     await sendCode(user);
     await fillStep2(user);
-    await user.click(confirmButtons()[0]);
+    await user.click(confirmButton());
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(fakes.account.confirmPasswordReset.mock.calls[0]?.[0]).toEqual({
       email: 'a@b.c',
@@ -134,7 +133,7 @@ describe('PasswordResetPage (A3)', () => {
     const user = await ready();
     await sendCode(user);
     await fillStep2(user);
-    await user.click(confirmButtons()[0]);
+    await user.click(confirmButton());
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(router.state.location.state).toMatchObject({ from: '/owner/offers' });
   });
@@ -148,7 +147,7 @@ describe('PasswordResetPage (A3)', () => {
     const user = await ready();
     await sendCode(user);
     await fillStep2(user);
-    await user.click(confirmButtons()[0]);
+    await user.click(confirmButton());
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '코드가 맞지 않거나 만료됐어요. 코드를 다시 받아 주세요.',
     );
@@ -166,7 +165,7 @@ describe('PasswordResetPage (A3)', () => {
     const user = await ready();
     await sendCode(user);
     await fillStep2(user);
-    await user.click(confirmButtons()[0]);
+    await user.click(confirmButton());
     expect(await screen.findByRole('alert')).toHaveTextContent('서버 비밀번호 규칙 문구');
   });
 
@@ -263,12 +262,10 @@ describe('PasswordResetPage (A3)', () => {
     await screen.findByLabelText('6자리 코드');
 
     await fillStep2(user);
-    await user.click(confirmButtons()[0]);
-    const busyConfirm = await screen.findAllByRole('button', { name: '처리 중…' });
-    expect(busyConfirm).toHaveLength(2);
-    expectAllDisabled(busyConfirm, true);
-    await user.click(busyConfirm[0]);
-    await user.click(busyConfirm[1]);
+    await user.click(confirmButton());
+    const busyConfirm = await screen.findByRole('button', { name: '처리 중…' });
+    expectDisabled(busyConfirm, true);
+    await user.click(busyConfirm);
     expect(fakes.account.confirmPasswordReset).toHaveBeenCalledTimes(1);
   });
 
