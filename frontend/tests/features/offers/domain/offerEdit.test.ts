@@ -65,13 +65,13 @@ describe('diffOfferChanges & hasChanges', () => {
 
 describe('isEditable', () => {
   it('활성 + 판매중/예정/품절 상태면 수정 가능', () => {
-    expect(isEditable(baseOffer({ status: 'ON_SALE' }), new Date())).toBe(true);
-    expect(isEditable(baseOffer({ status: 'SCHEDULED' }), new Date())).toBe(true);
-    expect(isEditable(baseOffer({ status: 'SOLD_OUT' }), new Date())).toBe(true);
+    expect(isEditable(baseOffer({ status: 'ON_SALE' }))).toBe(true);
+    expect(isEditable(baseOffer({ status: 'SCHEDULED' }))).toBe(true);
+    expect(isEditable(baseOffer({ status: 'SOLD_OUT' }))).toBe(true);
   });
   it('비활성이거나 종료·정지 상태면 수정 불가', () => {
-    expect(isEditable(baseOffer({ isActive: false }), new Date())).toBe(false);
-    expect(isEditable(baseOffer({ status: 'CLOSED' }), new Date())).toBe(false);
-    expect(isEditable(baseOffer({ status: 'SUSPENDED' }), new Date())).toBe(false);
+    expect(isEditable(baseOffer({ isActive: false }))).toBe(false);
+    expect(isEditable(baseOffer({ status: 'CLOSED' }))).toBe(false);
+    expect(isEditable(baseOffer({ status: 'SUSPENDED' }))).toBe(false);
   });
 });
