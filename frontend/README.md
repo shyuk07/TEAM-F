@@ -5,14 +5,36 @@
 
 ## 기술 스택
 
-- Node.js 24 LTS
-- npm
-- React
-- TypeScript
-- Vite (개발 서버·빌드)
-- React Router
+- **Runtime & Tooling**: Node.js 24 LTS, npm, Vite 6
+- **Framework & Core**: React 19, TypeScript 5
+- **Routing**: React Router 8
+- **Testing**: Vitest, Playwright (E2E), React Testing Library
+- **Code Quality**: ESLint 10, Prettier
 
 최종 결과물은 정적 파일(`dist/`)로 빌드해 배포합니다.
+
+## 프로젝트 구조 (Feature-Sliced Design)
+
+유지보수성과 확장성을 위해 **FSD(Feature-Sliced Design)** 아키텍처 패턴을 따릅니다. 상위 계층은 하위 계층만 참조할 수 있습니다.
+
+```
+frontend/src/
+├── app/          # 애플리케이션 초기화, 전역 라우터, 인증/테마 프로바이더, 글로벌 스타일
+├── pages/        # 라우트 단위 페이지 컴포넌트 (총 28개 화면)
+├── widgets/      # 페이지를 구성하는 복합 독립 UI 블록 (Header, BottomNav, StoreBanner 등)
+├── features/     # 사용자의 인터랙션과 동작 단위 (로그인 폼, 결제 처리, 마감할인 등록 등)
+├── entities/     # 핵심 비즈니스 엔티티 모델, 슬라이스 상태, 도메인 API (User, Store, Offer 등)
+└── shared/       # 범용 재사용 컴포넌트(Button, Input, Modal), 공통 API 클라이언트, 디자인 토큰
+```
+
+### 구현된 주요 화면 및 기능
+
+| 구분 | 주요 화면 | 기능 설명 |
+|:---|:---|:---|
+| **공통/인증** | `/login`, `/signup`<br>`/password-reset` | 이메일/비밀번호 회원가입, JWT 로그인, 비밀번호 재설정 요청 및 변경 |
+| **고객 (Customer)** | `/` (Home)<br>`/offers/:id`<br>`/checkout`<br>`/payments/complete`<br>`/my/reservations`<br>`/my`, `/point-history` | - 내 주변 마감할인 실시간 탐색 및 지도 보기<br>- 마감 할인 상세 정보(정가/할인가, 잔여 재고, 픽업 시간)<br>- 수량 선택, 포인트 복합 모의 결제<br>- 4자리 픽업 번호 확인 및 예약 취소 요청<br>- 내 정보 수정, 포인트 적립/사용 내역 확인 |
+| **상점주 (Owner)** | `/owner/start`<br>`/owner/store`<br>`/owner/products/new`, `edit`<br>`/owner/offers/new`, `edit`<br>`/owner/today` | - 신규 상점 입점 신청 및 사업자 정보 등록<br>- 매장 기본 정보 및 운영 시간 관리<br>- 기본 메뉴(상품) 등록 및 수정<br>- 오늘의 마감 할인(수량, 할인율, 픽업 기한) 등록/수정/중단<br>- 실시간 당일 예약 접수 확인 및 픽업 번호 대조 완료 처리 |
+| **관리자 (Admin)** | `/admin/approvals`<br>`/admin/users`<br>`/admin/moderation` | - 점주 신규 입점 신청 목록 심사 (승인 / 반려)<br>- 회원 목록 조회, 경고/정지 및 강제 탈퇴 제재<br>- 신고된 부적합 상점·상품 강제 판매 중단 및 폐점 |
 
 ## 로컬 개발 환경 실행
 
@@ -49,6 +71,20 @@ npm run dev
 ```
 
 브라우저에서 터미널에 표시된 주소(기본 `http://localhost:5173`)로 접속합니다.
+
+## NPM 스크립트 가이드
+
+| 명령어 | 설명 |
+|:---|:---|
+| `npm run dev` | Vite 로컬 개발 서버 실행 (기본 포트 5173, `/v1` 백엔드 프록시 연동) |
+| `npm run build` | TypeScript 타입 검사 후 프로덕션 정적 번들 빌드 (`dist/` 생성) |
+| `npm run preview` | 프로덕션 빌드 결과물(`dist/`) 로컬 미리보기 서버 구동 |
+| `npm run typecheck` | TypeScript 타입 에러 검사 (출력 없이 종료코드 판정) |
+| `npm run lint` | ESLint 기반 코드 스타일 및 잠재적 버그 정적 분석 |
+| `npm run format` | Prettier를 사용한 전체 프론트엔드 코드 포맷팅 자동 수정 |
+| `npm run format:check` | Prettier 포맷팅 준수 여부 검사 |
+| `npm run test` | Vitest 기반 컴포넌트 및 단위 테스트 실행 |
+| `npm run test:e2e` | Playwright 기반 E2E 시나리오 테스트 실행 |
 
 ## 백엔드 API 연결
 
