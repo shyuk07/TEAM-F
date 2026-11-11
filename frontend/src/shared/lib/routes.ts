@@ -16,6 +16,11 @@ export const ROUTES = {
   ownerToday: '/owner/today',
   ownerOffers: '/owner/offers',
   ownerOfferNew: '/owner/offers/new',
+  ownerOfferRelist: (offerId: string): string =>
+    `/owner/offers/new?relistFrom=${encodeURIComponent(offerId)}`,
+  ownerOfferEdit: (offerId: string): string => `/owner/offers/${encodeURIComponent(offerId)}/edit`,
+  ownerOfferDeactivate: (offerId: string): string =>
+    `/owner/offers/${encodeURIComponent(offerId)}/deactivate`,
   ownerOfferNewFor: (productId: string): string =>
     `/owner/offers/new?productId=${encodeURIComponent(productId)}`,
   ownerStore: '/owner/store',
@@ -37,6 +42,8 @@ export const ROUTES = {
 
 export const ROUTE_PATTERNS = {
   offerDetail: '/offers/:offerId',
+  ownerOfferEdit: '/owner/offers/:offerId/edit',
+  ownerOfferDeactivate: '/owner/offers/:offerId/deactivate',
   ownerProduct: '/owner/products/:productId',
   adminUser: '/admin/users/:userId',
   checkout: '/checkout/:reservationId',

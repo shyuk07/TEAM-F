@@ -1,33 +1,20 @@
 import { request } from '@/shared/api/client';
 import { API_BASE_URL } from '@/shared/config/env';
 import type { NearbyQuery } from '../domain/nearbyQuery';
-import type { NearbyOffer, Offer, OfferPage, OfferStatus } from '../domain/offer';
+import type { NearbyOffer, Offer, OfferList, OfferPage, OfferStatus } from '../domain/offer';
 import type { OfferDetail } from '../domain/offerDetail';
 import type { OfferRepository } from '../domain/offerRepository';
-
-// DTO 타입은 이 파일 안에서만 쓴다(F9). 백엔드 catalog/presentation/schemas.py OfferResponse·NearbyOfferItem.
-type OfferDto = {
-  id: string;
-  product_id: string;
-  store_id: string;
-  store_name: string;
-  product_name: string;
-  original_price: number;
-  sale_price: number;
-  discount_rate: number;
-  initial_stock: number;
-  remaining_stock: number;
-  is_sold_out: boolean;
-  sales_start: string;
-  sales_end: string;
-  pickup_start: string;
-  pickup_end: string;
-  status: string;
-  is_active: boolean;
-};
+import { type OfferDto, toOffer } from './offerDto';
 
 type NearbyOfferListDto = {
   items: { offer: OfferDto; distance: number | null; unit: string }[];
+  page: number;
+  size: number;
+  total: number;
+};
+
+type StoreOfferListDto = {
+  items: OfferDto[];
   page: number;
   size: number;
   total: number;
@@ -44,42 +31,6 @@ type OfferDetailDto = {
   notice: string;
   cancel_policy: { cancellable_until: string; description: string };
 };
-
-const OFFER_STATUSES: readonly OfferStatus[] = [
-  'SCHEDULED',
-  'ON_SALE',
-  'SOLD_OUT',
-  'CLOSED',
-  'SUSPENDED',
-];
-
-function toStatus(value: string): OfferStatus {
-  const hit = OFFER_STATUSES.find((s) => s === value);
-  if (hit === undefined) throw new Error(`알 수 없는 할인 상태: ${value}`);
-  return hit;
-}
-
-function toOffer(dto: OfferDto): Offer {
-  return {
-    id: String(dto.id),
-    productId: String(dto.product_id),
-    storeId: String(dto.store_id),
-    storeName: dto.store_name,
-    productName: dto.product_name,
-    originalPrice: dto.original_price,
-    salePrice: dto.sale_price,
-    discountRate: dto.discount_rate,
-    initialStock: dto.initial_stock,
-    remainingStock: dto.remaining_stock,
-    isSoldOut: dto.is_sold_out,
-    salesStart: new Date(dto.sales_start),
-    salesEnd: new Date(dto.sales_end),
-    pickupStart: new Date(dto.pickup_start),
-    pickupEnd: new Date(dto.pickup_end),
-    status: toStatus(dto.status),
-    isActive: dto.is_active,
-  };
-}
 
 // 업로드 이미지 경로(/v1/products/{id}/images/{image_id}, catalog §17)는 서버 주소를 붙이고(offers.md D-3),
 // https: 절대 URL만 그대로 쓴다. 그 밖(http:, data:, javascript:, //host, 상대 경로, 파싱 불가)은 버린다(F17).
@@ -137,5 +88,38 @@ export class HttpOfferRepository implements OfferRepository {
       cancellableUntil: new Date(dto.cancel_policy.cancellable_until),
       cancelPolicyText: dto.cancel_policy.description,
     };
+  }
+
+  async findByStore(
+    storeId: string,
+    statuses: OfferStatus[],
+    page: number,
+    size: number,
+    signal?: AbortSignal,
+  ): Promise<OfferList> {
+    const params = new URLSearchParams();
+    for (const s of statuses) {
+      params.append('status', s);
+    }
+    params.set('page', String(page));
+    params.set('size', String(size));
+
+    const dto = await request<StoreOfferListDto>(
+      `/v1/stores/${encodeURIComponent(storeId)}/offers?${params.toString()}`,
+      { signal },
+    );
+    return {
+      items: dto.items.map(toOffer),
+      page: dto.page,
+      size: dto.size,
+      total: dto.total,
+    };
+  }
+
+  async findOfferById(id: string, signal?: AbortSignal): Promise<Offer> {
+    const dto = await request<OfferDetailDto>(`/v1/offers/${encodeURIComponent(id)}`, {
+      signal,
+    });
+    return toOffer(dto.offer);
   }
 }

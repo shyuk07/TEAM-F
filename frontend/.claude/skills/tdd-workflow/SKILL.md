@@ -3,7 +3,7 @@ name: tdd-workflow
 description: 마감 직전 프론트엔드에서 기능을 TDD로 만드는 작업 순서의 정본입니다. 설계안의 테스트 목록 → 인터페이스 골격(fe-developer) → Red 테스트(fe-qa) → Red 확인(오케스트레이터) → Green → Refactor(fe-developer) → 구조·정확성 점검 → 실행 검증의 단계별 담당·입력·완료 조건, 테스트별로 실패해야 하는 Red 판정 기준, 구현 중 테스트를 바꿔야 할 때의 절차, 테스트 때문에 공개 타입이 바뀔 때의 결정 처리, TDD를 생략하는 작업을 다룹니다. 기능 구현을 발주할 때, 테스트를 먼저 쓸 때, Red·Green 판정을 할 때, 구현 중 테스트와 규격이 부딪칠 때 사용합니다.
 ---
 
-# TDD 작업 순서
+# TDD 작업 순서 (⚠️ 사용자 요청으로 비활성화됨: 빠른 개발 모드 적용 중)
 
 기능 코드는 이 순서로 만듭니다. 오케스트레이션 흐름(`../docs/operations/frontend-orchestration.md` §5)의 "Red 테스트 → 구현 → 점검" 부분을 자세히 정한 정본입니다. 테스트 파일 위치와 작성 방법은 `react-implementation` §7, 검증 명령은 `frontend-invariants` §6을 따릅니다.
 

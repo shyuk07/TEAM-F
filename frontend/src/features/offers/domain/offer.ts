@@ -27,6 +27,8 @@ export type NearbyOffer = { offer: Offer; distanceKm: number | null };
 
 export type OfferPage = { items: NearbyOffer[]; page: number; size: number; total: number };
 
+export type OfferList = { items: Offer[]; page: number; size: number; total: number };
+
 export function isSoldOut(offer: Offer): boolean {
   return offer.isSoldOut || offer.status === 'SOLD_OUT' || offer.remainingStock <= 0;
 }

@@ -12,12 +12,18 @@ import { ProductRepositoryToken } from '@/entities/product';
 import { MyStoreProvider, StoreRepositoryToken } from '@/entities/store';
 import { ProductCommandsToken } from '@/features/products/application/tokens';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
+import { OfferCommandsToken, OfferRepositoryToken } from '@/features/offers';
+import { PickupGatewayToken, StoreReservationRepositoryToken } from '@/features/reservations';
 import { DepsProvider } from '@/shared/lib/DepsProvider';
 import { Container, bind } from '@/shared/lib/di';
 import { anonymousFakes, signedInFakes, type AuthFakes } from './authFakes';
 import { FakeProductRepository } from '../entities/product/fakes/fakeProductRepository.fake';
 import { FakeStoreRepository } from '../entities/store/fakes/fakeStoreRepository.fake';
+import { FakeOfferCommands } from '../features/offers/fakes/fakeOfferCommands.fake';
+import { FakeOfferRepository } from '../features/offers/fakes/fakeOfferRepository.fake';
 import { FakeProductCommands } from '../features/products/fakes/fakeProductCommands.fake';
+import { FakePickupGateway } from '../features/reservations/fakes/fakePickupGateway.fake';
+import { FakeStoreReservationRepository } from '../features/reservations/fakes/fakeStoreReservationRepository.fake';
 import { FakeStoreCommands } from '../features/stores/fakes/fakeStoreCommands.fake';
 
 type Deps = {
@@ -26,6 +32,10 @@ type Deps = {
   commands: FakeStoreCommands;
   products: FakeProductRepository;
   productCommands: FakeProductCommands;
+  offers: FakeOfferRepository;
+  offerCommands: FakeOfferCommands;
+  storeReservations: FakeStoreReservationRepository;
+  pickupGateway: FakePickupGateway;
 };
 
 type DepOptions = {
@@ -34,6 +44,10 @@ type DepOptions = {
   commands?: FakeStoreCommands;
   products?: FakeProductRepository;
   productCommands?: FakeProductCommands;
+  offers?: FakeOfferRepository;
+  offerCommands?: FakeOfferCommands;
+  storeReservations?: FakeStoreReservationRepository;
+  pickupGateway?: FakePickupGateway;
 };
 
 function createDeps(opts: DepOptions): Deps {
@@ -43,6 +57,10 @@ function createDeps(opts: DepOptions): Deps {
     commands: opts.commands ?? new FakeStoreCommands(),
     products: opts.products ?? new FakeProductRepository(),
     productCommands: opts.productCommands ?? new FakeProductCommands(),
+    offers: opts.offers ?? new FakeOfferRepository(),
+    offerCommands: opts.offerCommands ?? new FakeOfferCommands(),
+    storeReservations: opts.storeReservations ?? new FakeStoreReservationRepository(),
+    pickupGateway: opts.pickupGateway ?? new FakePickupGateway(),
   };
 }
 
@@ -56,6 +74,10 @@ function createOwnerContainer(deps: Deps): Container {
     bind(StoreCommandsToken, deps.commands),
     bind(ProductRepositoryToken, deps.products),
     bind(ProductCommandsToken, deps.productCommands),
+    bind(OfferRepositoryToken, deps.offers),
+    bind(OfferCommandsToken, deps.offerCommands),
+    bind(StoreReservationRepositoryToken, deps.storeReservations),
+    bind(PickupGatewayToken, deps.pickupGateway),
   ]);
 }
 

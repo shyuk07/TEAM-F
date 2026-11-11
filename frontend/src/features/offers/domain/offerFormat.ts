@@ -1,6 +1,8 @@
 import { formatHm, formatMd, groupDigits, isSameLocalDate } from '@/shared/lib/format';
 import { isSoldOut, type NearbyOffer } from './offer';
 
+export { formatHm, groupDigits } from '@/shared/lib/format';
+
 export type OfferCardView = {
   storeLine: string;
   title: string;
