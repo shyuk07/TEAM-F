@@ -136,6 +136,8 @@ button.li {
   display: grid;
   gap: var(--s3);
   align-content: start;
+  /* 행 높이는 내용만큼. 창이 짧으면 가로 스크롤 줄(.scroll)의 행이 0으로 줄어 겹치던 문제 방지 */
+  grid-auto-rows: max-content;
 }
 .tabs {
   flex: none;
