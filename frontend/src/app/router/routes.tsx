@@ -26,12 +26,12 @@ import { MyReservationsPage } from '@/pages/my-reservations';
 import { CheckoutPage } from '@/pages/checkout';
 import { PaymentCompletePage } from '@/pages/payment-complete';
 import { OfferDetailPage } from '@/pages/offer-detail';
+import { OfferDeactivatePage } from '@/pages/offer-deactivate';
+import { OfferEditPage } from '@/pages/offer-edit';
+import { OfferNewPage } from '@/pages/offer-new';
+import { OwnerOffersPage } from '@/pages/owner-offers';
+import { OwnerTodayPage } from '@/pages/owner-today';
 import { TAB_BAR_HANDLE } from './handle';
-import {
-  OwnerOfferNewPlaceholder,
-  OwnerOffersPlaceholder,
-  OwnerTodayPlaceholder,
-} from './placeholders';
 
 export const routes: RouteObject[] = [
   {
@@ -75,9 +75,11 @@ export const routes: RouteObject[] = [
   {
     element: <OwnerLayout />,
     children: [
-      { path: ROUTES.ownerToday, element: <OwnerTodayPlaceholder />, handle: TAB_BAR_HANDLE },
-      { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: TAB_BAR_HANDLE },
-      { path: ROUTES.ownerOfferNew, element: <OwnerOfferNewPlaceholder /> },
+      { path: ROUTES.ownerToday, element: <OwnerTodayPage />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerOffers, element: <OwnerOffersPage />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerOfferNew, element: <OfferNewPage /> },
+      { path: ROUTE_PATTERNS.ownerOfferEdit, element: <OfferEditPage /> },
+      { path: ROUTE_PATTERNS.ownerOfferDeactivate, element: <OfferDeactivatePage /> },
       { path: ROUTES.ownerStore, element: <OwnerStorePage />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerStart, element: <OwnerStartPage /> },
       { path: ROUTES.ownerStoreClose, element: <StoreClosePage /> },

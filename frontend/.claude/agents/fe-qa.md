@@ -11,7 +11,7 @@ skills:
   - layer-check
   - design-system-usage
   - pre-merge-check
-  - tdd-workflow
+  # - tdd-workflow (사용자 요청으로 비활성화: 빠른 개발 모드)
   - code-annotations
 ---
 

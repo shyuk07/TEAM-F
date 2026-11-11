@@ -4,10 +4,14 @@ import { SessionStoreToken } from '@/entities/session';
 import { StoreRepositoryToken } from '@/entities/store';
 import { AdminRepositoryToken } from '@/features/admin';
 import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
-import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
+import { LocationProviderToken, OfferCommandsToken, OfferRepositoryToken } from '@/features/offers';
 import { ProductCommandsToken } from '@/features/products/application/tokens';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
-import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
+import {
+  PickupGatewayToken,
+  ReservationRepositoryToken,
+  StoreReservationRepositoryToken,
+} from '@/features/reservations/application/tokens';
 import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
 import { Container, type Token } from '@/shared/lib/di';
 
@@ -17,6 +21,7 @@ const TOKENS: readonly Token<unknown>[] = [
   AuthGatewayToken,
   AccountGatewayToken,
   OfferRepositoryToken,
+  OfferCommandsToken,
   LocationProviderToken,
   AdminRepositoryToken,
   StoreRepositoryToken,
@@ -24,6 +29,8 @@ const TOKENS: readonly Token<unknown>[] = [
   ProductRepositoryToken,
   ProductCommandsToken,
   ReservationRepositoryToken,
+  StoreReservationRepositoryToken,
+  PickupGatewayToken,
   PaymentRepositoryToken,
 ];
 

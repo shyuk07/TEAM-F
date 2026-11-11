@@ -20,23 +20,32 @@ describe('routes', () => {
     expect(router.state.location.pathname).toBe('/owner/today');
   });
 
-  it.each([
-    ['/owner/today', 'O1 오늘'],
-    ['/owner/offers', 'O2 할인'],
-  ])('%s: 제목 「%s」과 TabBar·TopNav 링크가 있다', async (path, title) => {
-    renderAt(path);
-    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+  it('/owner/today: 상점명이 보이고 TabBar·TopNav 링크가 있다', async () => {
+    renderRoutesWithOwnerStore(routes, {
+      initialEntries: ['/owner/today'],
+      fakes: signedInFakes(ownerUser),
+    });
+    expect(await screen.findByText('망원베이커리', { selector: '.bar .logo' })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(2);
   });
 
-  it.each([['/owner/offers/new', 'O3 할인 등록']])(
-    '%s: 제목 「%s」이 있고 TabBar는 없다(TopNav만)',
-    async (path, title) => {
-      renderAt(path);
-      expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
-      expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
-    },
-  );
+  it('/owner/offers: 제목 「할인」과 TabBar·TopNav 링크가 있다', async () => {
+    renderRoutesWithOwnerStore(routes, {
+      initialEntries: ['/owner/offers'],
+      fakes: signedInFakes(ownerUser),
+    });
+    expect(await screen.findByText('할인', { selector: '.bar .logo' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(2);
+  });
+
+  it('/owner/offers/new: 제목 「할인 등록」이 있고 TabBar는 없다(TopNav만)', async () => {
+    renderRoutesWithOwnerStore(routes, {
+      initialEntries: ['/owner/offers/new'],
+      fakes: signedInFakes(ownerUser),
+    });
+    expect(await screen.findByText('할인 등록', { selector: '.bar .t' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '오늘' })).toHaveLength(1);
+  });
 
   it('/login은 상점주 셸 없이 로그인 화면을 그린다', () => {
     renderAt('/login', anonymousFakes());
@@ -222,8 +231,8 @@ describe('routes stores 화면 추가', () => {
     expect(await screen.findByText('승인 대기 중이에요')).toBeInTheDocument();
   });
 
-  it('상점 ACTIVE + /owner → O1 자리 page가 보인다', async () => {
+  it('상점 ACTIVE + /owner → O1 오늘 화면이 보인다', async () => {
     renderStoreAt('/owner', signedInFakes(ownerUser));
-    expect(await screen.findByRole('heading', { name: 'O1 오늘' })).toBeInTheDocument();
+    expect(await screen.findByText('망원베이커리', { selector: '.bar .logo' })).toBeInTheDocument();
   });
 });

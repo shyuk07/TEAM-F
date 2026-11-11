@@ -12,7 +12,7 @@ skills:
   - api-client
   - design-system-usage
   - layer-check
-  - tdd-workflow
+  # - tdd-workflow (사용자 요청으로 비활성화: 빠른 개발 모드)
   - code-annotations
 ---
 
