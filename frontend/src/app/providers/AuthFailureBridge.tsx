@@ -9,11 +9,10 @@ export function AuthFailureBridge() {
   const sessionStore = useDep(SessionStoreToken);
 
   useEffect(() => {
-    let cleared = false;
     return onAuthFailure(() => {
-      // 연속된 실패 이벤트에도 세션 정리는 1회만 실행한다.
-      if (cleared) return;
-      cleared = true;
+      // 세션이 남아 있을 때만 정리한다. 연속된 실패 이벤트는 첫 clear() 뒤 세션이 없어 무시되고,
+      // 재로그인 뒤의 새 만료는 다시 정리된다. 한계: 재로그인 직후 옛 토큰 요청의 늦은 401이 새 세션을 지울 수 있다.
+      if (!sessionStore.hasSession()) return;
       sessionStore.clear();
     });
   }, [sessionStore]);

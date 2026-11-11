@@ -10,9 +10,6 @@ import { restoreSession } from './restoreSession';
 import { AccountGatewayToken, AuthGatewayToken } from './tokens';
 import { withdrawAccount } from './withdraw';
 
-// FIXME: 다른 영역 요청이 받은 401·TOKEN_REVOKED를 처리하지 않는다. 화면은 다시 불러오기 전까지 로그인 상태로 남는다.
-//   왜: 서버 데이터를 읽는 공용 훅이 아직 없어 401을 세션 정리로 잇는 곳이 없다. 공용 훅이 받은 401에서 SessionStoreToken의 clear()를 부르면 이 컨트롤러가 구독으로 anonymous가 된다 (docs/design/frontend/auth.md §3.2). C8·C9는 유스케이스가 직접 clear()해 처리함 (docs/design/frontend/auth-account.md D-18). C6·C7·C11도 유스케이스가 직접 clear()함 (docs/design/frontend/customer-home.md D-25)
-//   언제: products 구현 시(첫 보호 API 화면 O4), 늦어도 배포 전
 export function useAuthController(): AuthContextValue {
   const auth = useDep(AuthGatewayToken);
   const account = useDep(AccountGatewayToken);

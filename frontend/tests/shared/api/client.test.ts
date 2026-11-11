@@ -179,6 +179,49 @@ describe('shared/api/client', () => {
     expect(init.signal).toBe(ctrl.signal);
   });
 
+  describe('multipart 본문 (FormData, products.md §2.1)', () => {
+    const form = () => {
+      const f = new FormData();
+      f.append('name', '식빵');
+      f.append('original_price', '12000');
+      return f;
+    };
+
+    it('body가 FormData이면 fetch에 그 FormData가 그대로 전달된다', async () => {
+      fetchMock.mockResolvedValue(jsonRes({ id: 'p1' }, 201));
+      const { request } = await loadClient('');
+      const body = form();
+      await request('/v1/stores/st-1/products', { method: 'POST', body });
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(body);
+    });
+
+    it('FormData 요청에는 Content-Type 헤더가 없고 Authorization은 있다', async () => {
+      fetchMock.mockResolvedValue(jsonRes({ id: 'p1' }, 201));
+      const { request, saveToken } = await loadClient('');
+      saveToken('tok-1');
+      await request('/v1/stores/st-1/products', { method: 'POST', body: form() });
+      const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+      expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('content-type');
+      expect(headers.Authorization).toBe('Bearer tok-1');
+    });
+
+    it('FormData 요청의 401 + UNAUTHORIZED도 인증 실패 핸들러를 1번 부른다', async () => {
+      fetchMock.mockResolvedValue(
+        jsonRes({ success: false, error_code: 'UNAUTHORIZED', message: 'x' }, 401),
+      );
+      const mod = await loadClient('');
+      const { onAuthFailure } = await import('@/shared/api/authFailure');
+      const handler = vi.fn();
+      onAuthFailure(handler);
+      await expect(
+        mod.request('/v1/stores/st-1/products', { method: 'POST', body: form() }),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('401 · TOKEN_REVOKED 알림 (authFailure)', () => {
     async function setup(res: Response) {
       fetchMock.mockResolvedValue(res);

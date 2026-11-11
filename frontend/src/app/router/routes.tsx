@@ -4,6 +4,7 @@ import { AccountLayout } from '@/app/layouts/AccountLayout';
 import { AdminLayout } from '@/app/layouts/AdminLayout';
 import { CustomerLayout } from '@/app/layouts/CustomerLayout';
 import { OwnerLayout } from '@/app/layouts/OwnerLayout';
+import { PublicFrameLayout } from '@/app/layouts/PublicFrameLayout';
 import { PasswordChangePage } from '@/pages/account-password';
 import { ProfilePage } from '@/pages/account-profile';
 import { AdminApprovalsPage } from '@/pages/admin-approvals';
@@ -17,6 +18,9 @@ import { PointHistoryPage } from '@/pages/point-history';
 import { SignupPage } from '@/pages/signup';
 import { WithdrawPage } from '@/pages/withdraw';
 import { OwnerStartPage } from '@/pages/owner-start';
+import { OwnerStorePage } from '@/pages/owner-store';
+import { ProductEditPage } from '@/pages/product-edit';
+import { ProductNewPage } from '@/pages/product-new';
 import { StoreClosePage } from '@/pages/store-close';
 import { MyReservationsPage } from '@/pages/my-reservations';
 import { CheckoutPage } from '@/pages/checkout';
@@ -26,9 +30,6 @@ import { TAB_BAR_HANDLE } from './handle';
 import {
   OwnerOfferNewPlaceholder,
   OwnerOffersPlaceholder,
-  OwnerProductEditPlaceholder,
-  OwnerProductNewPlaceholder,
-  OwnerStorePlaceholder,
   OwnerTodayPlaceholder,
 } from './placeholders';
 
@@ -40,9 +41,15 @@ export const routes: RouteObject[] = [
       { path: ROUTE_PATTERNS.offerDetail, element: <OfferDetailPage /> },
     ],
   },
-  { path: ROUTES.login, element: <LoginPage /> },
-  { path: ROUTES.signup, element: <SignupPage /> },
-  { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
+  {
+    // A1~A3: 고객과 같은 420px 가운데 프레임. 가드·TabBar 없음(app-shell.md §12)
+    element: <PublicFrameLayout />,
+    children: [
+      { path: ROUTES.login, element: <LoginPage /> },
+      { path: ROUTES.signup, element: <SignupPage /> },
+      { path: ROUTES.passwordReset, element: <PasswordResetPage /> },
+    ],
+  },
   { path: ROUTES.account, element: <Navigate to={ROUTES.accountProfile} replace /> },
   {
     element: <AccountLayout />,
@@ -71,11 +78,11 @@ export const routes: RouteObject[] = [
       { path: ROUTES.ownerToday, element: <OwnerTodayPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOffers, element: <OwnerOffersPlaceholder />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerOfferNew, element: <OwnerOfferNewPlaceholder /> },
-      { path: ROUTES.ownerStore, element: <OwnerStorePlaceholder />, handle: TAB_BAR_HANDLE },
+      { path: ROUTES.ownerStore, element: <OwnerStorePage />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.ownerStart, element: <OwnerStartPage /> },
       { path: ROUTES.ownerStoreClose, element: <StoreClosePage /> },
-      { path: ROUTES.ownerProductNew, element: <OwnerProductNewPlaceholder /> },
-      { path: ROUTE_PATTERNS.ownerProduct, element: <OwnerProductEditPlaceholder /> },
+      { path: ROUTES.ownerProductNew, element: <ProductNewPage /> },
+      { path: ROUTE_PATTERNS.ownerProduct, element: <ProductEditPage /> },
     ],
   },
   { path: ROUTES.admin, element: <Navigate to={ROUTES.adminApprovals} replace /> },

@@ -242,3 +242,18 @@ describe('OwnerAccountMenu 포커스 트랩', () => {
     expect(last).toHaveFocus();
   });
 });
+
+describe('OwnerAccountMenu 오버레이 층 (app-shell §11)', () => {
+  it('열면 같은 .dim 안에서 메뉴 → 확인 시트로 바뀌고, 닫으면 「계정」에 포커스가 돌아온다', async () => {
+    const { user, button } = await renderMenu();
+    const app = document.querySelector('.app')!;
+    await user.click(button);
+    const dim = app.querySelector('.dim')!;
+    expect(dim).toContainElement(menu());
+    await user.click(within(menu()).getByRole('button', { name: /^로그아웃/ }));
+    expect(app.querySelectorAll('.dim')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(app.querySelector('.dim')).toBeNull());
+    expect(button).toHaveFocus();
+  });
+});

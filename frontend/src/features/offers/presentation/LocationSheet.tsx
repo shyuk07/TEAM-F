@@ -1,5 +1,4 @@
-import { useId, useRef, useState } from 'react';
-import { useModalFocus } from '@/shared/lib/useModalFocus';
+import { useId, useState } from 'react';
 import { locationStatusText } from '../domain/homeFilter';
 import { RADIUS_OPTIONS, type RadiusKm } from '../domain/nearbyQuery';
 import {
@@ -9,7 +8,7 @@ import {
 } from '../domain/offerMessages';
 
 // C1a 위치·반경 시트(wireframe.html:331~339, customer-home.md §3.5, D-15).
-// 반경은 「적용」 때만 반영하고, Escape·바깥 누름은 적용 없이 닫는다(C-14).
+// 반경은 「적용」 때만 반영하고, Escape·바깥 누름은 Overlay가 적용 없이 닫는다(C-14).
 // open-issues: C1a 주소를 입력해 위치 바꾸기 없음 (현재 위치만)
 export function LocationSheet({
   hasLocation,
@@ -17,23 +16,19 @@ export function LocationSheet({
   radiusKm,
   onUseCurrentLocation,
   onApply,
-  onClose,
 }: {
   hasLocation: boolean;
   locating: boolean;
   radiusKm: RadiusKm;
   onUseCurrentLocation(): void;
   onApply(radiusKm: RadiusKm): void;
-  onClose(): void;
 }) {
   const titleId = useId();
-  const sheetRef = useRef<HTMLDivElement>(null);
   // 시트 안 선택값. 처음은 지금 반경.
   const [selected, setSelected] = useState<RadiusKm>(radiusKm);
-  useModalFocus(sheetRef, onClose);
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={sheetRef}>
+    <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div className="t" id={titleId} style={{ fontSize: 17 }}>
         {LOCATION_SHEET_TITLE}
       </div>

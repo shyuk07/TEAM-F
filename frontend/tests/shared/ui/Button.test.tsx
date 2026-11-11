@@ -76,6 +76,23 @@ describe('shared/ui Button', () => {
     expect(submitted).not.toHaveBeenCalled();
   });
 
+  // D-38: 레이아웃 값 하나를 인라인 style로 전달한다
+  it('style을 주면 <button>에 전달하고 클래스는 그대로다', () => {
+    render(
+      <Button desktopOnly style={{ flex: '0 0 auto' }}>
+        등록만
+      </Button>,
+    );
+    const btn = screen.getByRole('button', { name: '등록만' });
+    expect(btn.style.flex).toBe('0 0 auto');
+    expect(btn).toHaveClass('btn', 'dk');
+  });
+
+  it('style이 없으면 style 속성이 없다', () => {
+    render(<Button>저장</Button>);
+    expect(screen.getByRole('button', { name: '저장' })).not.toHaveAttribute('style');
+  });
+
   it('form 속성을 그대로 전달한다', () => {
     render(
       <Button type="submit" form="open-store">

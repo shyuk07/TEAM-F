@@ -20,7 +20,7 @@ function CustomerShell() {
   const showTabBar = useMatches().some((m) => isTabBarHandle(m.handle));
   return (
     <CustomerFrame>
-      <div className="app" style={{ flex: 1 }}>
+      <div className="app">
         <Outlet />
         {showTabBar ? <CustomerTabBar /> : null}
       </div>
@@ -52,7 +52,7 @@ function CustomerGuard() {
     case 'loading':
       return (
         <CustomerFrame>
-          <div className="app" style={{ flex: 1 }} aria-busy="true" />
+          <div className="app" aria-busy="true" />
         </CustomerFrame>
       );
     case 'login':
@@ -64,7 +64,7 @@ function CustomerGuard() {
     case 'error':
       return (
         <CustomerFrame>
-          <div className="app" style={{ flex: 1 }}>
+          <div className="app">
             <div className="body">
               <div className="err" role="alert">
                 {state.status === 'error' && state.message !== ''

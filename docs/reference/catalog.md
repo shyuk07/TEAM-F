@@ -307,10 +307,14 @@ Content-Type: image/jpeg
 | `store_name` | string | 상점명 |
 | `pickup_address` | string | 픽업 주소 |
 
+숨김 상품(`is_active=false`)은 해당 상점의 상점주(본인)에게만 응답한다. 다른 사용자·비로그인은 404(존재하지 않는 것처럼). 폐점·정지 상점의 상품도 상점주 본인만 볼 수 있다.
+
 **에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 404 | 상품을 찾을 수 없습니다. |
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | `product_id`가 UUID가 아님 | (요청 형식 오류 공통 메시지) |
+| 404 | `NOT_FOUND` | 상품 없음, 숨김 상품을 비소유자가 조회 | 상품을 찾을 수 없습니다. |
+| 404 | `NOT_FOUND` | 폐점·정지 상점의 상품을 비소유자가 조회 | 상점을 찾을 수 없습니다. |
 
 > **노션과 다른 점:** 노션은 상품 하나를 `items` 배열로 감싸고 그 옆에 `store_name`, `pickup_address`를 두었습니다. 상세 API라서 단일 객체로 적었습니다.
 
@@ -336,11 +340,13 @@ Content-Type: image/jpeg
 | 필드 | 타입 | 조건 |
 | --- | --- | --- |
 | `name` | string | 1~200자 |
-| `category` | string | 최대 80자 |
-| `description` | string | |
+| `category` | string \| null | 최대 80자 |
+| `description` | string \| null | |
 | `original_price` | int | 1 이상 99,999,999 이하 (1억 이상 거부) |
 | `product_image` | string[] | 최대 10개 |
 
+- `category`·`description`에 `null`을 보내면 값을 비운다(응답에서 `null`). 보내지 않은 필드는 바뀌지 않는다.
+- `name`·`original_price`·`product_image`에 `null`을 보내면 400 `VALIDATION_ERROR`이다(`product_image`를 비우려면 빈 목록 `[]`). `category`의 빈 문자열은 400이다. `description`은 값 검사가 없다.
 ```json
 {
   "original_price": 6500
@@ -350,13 +356,17 @@ Content-Type: image/jpeg
 **응답:** [Product](#product-상품)
 
 **에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 400 | 수정할 항목이 없습니다. |
-| 400 | 정상 가격은 진행 중인 할인 가격보다 커야 합니다. |
-| 401 | 인증이 필요합니다. |
-| 403 | 본인 상점의 상품만 수정할 수 있습니다. |
-| 404 | 상품을 찾을 수 없습니다. |
+| HTTP | error_code | 메시지 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | 수정할 항목이 없습니다. |
+| 400 | `VALIDATION_ERROR` | 정상 가격은 진행 중인 할인 가격보다 커야 합니다. |
+| 400 | `VALIDATION_ERROR` | 업로드한 이미지 주소는 직접 추가할 수 없습니다. 이미지 업로드를 이용하세요. |
+| 400 | `VALIDATION_ERROR` | 이미지 목록은 비울 수 없습니다. 빈 목록([])을 보내 주세요. |
+| 400 | `VALIDATION_ERROR` | (필드 값 오류 공통 메시지) |
+| 401 | `UNAUTHORIZED` | 로그인이 필요합니다. |
+| 403 | `FORBIDDEN` | 접근 권한이 없습니다. (상점주가 아님) |
+| 403 | `FORBIDDEN` | 본인 상점의 상품만 수정할 수 있습니다. |
+| 404 | `NOT_FOUND` | 상품을 찾을 수 없습니다. |
 
 ---
 
@@ -380,13 +390,15 @@ Content-Type: image/jpeg
 **응답:** [Product](#product-상품) (`is_active`는 `false`)
 
 **에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 400 | 진행 중인 할인 판매가 있어 비활성화할 수 없습니다. |
-| 400 | 이미 비활성화된 상품입니다. |
-| 401 | 인증이 필요합니다. |
-| 403 | 본인 상점의 상품만 변경할 수 있습니다. |
-| 404 | 상품을 찾을 수 없습니다. |
+| HTTP | error_code | 메시지 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | `product_id`가 UUID 형식이 아님 |
+| 400 | `PRODUCT_HAS_OPEN_OFFER` | 진행 중인 할인 판매가 있어 비활성화할 수 없습니다. |
+| 400 | `PRODUCT_ALREADY_INACTIVE` | 이미 비활성화된 상품입니다. |
+| 401 | `UNAUTHORIZED` | 로그인이 필요합니다. |
+| 403 | `FORBIDDEN` | 접근 권한이 없습니다. (상점주가 아님) |
+| 403 | `FORBIDDEN` | 본인 상점의 상품만 변경할 수 있습니다. |
+| 404 | `NOT_FOUND` | 상품을 찾을 수 없습니다. |
 
 
 ## 6-1. 상품 재노출

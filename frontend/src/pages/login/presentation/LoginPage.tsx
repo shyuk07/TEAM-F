@@ -47,15 +47,8 @@ export function LoginPage() {
         <Link className="link" to={ROUTES.passwordReset} state={linkState}>
           비밀번호 재설정
         </Link>
-        {/* PC(720px 이상)용 한 벌. .cta는 그 폭에서 숨고 .dk가 보인다(bundle.css, SignupForm 등과 같은 관례) */}
-        <div
-          className="dk"
-          style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}
-        >
-          <SignupLinks linkState={linkState} />
-        </div>
       </div>
-      {/* 모바일용 한 벌. 720px 이상에서는 bundle.css가 숨긴다 */}
+      {/* 가입 안내(.cta) */}
       <div
         className="cta"
         style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s2)' }}

@@ -12,7 +12,7 @@ import {
 } from '../domain/signupInput';
 import { SignupRolePicker } from './SignupRolePicker';
 
-// A2 폼 전체(본문 칸 + 주 버튼 .dk·.cta 두 벌). 이동은 page가 한다: 로그인 성공은 인증 상태 변화로, 로그인 실패는 onLoginFailed로.
+// A2 폼 전체(본문 칸 + 주 버튼(.cta)). 이동은 page가 한다: 로그인 성공은 인증 상태 변화로, 로그인 실패는 onLoginFailed로.
 export function SignupForm({
   initialRole,
   onLoginFailed,
@@ -119,9 +119,6 @@ export function SignupForm({
             {errorView.message}
           </div>
         ) : null}
-        <button type="submit" className="btn pri dk" aria-disabled={disabled ? 'true' : undefined}>
-          {submitLabel}
-        </button>
       </div>
       <div className="cta">
         <button type="submit" className="btn pri" aria-disabled={disabled ? 'true' : undefined}>

@@ -7,7 +7,9 @@ type Options = { method?: string; body?: unknown; signal?: AbortSignal; auth?: b
 
 export async function request<T = never>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+  // multipart 본문(FormData)은 그대로 보내고 Content-Type을 지정하지 않는다. 브라우저가 경계 문자열을 붙인다.
+  const isForm = opts.body instanceof FormData;
+  if (opts.body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
   const token = opts.auth === false ? null : readToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -16,7 +18,12 @@ export async function request<T = never>(path: string, opts: Options = {}): Prom
     res = await fetch(`${API_BASE_URL}${path}`, {
       method: opts.method ?? 'GET',
       headers,
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      body:
+        opts.body === undefined
+          ? undefined
+          : isForm
+            ? (opts.body as FormData)
+            : JSON.stringify(opts.body),
       signal: opts.signal,
     });
   } catch (e) {

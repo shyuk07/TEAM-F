@@ -16,6 +16,8 @@ export const ROUTES = {
   ownerToday: '/owner/today',
   ownerOffers: '/owner/offers',
   ownerOfferNew: '/owner/offers/new',
+  ownerOfferNewFor: (productId: string): string =>
+    `/owner/offers/new?productId=${encodeURIComponent(productId)}`,
   ownerStore: '/owner/store',
   ownerStart: '/owner/start',
   ownerStoreClose: '/owner/store/close',

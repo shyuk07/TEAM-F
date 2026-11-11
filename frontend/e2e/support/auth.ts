@@ -37,10 +37,31 @@ async function seedToken(page: Page) {
   }, TOKEN_KEY);
 }
 
-// 토큰을 미리 심고 /v1/users/me가 OWNER를 돌려주게 한다.
+// 승인된 영업 중 상점(GET /v1/stores/me 응답, reference/stores.md §3). OwnerStoreGate가 O1~O4를 연다.
+export function storeDto() {
+  return {
+    id: 'st-1',
+    owner_id: userDto('OWNER').id,
+    name: '망원베이커리',
+    pickup_address: '서울시 마포구 망원로 10',
+    latitude: null,
+    longitude: null,
+    created_at: '2026-01-01T00:00:00Z',
+    approval_at: '2026-01-02T00:00:00Z',
+    closed_at: null,
+    status: 'ACTIVE',
+  };
+}
+
+async function mockOwnerStore(page: Page) {
+  await page.route('**/v1/stores/me', (route) => json(route, storeDto()));
+}
+
+// 토큰을 미리 심고 /v1/users/me가 OWNER를, /v1/stores/me가 영업 중 상점을 돌려주게 한다.
 export async function mockOwnerSession(page: Page) {
   await seedToken(page);
   await page.route('**/v1/users/me', (route) => json(route, userDto('OWNER')));
+  await mockOwnerStore(page);
 }
 
 // 토큰을 미리 심고 /v1/users/me가 CUSTOMER를 돌려주게 한다(customer.spec.ts).
@@ -54,6 +75,7 @@ export async function mockOwnerSessionWithProfile(page: Page) {
   const patches: unknown[] = [];
   let current: Record<string, unknown> = userDto('OWNER');
   await seedToken(page);
+  await mockOwnerStore(page);
   await page.route('**/v1/users/me', (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;

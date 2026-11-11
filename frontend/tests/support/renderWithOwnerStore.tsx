@@ -8,33 +8,45 @@ import {
 } from 'react-router';
 import { AccountGatewayToken, AuthGatewayToken, AuthProvider } from '@/features/auth';
 import { SessionStoreToken } from '@/entities/session';
+import { ProductRepositoryToken } from '@/entities/product';
 import { MyStoreProvider, StoreRepositoryToken } from '@/entities/store';
+import { ProductCommandsToken } from '@/features/products/application/tokens';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
 import { DepsProvider } from '@/shared/lib/DepsProvider';
 import { Container, bind } from '@/shared/lib/di';
 import { anonymousFakes, signedInFakes, type AuthFakes } from './authFakes';
+import { FakeProductRepository } from '../entities/product/fakes/fakeProductRepository.fake';
 import { FakeStoreRepository } from '../entities/store/fakes/fakeStoreRepository.fake';
+import { FakeProductCommands } from '../features/products/fakes/fakeProductCommands.fake';
 import { FakeStoreCommands } from '../features/stores/fakes/fakeStoreCommands.fake';
 
 type Deps = {
   fakes: AuthFakes;
   repo: FakeStoreRepository;
   commands: FakeStoreCommands;
+  products: FakeProductRepository;
+  productCommands: FakeProductCommands;
 };
 
-function createDeps(opts: {
+type DepOptions = {
   fakes?: AuthFakes;
   repo?: FakeStoreRepository;
   commands?: FakeStoreCommands;
-}): Deps {
+  products?: FakeProductRepository;
+  productCommands?: FakeProductCommands;
+};
+
+function createDeps(opts: DepOptions): Deps {
   return {
     fakes: opts.fakes ?? anonymousFakes(),
     repo: opts.repo ?? new FakeStoreRepository(),
     commands: opts.commands ?? new FakeStoreCommands(),
+    products: opts.products ?? new FakeProductRepository(),
+    productCommands: opts.productCommands ?? new FakeProductCommands(),
   };
 }
 
-// 인증 가짜 + 상점 가짜 컨테이너(authFakes의 Container binding + StoreRepositoryToken).
+// 인증 가짜 + 상점 가짜 + 상품 가짜 컨테이너(authFakes의 Container binding + Store·Product 토큰).
 function createOwnerContainer(deps: Deps): Container {
   return new Container([
     bind(AuthGatewayToken, deps.fakes.auth),
@@ -42,6 +54,8 @@ function createOwnerContainer(deps: Deps): Container {
     bind(SessionStoreToken, deps.fakes.session),
     bind(StoreRepositoryToken, deps.repo),
     bind(StoreCommandsToken, deps.commands),
+    bind(ProductRepositoryToken, deps.products),
+    bind(ProductCommandsToken, deps.productCommands),
   ]);
 }
 
@@ -65,28 +79,50 @@ function ownerRouteTree(deps: Deps, children: ReactNode) {
   );
 }
 
-/** page 1개를 MemoryRouter 라우트 '*'로 감싸 렌더한다. router로 이동을 확인한다. */
+/**
+ * page 1개를 MemoryRouter 라우트 '*'로 감싸 렌더한다. router로 이동을 확인한다.
+ * routePath를 주면(예: '/owner/products/:productId') 그 패턴에 page를 걸고, 나머지 주소는 빈 화면으로 보낸다.
+ */
 export function renderWithOwnerStore(
   ui: ReactElement,
-  opts: { initialEntries?: InitialEntry[]; fakes?: AuthFakes; repo?: FakeStoreRepository } = {},
+  opts: DepOptions & { initialEntries?: InitialEntry[]; routePath?: string } = {},
 ) {
   const deps = createDeps(opts);
-  const router = createMemoryRouter([{ path: '*', element: ui }], {
-    initialEntries: opts.initialEntries ?? ['/'],
-  });
+  const routes: RouteObject[] =
+    opts.routePath === undefined
+      ? [{ path: '*', element: ui }]
+      : [
+          { path: opts.routePath, element: ui },
+          { path: '*', element: <p>다른 화면</p> },
+        ];
+  const router = createMemoryRouter(routes, { initialEntries: opts.initialEntries ?? ['/'] });
   const result = render(ownerPageTree(deps, <RouterProvider router={router} />));
-  return { ...result, router, fakes: deps.fakes, repo: deps.repo };
+  return {
+    ...result,
+    router,
+    fakes: deps.fakes,
+    repo: deps.repo,
+    products: deps.products,
+    productCommands: deps.productCommands,
+  };
 }
 
 /** 라우트 객체를 그대로 렌더한다(가드·레이아웃 테스트용). */
 export function renderRoutesWithOwnerStore(
   routes: RouteObject[],
-  opts: { initialEntries: InitialEntry[]; fakes?: AuthFakes; repo?: FakeStoreRepository },
+  opts: DepOptions & { initialEntries: InitialEntry[] },
 ) {
   const deps = createDeps(opts);
   const router = createMemoryRouter(routes, { initialEntries: opts.initialEntries });
   const result = render(ownerRouteTree(deps, <RouterProvider router={router} />));
-  return { ...result, router, fakes: deps.fakes, repo: deps.repo };
+  return {
+    ...result,
+    router,
+    fakes: deps.fakes,
+    repo: deps.repo,
+    products: deps.products,
+    productCommands: deps.productCommands,
+  };
 }
 
 export { signedInFakes };

@@ -62,3 +62,30 @@ describe('widgets/owner-nav OwnerLogoutLink', () => {
     await waitFor(() => expect(fakes.auth.logout).toHaveBeenCalled());
   });
 });
+
+describe('widgets/owner-nav OwnerLogoutLink 오버레이 층 (app-shell §11)', () => {
+  it('열면 .dim 안에 시트가 있고 .body는 hidden, 취소하면 복원되고 포커스가 돌아온다', async () => {
+    render(
+      <DepsProvider container={createAuthContainer(signedInFakes())}>
+        <AuthProvider>
+          <div className="app">
+            <div className="bar" />
+            <div className="body">
+              <OwnerLogoutLink />
+            </div>
+            <div className="tabs" />
+          </div>
+        </AuthProvider>
+      </DepsProvider>,
+    );
+    const body = document.querySelector<HTMLElement>('.body')!;
+    await userEvent.click(screen.getByRole('button', { name: '로그아웃' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(document.querySelector('.dim')).toContainElement(dialog);
+    expect(body.hidden).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(document.querySelector('.dim')).toBeNull());
+    expect(body.hidden).toBe(false);
+    expect(screen.getByRole('button', { name: '로그아웃' })).toHaveFocus();
+  });
+});

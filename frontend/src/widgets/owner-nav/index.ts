@@ -4,3 +4,4 @@ export { OwnerTabBar } from './presentation/OwnerTabBar';
 export { OwnerTopNav } from './presentation/OwnerTopNav';
 export { OwnerAccountButton } from './presentation/OwnerAccountButton';
 export { OwnerLogoutLink } from './presentation/OwnerLogoutLink';
+export { OwnerAccountRows } from './presentation/OwnerAccountRows';

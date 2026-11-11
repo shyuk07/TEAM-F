@@ -6,10 +6,38 @@
   --mono: var(--font-mono);
 }
 body {
-  background: var(--paper);
+  background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 var(--sans);
   margin: 0;
+}
+/* 실제 HTML 요소 기본 모양 제거 (컴포넌트 클래스가 특이도로 우선) */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+input,
+textarea,
+select {
+  font: inherit;
+}
+input.in,
+textarea.in,
+select.in {
+  box-sizing: border-box;
+  width: 100%;
+}
+/* hidden 속성은 컴포넌트 클래스의 display(.body 등)보다 우선 (wireframe.html과 같은 규칙) */
+[hidden]:not([hidden='until-found' i]) {
+  display: none !important;
 }
 
 /* 셸 */
@@ -17,12 +45,22 @@ body {
   container: app/inline-size;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   font-size: 13px;
   background: var(--paper);
   color: var(--fg);
 }
+/* 중첩 .app(셸 안 page가 그리는 .app)은 부모 높이를 채운다 */
+.app > .app {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
 .bar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -56,12 +94,15 @@ body {
 }
 .body {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--s4);
   display: grid;
   gap: var(--s3);
   align-content: start;
 }
 .tabs {
+  flex: none;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -78,6 +119,7 @@ body {
   color: var(--fg);
 }
 .cta {
+  flex: none;
   margin-top: auto;
   display: flex;
   gap: var(--s2);
