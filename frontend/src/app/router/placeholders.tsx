@@ -1,8 +1,7 @@
 // TODO: 자리 page가 화면 ID만 표시한다. 정식 page(pages/*)로 교체하고 이 파일을 지운다.
 //   왜: 문구 정본이 없는 개발용 표기다 (docs/design/frontend/app-shell.md D-8, D-15)
-//   언제: O1 구현 시, O2 구현 시, O3 구현 시, O4 구현 시, O6 구현 시, O11 구현 시, C2 구현 시, C5 구현 시 (각 화면의 자리 page를 교체)
-import { Link, useParams } from 'react-router';
-import { ROUTES } from '@/shared/lib/routes';
+//   언제: O1 구현 시, O2 구현 시, O3 구현 시, O4 구현 시, O6 구현 시, O11 구현 시 (각 화면의 자리 page를 교체)
+import { useParams } from 'react-router';
 import { OwnerAccountButton, OwnerTopNav } from '@/widgets/owner-nav';
 
 function OwnerPlaceholder({ title, children }: { title: string; children?: React.ReactNode }) {
@@ -52,24 +51,6 @@ export function OwnerProductEditPlaceholder() {
 }
 
 // 고객 자리 page는 .bar·.body만 그린다(.app·프레임·탭 바는 CustomerLayout, customer-home.md §4).
-export function OfferDetailPlaceholder() {
-  const { offerId } = useParams();
-  return (
-    <>
-      <div className="bar">
-        <Link to={ROUTES.home} aria-label="뒤로">
-          ←
-        </Link>
-        <h1 className="t">C2 할인 상세</h1>
-        <span className="sp"></span>
-      </div>
-      <div className="body">
-        <p>{offerId}</p>
-      </div>
-    </>
-  );
-}
-
 export function ReservationsPlaceholder() {
   return (
     <>

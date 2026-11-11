@@ -21,9 +21,9 @@ import { StoreClosePage } from '@/pages/store-close';
 import { MyReservationsPage } from '@/pages/my-reservations';
 import { CheckoutPage } from '@/pages/checkout';
 import { PaymentCompletePage } from '@/pages/payment-complete';
+import { OfferDetailPage } from '@/pages/offer-detail';
 import { TAB_BAR_HANDLE } from './handle';
 import {
-  OfferDetailPlaceholder,
   OwnerOfferNewPlaceholder,
   OwnerOffersPlaceholder,
   OwnerProductEditPlaceholder,
@@ -37,8 +37,7 @@ export const routes: RouteObject[] = [
     element: <CustomerLayout access="public" />,
     children: [
       { path: ROUTES.home, element: <HomePage />, handle: TAB_BAR_HANDLE },
-      // C2: catalog 담당이 <OfferDetailPage />로 바꾼다(customer-home.md §5.3)
-      { path: ROUTE_PATTERNS.offerDetail, element: <OfferDetailPlaceholder /> },
+      { path: ROUTE_PATTERNS.offerDetail, element: <OfferDetailPage /> },
     ],
   },
   { path: ROUTES.login, element: <LoginPage /> },
