@@ -17,3 +17,7 @@ export { AppBar } from './AppBar';
 export { Skeleton } from './Skeleton';
 export type { EmptyStateProps } from './EmptyState';
 export { EmptyState } from './EmptyState';
+export type { ChipProps } from './Chip';
+export { Chip } from './Chip';
+export type { StepperProps } from './Stepper';
+export { Stepper } from './Stepper';
