@@ -198,7 +198,16 @@ async def test_list_my_reservations(client):
     assert set(body["reservations"][0]) == {
         "id", "offer_id", "store_name", "product_name", "quantity", "total_price", "status",
         "created_at", "pickup_code", "pickup_address", "cancelled_by",
+        "pickup_start", "pickup_end", "cancellable_until",  # 프론트엔드 연동(2026-11-10): 할인의 시각
     }
+    async with client.session_factory() as s:
+        start, end = (await s.execute(
+            text("SELECT pickup_start, pickup_end FROM discount_offers WHERE id = :i"), {"i": uuid.UUID(offer_id)}
+        )).one()
+    item = body["reservations"][0]
+    assert datetime.fromisoformat(item["pickup_start"]) == start
+    assert datetime.fromisoformat(item["pickup_end"]) == end
+    assert datetime.fromisoformat(item["cancellable_until"]) == start - timedelta(hours=1)  # 픽업 시작 1시간 전
     r = await client.get("/v1/users/me/reservations?page=2&size=2", headers=bearer(me))
     assert len(r.json()["reservations"]) == 1 and r.json()["total"] == 3
     r = await client.get("/v1/users/me/reservations")
@@ -328,3 +337,23 @@ async def test_concurrent_pickup_only_one_succeeds(client):
         )
 
     assert sorted(r.status_code for r in results) == [200, 409]
+
+
+async def test_get_my_reservation_single(client):
+    """결제 완료 화면(C4)용 단건 조회: 본인만, 목록 항목과 같은 형식(프론트엔드 연동 2026-11-10)."""
+    _, offer_id, _ = await seed_offer(client)
+    me = await token_for(client, "me@test.com")
+    other = await token_for(client, "other@test.com")
+    rid, _ = await seed(client, me, offer_id, 2)
+    listed = (await client.get("/v1/users/me/reservations", headers=bearer(me))).json()["reservations"][0]
+    assert listed["id"] == rid
+
+    r = await client.get(f"/v1/reservations/{rid}", headers=bearer(me))
+    assert r.status_code == 200, r.text
+    assert r.json() == listed  # 목록과 같은 값(픽업 코드·시간·취소 마감 포함)
+
+    r = await client.get(f"/v1/reservations/{rid}", headers=bearer(other))
+    assert r.status_code == 403 and r.json()["success"] is False, r.text
+    r = await client.get(f"/v1/reservations/{uuid.uuid4()}", headers=bearer(me))
+    assert r.status_code == 404, r.text
+    assert (await client.get(f"/v1/reservations/{rid}")).status_code == 401

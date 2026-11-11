@@ -28,10 +28,15 @@ export const ROUTES = {
   adminUser: (id: string) => `/admin/users/${encodeURIComponent(id)}`,
   adminStores: '/admin/stores',
   adminOffers: '/admin/offers',
+  checkout: (reservationId: string) => `/checkout/${encodeURIComponent(reservationId)}`,
+  paymentComplete: (reservationId: string) =>
+    `/checkout/${encodeURIComponent(reservationId)}/complete`,
 } as const;
 
 export const ROUTE_PATTERNS = {
   offerDetail: '/offers/:offerId',
   ownerProduct: '/owner/products/:productId',
   adminUser: '/admin/users/:userId',
+  checkout: '/checkout/:reservationId',
+  paymentComplete: '/checkout/:reservationId/complete',
 } as const;

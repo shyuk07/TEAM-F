@@ -5,6 +5,8 @@ import { AdminRepositoryToken } from '@/features/admin';
 import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
 import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
 import { StoreCommandsToken } from '@/features/stores/application/tokens';
+import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
+import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
 import { Container, type Token } from '@/shared/lib/di';
 
 // 영역 wiring이 추가될 때마다 같은 커밋에서 이 목록에 토큰을 추가한다.
@@ -17,6 +19,8 @@ const TOKENS: readonly Token<unknown>[] = [
   AdminRepositoryToken,
   StoreRepositoryToken,
   StoreCommandsToken,
+  ReservationRepositoryToken,
+  PaymentRepositoryToken,
 ];
 
 describe('createContainer', () => {

@@ -106,6 +106,12 @@
 | `reservations[].status` | string | 예약 상태 |
 | `reservations[].created_at` | datetime | 예약 생성 시간 |
 | `reservations[].cancelled_by` | string 또는 null | 취소 주체. `CUSTOMER` 고객 직접 취소, `STORE` 매장 사정 취소, `SYSTEM` 시스템 처리, `null` 취소되지 않았거나 취소 주체를 알 수 없음(기존 취소 건) |
+| `reservations[].pickup_code` | string | 픽업 코드(영문 1자 + 숫자 5자) |
+| `reservations[].pickup_address` | string | 픽업 주소(예약 당시) |
+| `reservations[].pickup_start` | datetime | 픽업 시작 시각 |
+| `reservations[].pickup_end` | datetime | 픽업 마감 시각. 결제 완료(`RESERVED`)인데 지났으면 미수령(design/reservations.md D-46) |
+| `reservations[].cancellable_until` | datetime | 고객 취소·환불 마감 시각(이 시각까지 가능, 픽업 시작 1시간 전) |
+| `page` / `size` / `total` | integer | 페이지(1부터, 기본 1), 크기(1~100, 기본 20), 전체 건수. 쿼리 `status`·`page`·`size` |
 
 ```json
 {
@@ -135,7 +141,23 @@
 > **확인 필요**
 > - 교안은 목록 API에 필터·페이지네이션을 요구합니다. `status`, `page`, `size` 쿼리와 `page`, `size`, `total` 응답 필드 추가를 제안합니다.
 > - 예시의 `RESERVED`와 예약 생성의 `PENDING_PAYMENT`의 관계 (결제 완료 후 `RESERVED`가 되는지)
-> - 픽업할 때 보여줄 `pickup_code`, `pickup_address`, 픽업 시간이 목록이나 상세에 없습니다.
+> - ~~픽업할 때 보여줄 `pickup_code`, `pickup_address`, 픽업 시간이 목록이나 상세에 없습니다.~~ → 해결: 목록에 포함(프론트엔드 연동 2026-11-10)
+
+---
+
+## 2-1. 내 예약 한 건 조회
+| Method | URI | 권한 | 성공 |
+| --- | --- | --- | --- |
+| GET | `/v1/reservations/{reservation_id}` | 회원 (본인 예약) | 200 OK |
+
+본인 예약 한 건을 조회한다. 결제 완료 화면(C4)에서 픽업 코드·픽업 시간을 보여 주는 용도다(프론트엔드 연동 2026-11-10). 응답 형식은 [2. 내 예약 목록](#2-내-예약-목록-조회)의 `reservations[]` 항목 하나와 같다.
+
+**에러**
+| HTTP | 상황 |
+| --- | --- |
+| 401 | 로그인 필요 |
+| 403 | 본인 예약이 아님 ("본인 예약만 조회할 수 있습니다.") |
+| 404 | 예약 정보 없음 |
 
 ---
 

@@ -6,6 +6,7 @@ import { routes } from '@/app/router/routes';
 import { customerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
+import { createFakes, renderRoutesWithDeps } from '../../support/renderWithDeps';
 
 function renderAt(path: string, fakes: AuthFakes = signedInFakes()) {
   return renderRoutesWithAuth(routes, { initialEntries: [path], fakes }).router;
@@ -123,9 +124,13 @@ describe('routes: 고객 셸 (customer-home §4)', () => {
     expect(screen.queryByRole('navigation', { name: '고객 메뉴' })).not.toBeInTheDocument();
   });
 
-  it('/reservations는 CUSTOMER에게 C5 자리 page와 탭 「내 예약」 현재를 보인다', async () => {
-    renderAt('/reservations', signedInFakes(customerUser));
-    expect(await screen.findByRole('heading', { name: 'C5 내 예약' })).toBeInTheDocument();
+  it('/reservations는 CUSTOMER에게 C5 내 예약 화면과 탭 「내 예약」 현재를 보인다', async () => {
+    // 실제 C5 화면은 예약 저장소가 필요해 예약·결제 가짜 포트까지 넣은 도우미로 렌더한다
+    renderRoutesWithDeps(routes, {
+      initialEntries: ['/reservations'],
+      fakes: createFakes(signedInFakes(customerUser)),
+    });
+    expect(await screen.findByRole('heading', { name: '내 예약', level: 1 })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: '고객 메뉴' });
     expect(within(nav).getByRole('link', { name: '내 예약' })).toHaveAttribute(
       'aria-current',

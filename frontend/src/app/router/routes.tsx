@@ -18,6 +18,9 @@ import { SignupPage } from '@/pages/signup';
 import { WithdrawPage } from '@/pages/withdraw';
 import { OwnerStartPage } from '@/pages/owner-start';
 import { StoreClosePage } from '@/pages/store-close';
+import { MyReservationsPage } from '@/pages/my-reservations';
+import { CheckoutPage } from '@/pages/checkout';
+import { PaymentCompletePage } from '@/pages/payment-complete';
 import { TAB_BAR_HANDLE } from './handle';
 import {
   OfferDetailPlaceholder,
@@ -27,7 +30,6 @@ import {
   OwnerProductNewPlaceholder,
   OwnerStorePlaceholder,
   OwnerTodayPlaceholder,
-  ReservationsPlaceholder,
 } from './placeholders';
 
 export const routes: RouteObject[] = [
@@ -53,16 +55,14 @@ export const routes: RouteObject[] = [
   {
     element: <CustomerLayout access="customer" />,
     children: [
-      // C5: reservations 담당이 <ReservationsPage />로 바꾼다(customer-home.md §5.3)
-      {
-        path: ROUTES.reservations,
-        element: <ReservationsPlaceholder />,
-        handle: TAB_BAR_HANDLE,
-      },
+      // C5·C5b 내 예약(reservations 담당, design/frontend/reservations.md)
+      { path: ROUTES.reservations, element: <MyReservationsPage />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.me, element: <MyPage />, handle: TAB_BAR_HANDLE },
       { path: ROUTES.mePoints, element: <PointHistoryPage /> },
       { path: ROUTES.meWithdraw, element: <WithdrawPage /> },
       // 탭 바 없는 고객 전용 화면(결제 C3·C4, 예약 하위 화면)은 여기에 handle 없이 한 줄씩(customer-home.md §5.5)
+      { path: ROUTE_PATTERNS.checkout, element: <CheckoutPage /> },
+      { path: ROUTE_PATTERNS.paymentComplete, element: <PaymentCompletePage /> },
     ],
   },
   { path: ROUTES.owner, element: <Navigate to={ROUTES.ownerToday} replace /> },

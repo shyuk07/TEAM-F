@@ -82,8 +82,12 @@ async def test_list_only_own_with_filter_and_paging():
     commits = session.commits
     page = await service.list_my_reservations(me, None, 1, 2)
     assert (page.total, len(page.items), page.page, page.size) == (3, 2, 1, 2)
-    assert all(i.user_id == me for i in page.items)
-    set_status(page.items[0], S.RESERVED)
+    assert all(e.reservation.user_id == me for e in page.items)
+    terms = await env[4].get_terms(page.items[0].reservation.offer_id)
+    assert (page.items[0].pickup_start, page.items[0].pickup_end, page.items[0].cancellable_until) == (
+        terms.pickup_start, terms.pickup_end, terms.cancellable_until
+    )
+    set_status(page.items[0].reservation, S.RESERVED)
     assert (await service.list_my_reservations(me, S.RESERVED, 1, 20)).total == 1
     assert session.commits == commits  # 읽기 전용
 
