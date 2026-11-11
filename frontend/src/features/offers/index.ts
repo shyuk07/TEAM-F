@@ -1,7 +1,9 @@
 export type { Offer, OfferStatus, NearbyOffer, OfferPage, OfferList } from './domain/offer';
 export { isSoldOut } from './domain/offer';
 export type { GeoPoint, OfferSort, RadiusKm } from './domain/nearbyQuery';
-export type { HomeFilter } from './domain/homeFilter';
+export type { HomeFilter, HomeView } from './domain/homeFilter';
+export type { StoreGroup } from './domain/storeGroup';
+export { groupByStore } from './domain/storeGroup';
 export { readHomeFilter, toHomeSearch, nextRadius, locationChipLabel } from './domain/homeFilter';
 export type { OfferRepository } from './domain/offerRepository';
 export { salesCountdown, pickupWindow, formatDistance, formatWon } from './domain/offerFormat';
@@ -14,6 +16,10 @@ export {
   OWNER_APPLY_LINK,
   LOAD_MORE_LABEL,
   SEARCH_LABEL,
+  VIEW_BY_OFFER_LABEL,
+  VIEW_BY_STORE_LABEL,
+  EARLIEST_SALES_END_LABEL,
+  storeOfferCountText,
   OFFER_DETAIL_LOAD_FAILED_MESSAGE,
   OFFER_NOT_FOUND_MESSAGE,
 } from './domain/offerMessages';
@@ -90,6 +96,8 @@ export { useOpenOfferCount } from './application/useOpenOfferCount';
 export { OfferCard } from './presentation/OfferCard';
 export { OfferCardSkeleton } from './presentation/OfferCardSkeleton';
 export { SortChips } from './presentation/SortChips';
+export { ViewToggle } from './presentation/ViewToggle';
+export { StoreGroupCard } from './presentation/StoreGroupCard';
 export { LocationSheet } from './presentation/LocationSheet';
 export { LocationMap } from './presentation/LocationMap';
 export { NearbyEmpty } from './presentation/NearbyEmpty';

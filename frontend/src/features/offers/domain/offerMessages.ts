@@ -20,6 +20,15 @@ export function widenRadiusLabel(r: RadiusKm): string {
 export const OFFERS_LOAD_FAILED_MESSAGE = '불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
 export const SORT_GROUP_LABEL = '정렬';
 
+// TODO: 가게별 보기 문구는 임시다(와이어프레임 밖 기능). 정본 문구가 정해지면 바꾼다.
+export const VIEW_BY_OFFER_LABEL = '상품별';
+export const VIEW_BY_STORE_LABEL = '가게별';
+export const VIEW_GROUP_LABEL = '보기';
+export const EARLIEST_SALES_END_LABEL = '가장 빠른 마감';
+export function storeOfferCountText(count: number): string {
+  return `할인 ${count}개`;
+}
+
 // TODO: C2 오류·없음 문구를 임시로 정했다.
 //   왜: C2 전용 문구 정본이 없다 (docs/design/frontend/offers.md D-8)
 //   언제: 결정 후 (디자인 시스템: content.md 문구 확정)

@@ -14,6 +14,9 @@ import {
   OWNER_APPLY_LINK,
   SEARCH_LABEL,
   SortChips,
+  StoreGroupCard,
+  ViewToggle,
+  groupByStore,
   locationChipLabel,
   nextRadius,
   readHomeFilter,
@@ -28,6 +31,7 @@ import { useNow } from '@/shared/lib/useNow';
 import { Overlay } from '@/shared/ui/Overlay';
 
 const SKELETON_COUNT = 3;
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
 // C1 홈·주변 할인(비로그인 가능) + C1a 위치·반경 시트(customer-home.md §3.5, wireframe.html:300~339).
 // 필터(정렬·반경·검색어)는 URL 쿼리에 두고 바꿀 때 replace한다(D-10). .app·탭 바는 CustomerLayout이 그린다.
@@ -51,6 +55,20 @@ export function HomePage() {
   };
 
   const closeSheet = () => setSheetOpen(false);
+
+  // 가게별 보기에서 펼친 가게 id. 처음엔 모두 접힘. 보기·필터(URL 쿼리)가 바뀌면 다시 모두 접힌다.
+  const [expanded, setExpanded] = useState<{ search: string; ids: ReadonlySet<string> }>(() => ({
+    search: location.search,
+    ids: new Set(),
+  }));
+  const expandedStores: ReadonlySet<string> =
+    expanded.search === location.search ? expanded.ids : EMPTY_SET;
+  const toggleStore = (storeId: string) => {
+    const next = new Set(expandedStores);
+    if (next.has(storeId)) next.delete(storeId);
+    else next.add(storeId);
+    setExpanded({ search: location.search, ids: next });
+  };
 
   const onSearch = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -103,6 +121,7 @@ export function HomePage() {
           hasLocation={hasLocation}
           onChange={(sort) => changeFilter({ sort })}
         />
+        <ViewToggle value={filter.view} onChange={(view) => changeFilter({ view })} />
         <div aria-busy={offers.status === 'loading'}>
           {offers.status === 'loading'
             ? Array.from({ length: SKELETON_COUNT }, (_, i) => <OfferCardSkeleton key={i} />)
@@ -123,8 +142,19 @@ export function HomePage() {
               onAction={(radiusKm) => changeFilter({ radiusKm })}
             />
           ) : null}
-          {offers.status === 'success'
+          {offers.status === 'success' && filter.view === 'offer'
             ? offers.items.map((item) => <OfferCard key={item.offer.id} item={item} now={now} />)
+            : null}
+          {offers.status === 'success' && filter.view === 'store'
+            ? groupByStore(offers.items).map((group) => (
+                <StoreGroupCard
+                  key={group.storeId}
+                  group={group}
+                  now={now}
+                  expanded={expandedStores.has(group.storeId)}
+                  onToggle={() => toggleStore(group.storeId)}
+                />
+              ))
             : null}
         </div>
         {offers.loadMoreFailed ? (

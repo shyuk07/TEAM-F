@@ -9,12 +9,16 @@ import {
   type RadiusKm,
 } from './nearbyQuery';
 
-export type HomeFilter = { sort: OfferSort; radiusKm: RadiusKm; keyword: string };
+// 홈 목록 보기: 상품별(기본)·가게별(와이어프레임 밖 기능, 사용자 승인).
+export type HomeView = 'offer' | 'store';
+
+export type HomeFilter = { sort: OfferSort; radiusKm: RadiusKm; keyword: string; view: HomeView };
 
 export const DEFAULT_HOME_FILTER: HomeFilter = {
   sort: 'sales_end',
   radiusKm: DEFAULT_RADIUS_KM,
   keyword: '',
+  view: 'offer',
 };
 
 export const SORT_OPTIONS: readonly { sort: OfferSort; label: string }[] = [
@@ -24,7 +28,7 @@ export const SORT_OPTIONS: readonly { sort: OfferSort; label: string }[] = [
   { sort: 'price', label: '낮은 가격' },
 ];
 
-// URL 쿼리(sort·radius·q)에서 홈 필터를 읽는다. 모르는 값은 기본값, 모르는 키는 무시(customer-home.md D-10).
+// URL 쿼리(sort·radius·q·view)에서 홈 필터를 읽는다. 모르는 값은 기본값, 모르는 키는 무시(customer-home.md D-10).
 export function readHomeFilter(search: string): HomeFilter {
   const params = new URLSearchParams(search);
   const sortParam = params.get('sort');
@@ -32,16 +36,18 @@ export function readHomeFilter(search: string): HomeFilter {
   const radiusParam = Number(params.get('radius'));
   const radiusKm = RADIUS_OPTIONS.find((r) => r === radiusParam) ?? DEFAULT_HOME_FILTER.radiusKm;
   const keyword = (params.get('q') ?? '').trim().slice(0, KEYWORD_MAX_LENGTH);
-  return { sort, radiusKm, keyword };
+  const view: HomeView = params.get('view') === 'store' ? 'store' : DEFAULT_HOME_FILTER.view;
+  return { sort, radiusKm, keyword, view };
 }
 
-// 기본값과 다른 것만 sort·radius·q 순서로 쓴다. 모두 기본이면 ''.
+// 기본값과 다른 것만 sort·radius·q·view 순서로 쓴다. 모두 기본이면 ''.
 export function toHomeSearch(filter: HomeFilter): string {
   const params = new URLSearchParams();
   if (filter.sort !== DEFAULT_HOME_FILTER.sort) params.set('sort', filter.sort);
   if (filter.radiusKm !== DEFAULT_HOME_FILTER.radiusKm)
     params.set('radius', String(filter.radiusKm));
   if (filter.keyword !== DEFAULT_HOME_FILTER.keyword) params.set('q', filter.keyword);
+  if (filter.view !== DEFAULT_HOME_FILTER.view) params.set('view', filter.view);
   const query = params.toString();
   return query === '' ? '' : `?${query}`;
 }
@@ -72,7 +78,7 @@ export function locationStatusText(hasLocation: boolean): string {
 }
 
 export function toNearbyQuery(
-  filter: HomeFilter,
+  filter: Pick<HomeFilter, 'sort' | 'radiusKm' | 'keyword'>,
   location: GeoPoint | null,
   page: number,
 ): NearbyQuery {
