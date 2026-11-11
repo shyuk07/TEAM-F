@@ -309,6 +309,9 @@ class NearbyOfferItem(BaseModel):
     offer: OfferResponse
     distance: float | None = Field(None, description="거리 (위치 없이 조회하면 null)")
     unit: str = Field(..., description="거리 단위")
+    product_image: list[str] = Field(
+        default_factory=list, description="상품 이미지 URL 목록(목록 카드 썸네일용, 상세와 같은 값)"
+    )
 
     @classmethod
     def from_view(cls, view: NearbyOfferView) -> "NearbyOfferItem":
@@ -316,6 +319,7 @@ class NearbyOfferItem(BaseModel):
             offer=OfferResponse.from_view(view.view),
             distance=round_distance(view.distance_km),
             unit=DISTANCE_UNIT,
+            product_image=list(view.view.product.product_image or []),
         )
 
 

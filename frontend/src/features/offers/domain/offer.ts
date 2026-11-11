@@ -23,7 +23,7 @@ export type Offer = {
   isActive: boolean;
 };
 
-export type NearbyOffer = { offer: Offer; distanceKm: number | null };
+export type NearbyOffer = { offer: Offer; distanceKm: number | null; imageUrls: string[] };
 
 export type OfferPage = { items: NearbyOffer[]; page: number; size: number; total: number };
 
