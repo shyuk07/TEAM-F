@@ -49,7 +49,13 @@ export function StoreCloseForm(props: { store: Store; onCancel(): void }) {
         <Button type="button" onClick={onCancel}>
           취소
         </Button>
-        <Button variant="dark" type="submit" form="store-close-form" disabled={disabled} pending={pending}>
+        <Button
+          variant="dark"
+          type="submit"
+          form="store-close-form"
+          disabled={disabled}
+          pending={pending}
+        >
           폐점하기
         </Button>
       </CtaBar>

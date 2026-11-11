@@ -51,14 +51,26 @@ export function StoreOpenForm(props: { ownerName: string }) {
               autoComplete="street-address"
               error={errorMessage}
             />
-            <Button variant="primary" desktopOnly type="submit" disabled={disabled} pending={pending}>
+            <Button
+              variant="primary"
+              desktopOnly
+              type="submit"
+              disabled={disabled}
+              pending={pending}
+            >
               상점 열기
             </Button>
           </form>
         </Box>
       </div>
       <CtaBar>
-        <Button variant="primary" type="submit" form="store-open-form" disabled={disabled} pending={pending}>
+        <Button
+          variant="primary"
+          type="submit"
+          form="store-open-form"
+          disabled={disabled}
+          pending={pending}
+        >
           상점 열기
         </Button>
       </CtaBar>
