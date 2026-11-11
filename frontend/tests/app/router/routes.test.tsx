@@ -7,6 +7,8 @@ import { customerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
 import { createFakes, renderRoutesWithDeps } from '../../support/renderWithDeps';
+import { renderRoutesWithOfferDetail } from '../../support/renderWithOfferDetail';
+import { makeOfferDetail } from '../../features/offers/fakes/offerDetails';
 
 function renderAt(path: string, fakes: AuthFakes = signedInFakes()) {
   return renderRoutesWithAuth(routes, { initialEntries: [path], fakes }).router;
@@ -117,10 +119,19 @@ describe('routes: 계정 화면 (auth-account §4)', () => {
 });
 
 describe('routes: 고객 셸 (customer-home §4)', () => {
-  it('/offers/abc는 비로그인이면 C2 자리 page에 offerId를 보이고 탭 바는 없다', async () => {
-    renderAt('/offers/abc', anonymousFakes());
-    expect(await screen.findByRole('heading', { name: 'C2 할인 상세' })).toBeInTheDocument();
-    expect(screen.getByText('abc')).toBeInTheDocument();
+  // 자리 page → 실제 C2(offers.md §2.3, customer-home §5.3). 의미(공개 접근, offerId로 조회, 탭 바 없음)는 그대로.
+  it('/offers/abc는 비로그인이면 C2 할인 상세를 abc로 조회해 보이고 탭 바는 없다', async () => {
+    const fakes = anonymousFakes();
+    fakes.offers.findById.mockResolvedValue(makeOfferDetail({}, { id: 'abc' }));
+    const { router } = renderRoutesWithOfferDetail(routes, {
+      initialEntries: ['/offers/abc'],
+      fakes,
+    });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '소금빵 세트' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/offers/abc');
+    expect(fakes.offers.findById.mock.calls[0]?.[0]).toBe('abc');
     expect(screen.queryByRole('navigation', { name: '고객 메뉴' })).not.toBeInTheDocument();
   });
 

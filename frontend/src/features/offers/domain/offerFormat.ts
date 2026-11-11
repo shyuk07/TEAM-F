@@ -30,16 +30,23 @@ export function salesCountdown(salesEnd: Date, now: Date): string | null {
   return r === 0 ? `판매 마감 ${h}시간 전` : `판매 마감 ${h}시간 ${r}분 전`;
 }
 
-function pickupDay(start: Date, now: Date): string {
-  if (isSameLocalDate(start, now)) return '오늘';
+// 같은 로컬 날짜 「오늘」, 다음 날 「내일」, 그 외 MM/DD.
+export function relativeDay(d: Date, now: Date): string {
+  if (isSameLocalDate(d, now)) return '오늘';
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  if (isSameLocalDate(start, tomorrow)) return '내일';
-  return formatMd(start);
+  if (isSameLocalDate(d, tomorrow)) return '내일';
+  return formatMd(d);
+}
+
+// 「오늘 17:00까지 (이후 취소 불가)」(content.md 40줄, offers.md D-7)
+export function cancelDeadlineText(until: Date, now: Date): string {
+  // 이미 지난 시각도 같은 문구다(offers.md D-7).
+  return `${relativeDay(until, now)} ${formatHm(until)}까지 (이후 취소 불가)`;
 }
 
 // 「오늘 18:00–20:00」(en dash U+2013, content.md). 화면이 앞에 「픽업 」을 붙인다.
 export function pickupWindow(start: Date, end: Date, now: Date): string {
-  return `${pickupDay(start, now)} ${formatHm(start)}–${formatHm(end)}`;
+  return `${relativeDay(start, now)} ${formatHm(start)}–${formatHm(end)}`;
 }
 
 // 소수 1자리, 최소 0.1km. 위치가 없으면 null(거리 숨김).

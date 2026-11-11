@@ -7,6 +7,8 @@ import { ApiError } from '@/shared/api/error';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { fixNow, restoreNow } from '../../support/clock';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
+import { renderRoutesWithOfferDetail } from '../../support/renderWithOfferDetail';
+import { makeOfferDetail } from '../../features/offers/fakes/offerDetails';
 import { deferred } from '../../features/auth/fakes/deferred';
 import { customerUser } from '../../features/auth/fakes/users';
 import { MANGWON } from '../../features/offers/fakes/fakeLocationProvider.fake';
@@ -85,11 +87,19 @@ describe('HomePage (C1·C1a)', () => {
     expect(link).not.toHaveTextContent('남은');
   });
 
-  it('카드를 누르면 /offers/<id>의 C2 자리 page', async () => {
-    const { router } = renderHome();
+  // 자리 page → 실제 C2(offers.md §2.3, customer-home §5.3). 상세 조회·예약 패널 가짜까지 넣어 렌더한다.
+  it('카드를 누르면 /offers/<id>의 C2 할인 상세(o1 조회, 탭 바 없음)', async () => {
+    const fakes = anonymousFakes();
+    fakes.offers.findNearby.mockResolvedValue(makeOfferPage([makeNearby()]));
+    fakes.offers.findById.mockResolvedValue(makeOfferDetail());
+    const { router } = renderRoutesWithOfferDetail(routes, { initialEntries: ['/'], fakes });
     await userEvent.click(await card());
     await waitFor(() => expect(router.state.location.pathname).toBe('/offers/o1'));
-    expect(await screen.findByRole('heading', { name: 'C2 할인 상세' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '소금빵 세트' }),
+    ).toBeInTheDocument();
+    expect(fakes.offers.findById.mock.calls[0]?.[0]).toBe('o1');
+    expect(screen.queryByRole('navigation', { name: '고객 메뉴' })).not.toBeInTheDocument();
   });
 
   it('정렬 「할인율」: URL ?sort=discount_rate, 요청 sort discount_rate, 칩 aria-pressed', async () => {

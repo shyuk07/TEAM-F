@@ -141,8 +141,8 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | C6 마이, C10 로그아웃 확인(고객, C6 위 시트) | `pages/my` | `features/auth`(`usePointHistory`, `PointLogList`, `LogoutConfirmSheet`) | `../docs/design/frontend/customer-home.md` |
 | C11 포인트 내역 전체 | `pages/point-history` | `features/auth`(`usePointHistory`, `PointLogList`) | `../docs/design/frontend/customer-home.md` |
 | C7 회원 탈퇴 확인 | `pages/withdraw` | `features/auth`(`WithdrawForm`, `useWithdraw`, `usePointHistory`) | `../docs/design/frontend/customer-home.md` |
-| C2 할인 상세·C5 내 예약 (자리 page, 담당 팀원이 교체) | 없음(`app/router/placeholders.tsx`의 `OfferDetailPlaceholder`·`ReservationsPlaceholder`) | 없음 | `../docs/design/frontend/customer-home.md` §5 |
-| C2 할인 상세(예약 영역만) | `pages/offer-detail`(offers 소유, 지금은 자리 page) | `features/reservations`(`ReserveOfferPanel`), `features/auth`(`useAuth`) | `../docs/design/frontend/reservations.md` |
+| C5 내 예약 (자리 page, 담당 팀원이 교체. C2 자리 page `OfferDetailPlaceholder`는 삭제됨, C2는 `pages/offer-detail`, `offers.md`) | 없음(`app/router/placeholders.tsx`의 `ReservationsPlaceholder`) | 없음 | `../docs/design/frontend/customer-home.md` §5 |
+| C2 할인 상세 | `pages/offer-detail` | `features/offers`(`useOfferDetail`, `OfferDetailBody`, `OfferImage`, `OfferDetailSkeleton`, `offerAvailability`, `readQuantityParam`), `features/reservations`(`ReserveOfferPanel`), `features/auth`(`useAuth`, `loginRedirectState`, `readFrom`) | `../docs/design/frontend/offers.md`, `reservations.md` |
 | C3 결제, C3a 결제 화면 나가기 | `pages/checkout` | `features/payments`(`PaymentForm`), `features/reservations`(`useMyReservation`, `LeaveCheckoutSheet`, `isPayable`), `features/auth`(`useAuth`) | `../docs/design/frontend/payments.md`, `reservations.md` |
 | C4 결제 완료 | `pages/payment-complete` | `features/reservations`(`useMyReservation`) | `../docs/design/frontend/payments.md` |
 | C5 내 예약, C5b 지난 예약, C5a 예약 취소 확인(오버레이) | `pages/my-reservations`(고객 셸 `/reservations` 탭) | `features/reservations`(`MyReservationList`, `CancelReservationSheet`) | `../docs/design/frontend/reservations.md` |

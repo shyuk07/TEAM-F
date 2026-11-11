@@ -24,9 +24,6 @@ export type ReserveOfferPanelProps = {
   initialQuantity?: number;
 };
 
-// TODO: props는 offers 설계 전 가정이다. offers 상세 응답과 로그인 복귀 시 수량 보존 방식을 맞춘다.
-//   왜: offers 설계안이 없어 C2 page와 합의하지 못했다 (docs/design/frontend/reservations.md C-1)
-//   언제: C2 구현 시
 // TODO: 결제 대기 예약 ID를 찾지 못하면 「결제 이어하기」 대신 내 예약 링크를 보여 준다. 임시 동작이다.
 //   왜: 정본이 없다 (docs/design/frontend/reservations.md D-19)
 //   언제: 결정 후 (사용자: 중복 예약 ID를 못 찾을 때 이동)
