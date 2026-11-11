@@ -36,6 +36,22 @@ class UploadSizeLimitRoute(APIRoute):
         return handler
 
 
+class MultipartSizeLimitRoute(UploadSizeLimitRoute):
+    """multipart일 때만 Content-Length를 사전 검사한다 (D114). JSON 요청 동작은 바꾸지 않는다."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super(UploadSizeLimitRoute, self).get_route_handler()
+        limited = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            content_type = request.headers.get("content-type", "").lower()
+            if content_type.startswith("multipart/form-data"):
+                return await limited(request)
+            return await original(request)
+
+        return handler
+
+
 image_router = APIRouter(route_class=UploadSizeLimitRoute, tags=["카탈로그"])
 
 Service = Annotated[CatalogApplicationService, Depends(provide_catalog_service)]

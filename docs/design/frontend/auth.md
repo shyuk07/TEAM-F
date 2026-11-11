@@ -3,6 +3,7 @@
 - 대상: `features/auth`(영역), `entities/session`, `pages/login`, `widgets/owner-nav`의 계정 메뉴(O8)·로그아웃 확인(C10), `app`의 가드·조립
 - 대응 화면: A1 로그인(정식), O8 계정 메뉴(로그아웃 한 줄), C10 로그아웃 확인. 범위 밖: A2 회원가입, A3 비밀번호 재설정, C6~C9·C11, 고객 셸, 관리자(M1~)
 - 상태: 설계안 3차(구현 반영). 사용자 확정: D-1, D-2, D-4(임시 처리로 확정), D-14. 그 밖의 설계자 값(D-3, D-5~D-10)은 "임시"이며 구현을 막지 않는다. 구현을 막는 남은 항목은 없다(§11). app-shell.md Q-2는 D-1 확정으로 해소된다.
+- 후속 설계: A2·A3·C8·C9와 O8의 C8·C9 행은 `auth-account.md`(2차, 사용자 결정 전). 확정되면 이 문서의 D-3·N-1·N-4는 `auth-account.md` D-23·§8이 대체한다.
 - 정본: `../../reference/auth.md` §2·§3·§4, `../../design-system/screens.md` A1·C10·O8, `layout.md` 69~72줄, `content.md` 5~12줄, `components/{Input,Button,BottomSheet}/README.md`, `frontend/.claude/skills/{fsd-structure,layer-architecture,api-client,react-implementation,tdd-workflow,code-annotations}`
 - 백엔드 실재 확인(`frontend-orchestration.md` §6): `backend/src/auth/presentation/router.py:34`(`/v1` 접두사), `:58` 로그인, `:65` 로그아웃(정지 회원 허용), `:101` `GET /v1/users/me`, `schemas.py`(`TokenResponse`, `UserResponse`), `dependencies.py:39`·`:106`(`/users/me`는 정지 회원 403), `error_handlers.py:33~38`(401·429 처리). 로그인 요청·응답, `error_code`는 명세와 같다. 다른 점은 C-2.
 - 기존 코드 현황: `app/container.ts`는 빈 배열, `OwnerLayout` 가드는 항상 통과, `/login`은 `LoginPlaceholder`, `OwnerAccountButton`은 동작 없음, `shared/api`·`shared/lib/di` 완료, features·entities·pages 없음
@@ -199,7 +200,7 @@
 | --- | --- | --- | --- |
 | C-1 | `api-client` §2.1·§3은 인증 Context 위치를 `app/providers`로 적었다. widgets(O8 메뉴)·pages(A1)가 현재 사용자를 읽어야 하는데 아래 계층이 app을 import할 수 없다(F1) | `api-client/SKILL.md` §2.1 표, §3 / `frontend-invariants` F1 | **해소**: 오케스트레이터가 `api-client` §2.1·§3을 고쳤다(인증 Context = `features/auth`의 `AuthProvider`, `App.tsx`에서 마운트). D-14 확정 |
 | C-2 | 로그인은 정지 상점주에게 토큰과 `status: "SUSPENDED"`를 준다(정지 중 픽업 처리 목적). 그러나 `GET /v1/users/me`는 정지 계정을 403으로 막아 프론트가 역할을 알 수 없다. JWT에 `role` 클레임은 있으나 프론트는 토큰을 해독하지 않는다 | `reference/auth.md` §2 104줄·§4 192줄, `backend/src/auth/presentation/router.py:101~103`, `dependencies.py:39·106` | **임시 처리 확정(D-4), 백엔드 확인 필요**: 403은 세션을 지우고 로그인 실패로 처리. 정지 중 픽업 처리(`reference/auth.md` §2 D35·D39)는 이번에 불가하다. 가능하게 하려면 백엔드에 정지 허용 내 정보 조회가 필요하다(프론트에서 정하지 않음) |
-| C-3 | `screens.md` A1: 상점주는 로그인 뒤 O0 또는 O1(`GET /v1/stores/me` 결과). stores 영역이 없어 판정할 수 없다 | `screens.md` A1, `layout.md` 70줄 | 임시로 항상 O1(D-6). 남길 주석 N-3 |
+| C-3 | `screens.md` A1: 상점주는 로그인 뒤 O0 또는 O1(`GET /v1/stores/me` 결과). stores 영역이 없어 판정할 수 없다 | `screens.md` A1, `layout.md` 70줄 | 임시로 항상 O1(D-6). 남길 주석 N-3 → stores.md §7.2·§7.3·D-7로 대체(구현 시 해소) |
 | C-4 | `api-map.md`의 A1·C10·O8 행에는 `GET /v1/users/me`가 없는데 가드(세션 복원)와 O8 헤더(이름·이메일·역할)가 이를 쓴다 | `api-map.md` 7·12·13줄, `api-client` §2.1 | 화면 명세는 고치지 않는다. 이 설계안이 그 호출의 근거다(제안만) |
 | C-5 | `bundle.css`의 `.in`은 `<div>` 모양(글자색 `--muted`)이다. `<input class="in">`에 쓰면 입력 글자가 흐리게 보일 수 있고 `Input` README에 `input` 요소 마크업이 없다 | `bundle.css` 265~274줄, `components/Input/README.md` | 구현에서 실제 화면을 보고 보고한다. CSS 복사본은 고치지 않는다(F12). 어긋나면 디자인 시스템 쪽 수정을 제안 |
 | C-6 | `layer-architecture` §6.3의 `SessionStore` 예시는 3개 메서드이고 `api-client` §2.1은 `subscribe`를 포트에 두라고 한다 | 두 스킬 | **해소**: 오케스트레이터가 `layer-architecture` §4·§6.3에 `subscribe`를 추가했다. `subscribe` 계약(§2.1)은 이 설계안이 상세 정본 |
@@ -379,11 +380,11 @@ domain 52(redirect 28, authState 9, loginInput 5, loginMessage 5, user 5), appli
 | --- | --- | --- | --- |
 | N-1 | `pages/login/presentation/LoginPage.tsx` | TODO | `// TODO: 「회원가입」 버튼과 「비밀번호 재설정」·「입점 신청」 링크가 이동하지 않는다.`<br>`//   왜: 도착 화면 A2·A3가 아직 없다 (docs/design/frontend/auth.md §3.4, D-10)`<br>`//   언제: A2 구현 시, A3 구현 시, 늦어도 배포 전` |
 | N-2 | 같은 파일 | TODO | `// TODO: 진입 경로별 안내 한 줄(예약을 이어가려면…)이 없다.`<br>`//   왜: 고객 흐름(C2·내 예약 탭)이 없어 진입 경로를 구분할 수 없다 (screens.md A1 동작 메모)`<br>`//   언제: C2 구현 시` |
-| N-3 | `features/auth/domain/redirect.ts` `resolvePostLoginPath` | TODO | `// TODO: 상점주는 항상 O1로, 관리자는 홈으로 보낸다.`<br>`//   왜: 상점 유무로 O0·O1을 정하는 stores 영역과 관리자 셸(M1)이 아직 없다 (auth.md C-3, D-6)`<br>`//   언제: stores 구현 시, admin 구현 시` |
+| N-3 | `features/auth/domain/redirect.ts` `resolvePostLoginPath` | TODO | `// TODO: 상점주는 항상 O1로, 관리자는 홈으로 보낸다.`<br>`//   왜: 상점 유무로 O0·O1을 정하는 stores 영역과 관리자 셸(M1)이 아직 없다 (auth.md C-3, D-6)`<br>`//   언제: stores 구현 시, admin 구현 시` → 상점주 부분만 stores.md §7.3·D-7로 대체(구현 시 해소). 관리자 부분은 유지 |
 | N-4 | `widgets/owner-nav/presentation/OwnerAccountMenu.tsx` | TODO | `// TODO: 메뉴에 「내 정보」(C8)·「비밀번호 변경」(C9) 행이 없고, PC에서도 드롭다운 대신 시트를 쓴다.`<br>`//   왜: C8·C9 화면이 없고 드롭다운 컴포넌트가 디자인 시스템에 없다 (auth.md D-3)`<br>`//   언제: C8 구현 시, C9 구현 시, 결정 후 (사용자: PC 드롭다운)` |
 | N-4b | 같은 파일 | open-issues | `// open-issues: O8 상점주 회원 탈퇴 메뉴 없음 (규칙이 정해질 때까지 메뉴에서 뺌)` |
-| N-5 | `features/auth/application/useAuthController.ts` | FIXME | `// FIXME: 다른 영역 요청이 받은 401·TOKEN_REVOKED를 처리하지 않는다. 화면은 다시 불러오기 전까지 로그인 상태로 남는다.`<br>`//   왜: 서버 데이터를 읽는 공용 훅이 아직 없어 401을 세션 정리로 잇는 곳이 없다. 공용 훅이 받은 401에서 SessionStoreToken의 clear()를 부르면 이 컨트롤러가 구독으로 anonymous가 된다 (auth.md §3.2)`<br>`//   언제: products 구현 시(첫 보호 API 화면 O4), 늦어도 배포 전` |
-| N-6 | `app/layouts/OwnerLayout.tsx` 가드 | FIXME | `// FIXME: 승인 대기·거부·정지 상점주도 가드를 통과한다. O0(승인 대기) 화면이 없다.`<br>`//   왜: stores 영역이 없어 상점 개설·승인 상태 화면을 만들 수 없다 (auth.md D-7, C-3)`<br>`//   언제: stores 구현 시, 늦어도 배포 전` |
+| N-5 | `features/auth/application/useAuthController.ts` | FIXME | `// FIXME: 다른 영역 요청이 받은 401·TOKEN_REVOKED를 처리하지 않는다. 화면은 다시 불러오기 전까지 로그인 상태로 남는다.`<br>`//   왜: 서버 데이터를 읽는 공용 훅이 아직 없어 401을 세션 정리로 잇는 곳이 없다. 공용 훅이 받은 401에서 SessionStoreToken의 clear()를 부르면 이 컨트롤러가 구독으로 anonymous가 된다 (auth.md §3.2)`<br>`//   언제: products 구현 시(첫 보호 API 화면 O4), 늦어도 배포 전` **→ stores 구현으로 해소(stores.md §2.2·D-9로 대체): stores 구현 시 AuthFailureBridge가 공용 401 처리로 연결하며 이 FIXME는 같은 커밋에서 삭제한다** |
+| N-6 | `app/layouts/OwnerLayout.tsx` 가드 | FIXME | `// FIXME: 승인 대기·거부·정지 상점주도 가드를 통과한다. O0(승인 대기) 화면이 없다.`<br>`//   왜: stores 영역이 없어 상점 개설·승인 상태 화면을 만들 수 없다 (auth.md D-7, C-3)`<br>`//   언제: stores 구현 시, 늦어도 배포 전` **→ stores.md §7.2·D-7로 대체(구현 시 해소): stores 구현 시 OwnerStoreGate가 승인 대기·거부 상점주를 O0로 모으므로 이 FIXME는 같은 커밋에서 삭제한다** |
 | N-7 | `application/login.ts` 3단계, `restoreSession.ts` 403 분기 | TODO | `// TODO: /users/me가 403이면 로그인 실패로 처리한다. 정지 상점주는 로그인 응답이 200이어도 들어올 수 없다.`<br>`//   왜: 정지 계정은 내 정보를 조회할 수 없다 (auth.md C-2, D-4)`<br>`//   언제: 결정 후 (백엔드: 정지 상점주의 /users/me 허용 여부)` |
 | N-8 | `presentation/LoginForm.tsx`·`OwnerLayout.tsx`의 임시 문구 | TODO | `// TODO: 임시 문구다(로그인 실패 기본 문구, 「다시 시도」, 「닫기」, 「계정 메뉴」). 정본 문구가 정해지면 바꾼다.`<br>`//   왜: screens.md·content.md에 해당 문구가 없다 (auth.md D-9)`<br>`//   언제: 결정 후 (디자인 시스템: content.md 문구 확정)` |
 
@@ -398,8 +399,8 @@ domain 52(redirect 28, authState 9, loginInput 5, loginMessage 5, user 5), appli
 | D-3 | O8 메뉴 범위·형태 | 로그아웃 한 줄만. C8·C9 행은 이동할 곳이 없어 이번에는 그리지 않음. 모바일·PC 모두 `.dim > .sheet` 오버레이(PC 드롭다운은 후속). 라우트 없이 포털 오버레이 | 임시 | 죽은 행을 만들지 않음. `bundle.css`에 드롭다운 클래스가 없음(F12). 사용자 요청의 "자리만 둘지"에 대한 권장안 | 아니오 |
 | D-4 | `/users/me` 403(정지 계정) | 로그인 흐름에서는 실패로 보고(세션 비움, 서버 문구를 A1에 표시), 세션 복원에서는 비로그인으로 처리. 정지 중 픽업 처리(`reference/auth.md` §2 D35·D39)는 이번에 불가 | **확정**(임시 처리로 확정, 백엔드 확인 필요) | C-2. 사용자 확정. 백엔드가 정지 상점주의 `/users/me`를 허용하면 N-7 주석에 따라 다시 연다 | 아니오 |
 | D-5 | `entities/user` | 만들지 않음. `User`는 `features/auth/domain` | 임시 | 두 번째 영역이 필요할 때 내림(`fsd-structure` §4). `container.test.ts` 토큰 목록은 `SessionStoreToken`, `AuthGatewayToken` 2개 | 아니오 |
-| D-6 | 로그인 후 역할별 도착지 | OWNER → O1(`ROUTES.ownerToday`), CUSTOMER → `from` 또는 `/`, ADMIN → `/` | 임시 | C-3. `screens.md` A1은 O0/O1을 stores 결과로 정함. stores 구현 때 바꿈 | 아니오 |
-| D-7 | 승인 대기·거부·정지 상점주의 가드 | 통과시킴(역할만 본다) | 임시 | stores(O0)가 없음. N-6 | 아니오 |
+| D-6 | 로그인 후 역할별 도착지 | OWNER → O1(`ROUTES.ownerToday`), CUSTOMER → `from` 또는 `/`, ADMIN → `/` | 임시 | C-3. `screens.md` A1은 O0/O1을 stores 결과로 정함. stores 구현 때 바꿈 → 상점주 부분만 stores.md §7.3·D-7로 대체(구현 시 해소). 관리자 부분은 유지 | 아니오 |
+| D-7 | 승인 대기·거부·정지 상점주의 가드 | 통과시킴(역할만 본다) | 임시 | stores(O0)가 없음. N-6 → stores.md §7.2·§7.3·D-7로 대체(구현 시 해소) | 아니오 |
 | D-8 | A1 「✕」 | `ROUTES.home` 링크, 접근 이름 「닫기」 | 임시 | `screens.md` 연결 화면 C1. 이동 규칙이 명세에 없음 | 아니오 |
 | D-9 | 임시 문구 | 로그인 실패 기본 문구 `로그인하지 못했어요. 잠시 후 다시 시도해 주세요.`, 가드 오류 버튼 「다시 시도」, A1 「닫기」, 메뉴 대화상자 이름 「계정 메뉴」 | 임시 | 해요체(`content.md` 5줄). 정본에 없음. 기존 `NETWORK_ERROR` 문구와 같은 방식 | 아니오 |
 | D-10 | `shared/ui` | 만들지 않음. A1·시트는 `bundle.css` 클래스와 마크업을 직접 씀(placeholders와 같은 방식, app-shell.md D-3) | 임시 | Button·Input·AppBar 컴포넌트는 별도 설계가 필요. 첫 폼이라 이 이슈가 다음 화면(O6·O11)에서 반복되면 `shared/ui` 설계를 먼저 하는 것을 권장 | 아니오 |

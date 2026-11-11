@@ -1,6 +1,10 @@
 import { createContainer } from '@/app/container';
 import { SessionStoreToken } from '@/entities/session';
-import { AuthGatewayToken } from '@/features/auth';
+import { StoreRepositoryToken } from '@/entities/store';
+import { AdminRepositoryToken } from '@/features/admin';
+import { AccountGatewayToken, AuthGatewayToken } from '@/features/auth';
+import { LocationProviderToken, OfferRepositoryToken } from '@/features/offers';
+import { StoreCommandsToken } from '@/features/stores/application/tokens';
 import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
 import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
 import { Container, type Token } from '@/shared/lib/di';
@@ -9,6 +13,12 @@ import { Container, type Token } from '@/shared/lib/di';
 const TOKENS: readonly Token<unknown>[] = [
   SessionStoreToken,
   AuthGatewayToken,
+  AccountGatewayToken,
+  OfferRepositoryToken,
+  LocationProviderToken,
+  AdminRepositoryToken,
+  StoreRepositoryToken,
+  StoreCommandsToken,
   ReservationRepositoryToken,
   PaymentRepositoryToken,
 ];

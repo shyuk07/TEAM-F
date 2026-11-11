@@ -130,7 +130,28 @@ slice를 만들 때마다 `fe-architect`가 이 표를 채웁니다. 화면 ID�
 | A1 로그인 | `pages/login` | `features/auth`, `entities/session` | `../docs/design/frontend/auth.md` |
 | O8 계정 메뉴, C10 로그아웃 확인 (상점주 셸) | 없음(라우트 없는 오버레이. `widgets/owner-nav`의 `OwnerAccountButton` 안) | `widgets/owner-nav`, `features/auth`(`LogoutConfirmSheet`), `entities/session` | `../docs/design/frontend/auth.md` |
 | 상점주 셸 가드 | 없음(`app/layouts/OwnerLayout`) | `features/auth`(`useAuth`, `decideAccess`) | `../docs/design/frontend/auth.md` |
-| C2 할인 상세(예약 영역만) | `pages/offer-detail`(offers 소유) | `features/reservations`(`ReserveOfferPanel`), `features/auth`(`useAuth`) | `../docs/design/frontend/reservations.md` |
-| C3 결제, C3a 결제 화면 나가기 | `pages/checkout` | `features/payments`(`PaymentForm`), `features/reservations`(`useMyReservation`, `LeaveCheckoutSheet`), `features/auth`(`useAuth`) | `../docs/design/frontend/payments.md`, `reservations.md` |
+| A2 회원가입 | `pages/signup` | `features/auth`(`SignupForm`) | `../docs/design/frontend/auth-account.md` |
+| A3 비밀번호 재설정 | `pages/password-reset` | `features/auth`(`PasswordResetForm`), `entities/session` | `../docs/design/frontend/auth-account.md` |
+| C8 프로필 변경 | `pages/account-profile` | `features/auth`(`ProfileForm`, `useAuth`) | `../docs/design/frontend/auth-account.md` |
+| C9 비밀번호 변경 | `pages/account-password` | `features/auth`(`PasswordChangeForm`) | `../docs/design/frontend/auth-account.md` |
+| C8·C9 로그인 필요 가드 | 없음(`app/layouts/AccountLayout`) | `features/auth`(`useAuth`, `decideAccess(…, 'ANY')`) | `../docs/design/frontend/auth-account.md` |
+| O8 계정 메뉴의 C8·C9 행 | 없음(`widgets/owner-nav`의 `OwnerAccountMenu`) | `widgets/owner-nav`, `features/auth` | `../docs/design/frontend/auth-account.md` |
+| 고객 셸(하단 탭 홈·내 예약·마이)·고객 가드 | 없음(`app/layouts/CustomerLayout`·`CustomerFrame`) | `widgets/customer-nav`, `features/auth`(`useAuth`, `decideAccess(…, 'CUSTOMER')`, `loginRedirectState`) | `../docs/design/frontend/customer-home.md` |
+| C1 홈·주변 할인, C1a 위치·반경(C1 위 시트) | `pages/home` | `features/offers`, `features/auth`(`useAuth`), `widgets/customer-nav`(레이아웃) | `../docs/design/frontend/customer-home.md` |
+| C6 마이, C10 로그아웃 확인(고객, C6 위 시트) | `pages/my` | `features/auth`(`usePointHistory`, `PointLogList`, `LogoutConfirmSheet`) | `../docs/design/frontend/customer-home.md` |
+| C11 포인트 내역 전체 | `pages/point-history` | `features/auth`(`usePointHistory`, `PointLogList`) | `../docs/design/frontend/customer-home.md` |
+| C7 회원 탈퇴 확인 | `pages/withdraw` | `features/auth`(`WithdrawForm`, `useWithdraw`, `usePointHistory`) | `../docs/design/frontend/customer-home.md` |
+| C2 할인 상세·C5 내 예약 (자리 page, 담당 팀원이 교체) | 없음(`app/router/placeholders.tsx`의 `OfferDetailPlaceholder`·`ReservationsPlaceholder`) | 없음 | `../docs/design/frontend/customer-home.md` §5 |
+| C2 할인 상세(예약 영역만) | `pages/offer-detail`(offers 소유, 지금은 자리 page) | `features/reservations`(`ReserveOfferPanel`), `features/auth`(`useAuth`) | `../docs/design/frontend/reservations.md` |
+| C3 결제, C3a 결제 화면 나가기 | `pages/checkout` | `features/payments`(`PaymentForm`), `features/reservations`(`useMyReservation`, `LeaveCheckoutSheet`, `isPayable`), `features/auth`(`useAuth`) | `../docs/design/frontend/payments.md`, `reservations.md` |
 | C4 결제 완료 | `pages/payment-complete` | `features/reservations`(`useMyReservation`) | `../docs/design/frontend/payments.md` |
-| C5 내 예약, C5b 지난 예약, C5a 예약 취소 확인(오버레이) | `pages/my-reservations` | `features/reservations`(`MyReservationList`, `CancelReservationSheet`), 고객 TabBar(미설계) | `../docs/design/frontend/reservations.md` |
+| C5 내 예약, C5b 지난 예약, C5a 예약 취소 확인(오버레이) | `pages/my-reservations`(고객 셸 `/reservations` 탭) | `features/reservations`(`MyReservationList`, `CancelReservationSheet`) | `../docs/design/frontend/reservations.md` |
+| A1 진입 경로별 안내 한 줄 | `pages/login` | `features/auth`(`readLoginEntry`, `loginEntryMessage`) | `../docs/design/frontend/customer-home.md` |
+| 관리자 셸 가드·상단 바 | 없음(`app/layouts/AdminLayout`) | `widgets/admin-nav`, `widgets/owner-nav`(`OwnerAccountButton`), `features/auth` | `../docs/design/frontend/admin.md` |
+| M1 승인 | `pages/admin-approvals` | `features/admin`(`ApprovalsPanel`) | `../docs/design/frontend/admin.md` |
+| M2 제재 확인, M4 포인트 지급 | 없음(라우트 없는 시트. `features/admin`의 `SanctionSheet`·`PointGrantSheet`, `shared/ui/Overlay`) | `features/admin` | `../docs/design/frontend/admin.md` |
+| M3 회원·회원 상세 | `pages/admin-users` | `features/admin`(`MembersPanel`, `UserDetailPanel`) | `../docs/design/frontend/admin.md` |
+| M5 상점·할인 | `pages/admin-moderation` | `features/admin`(`ModerationPanel`) | `../docs/design/frontend/admin.md` |
+| O0 첫 화면·상점 개설 | `pages/owner-start` | `features/stores`, `features/auth`(`useAuth`), `entities/store`, `widgets/owner-nav`(`OwnerLogoutLink`) | `../docs/design/frontend/stores.md` |
+| O7 상점 폐점 확인 | `pages/store-close` | `features/stores`, `entities/store` | `../docs/design/frontend/stores.md` |
+| 상점 유무 가드(O0·O1 분기) | 없음(`app/layouts/OwnerStoreGate`) | `entities/store`(`MyStoreProvider`, `decideOwnerEntry`), `features/auth` | `../docs/design/frontend/stores.md` |

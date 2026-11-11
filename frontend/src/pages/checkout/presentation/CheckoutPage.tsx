@@ -58,7 +58,7 @@ export function CheckoutPage() {
     body = (
       <div className="body">
         <div className="warn">{message}</div>
-        <Link className="btn" to={ROUTES.myReservations}>
+        <Link className="btn" to={ROUTES.reservations}>
           {MY_RESERVATIONS_LINK_LABEL}
         </Link>
       </div>
@@ -94,7 +94,7 @@ export function CheckoutPage() {
           cancelDisabled={paying}
           onContinue={() => setLeaving(false)}
           onCancelled={() => void navigate(ROUTES.home, { replace: true })}
-          onPayLater={() => void navigate(ROUTES.myReservations, { replace: true })}
+          onPayLater={() => void navigate(ROUTES.reservations, { replace: true })}
         />
       ) : null}
     </>

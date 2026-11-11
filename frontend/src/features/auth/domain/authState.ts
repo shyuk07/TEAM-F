@@ -9,7 +9,7 @@ export type AuthState =
 export type AccessDecision =
   'loading' | 'allow' | 'login' | 'login-without-from' | 'home' | 'error';
 
-export function decideAccess(state: AuthState, required: Role): AccessDecision {
+export function decideAccess(state: AuthState, required: Role | 'ANY'): AccessDecision {
   switch (state.status) {
     case 'loading':
       return 'loading';
@@ -18,6 +18,7 @@ export function decideAccess(state: AuthState, required: Role): AccessDecision {
     case 'anonymous':
       return state.cause === 'loggedOut' ? 'login-without-from' : 'login';
     case 'authenticated':
-      return state.user.role === required ? 'allow' : 'home';
+      // 'ANY'는 역할 무관 화면(C8·C9)이다(auth-account.md D-4).
+      return required === 'ANY' || state.user.role === required ? 'allow' : 'home';
   }
 }

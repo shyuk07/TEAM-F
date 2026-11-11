@@ -82,11 +82,13 @@ class SqlAlchemyProductRepository(ProductRepository):
         store_id: uuid.UUID,
         *,
         category: str | None = None,
-        is_active: bool = True,
+        is_active: bool | None = None,
         page: int,
         size: int,
     ) -> tuple[list[Product], int]:
-        conditions = [ProductModel.store_id == store_id, ProductModel.is_active == is_active]
+        conditions = [ProductModel.store_id == store_id]
+        if is_active is not None:
+            conditions.append(ProductModel.is_active == is_active)
         if category is not None:
             conditions.append(ProductModel.category == category)
         total = (

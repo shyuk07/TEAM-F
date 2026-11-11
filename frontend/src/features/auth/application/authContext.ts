@@ -6,7 +6,10 @@ export type AuthContextValue = {
   state: AuthState;
   login(email: string, password: string): Promise<User>;
   logout(): Promise<void>;
+  // 성공하면 로그아웃과 같은 상태(anonymous loggedOut)가 된다(customer-home.md D-24).
+  withdraw(password: string, signal?: AbortSignal): Promise<void>;
   reload(): void;
+  replaceUser(user: User): void;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

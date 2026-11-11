@@ -1,50 +1,135 @@
-import { screen, waitFor } from '@testing-library/react';
-import { type RouteObject } from 'react-router';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { RouteObject } from 'react-router';
 import { CustomerLayout } from '@/app/layouts/CustomerLayout';
-import type { User } from '@/features/auth';
+import { TAB_BAR_HANDLE } from '@/app/router/handle';
+import { useAuth, type User } from '@/features/auth';
 import { deferred } from '../../features/auth/fakes/deferred';
-import { adminUser, customerUser, ownerUser } from '../../features/auth/fakes/users';
+import { customerUser, ownerUser } from '../../features/auth/fakes/users';
 import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/authFakes';
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
 
-function renderGuard(fakes: AuthFakes, path = '/me/reservations') {
-  const routes: RouteObject[] = [
-    { path: '/login', element: <p>로그인 화면</p> },
-    { path: '/', element: <p>홈 화면</p> },
-    {
-      element: <CustomerLayout />,
-      children: [{ path: '/me/reservations', element: <p>본문</p> }],
-    },
-  ];
-  return renderRoutesWithAuth(routes, { initialEntries: [path], fakes });
+function LogoutTrigger() {
+  const { logout, state } = useAuth();
+  return (
+    <>
+      <span>{`상태:${state.status}`}</span>
+      <button type="button" onClick={() => void logout()}>
+        테스트 로그아웃
+      </button>
+    </>
+  );
 }
 
-describe('CustomerLayout 인증 가드', () => {
-  it('CUSTOMER면 본문(Outlet)을 그린다', async () => {
-    renderGuard(signedInFakes(customerUser));
-    expect(await screen.findByText('본문')).toBeInTheDocument();
+const testRoutes: RouteObject[] = [
+  { path: '/login', element: <p>로그인 화면</p> },
+  {
+    element: <CustomerLayout access="public" />,
+    children: [
+      {
+        path: '/',
+        element: (
+          <>
+            <p>홈 본문</p>
+            <LogoutTrigger />
+          </>
+        ),
+        handle: TAB_BAR_HANDLE,
+      },
+    ],
+  },
+  {
+    element: <CustomerLayout access="customer" />,
+    children: [
+      {
+        path: '/me',
+        element: (
+          <>
+            <p>마이 본문</p>
+            <LogoutTrigger />
+          </>
+        ),
+        handle: TAB_BAR_HANDLE,
+      },
+      { path: '/me/points', element: <p>포인트 본문</p> },
+      { path: '/reservations', element: <p>예약 본문</p>, handle: TAB_BAR_HANDLE },
+    ],
+  },
+];
+
+function renderAt(path: string, fakes: AuthFakes) {
+  return renderRoutesWithAuth(testRoutes, { initialEntries: [path], fakes });
+}
+
+const customerNav = () => screen.queryByRole('navigation', { name: '고객 메뉴' });
+
+describe('CustomerLayout', () => {
+  it('public + 비로그인: 본문과 탭 바가 고객 프레임 안에 보인다', async () => {
+    renderAt('/', anonymousFakes());
+    expect(await screen.findByText('홈 본문')).toBeInTheDocument();
+    expect(customerNav()).toBeInTheDocument();
+    const frame = document.querySelector('[data-shell="customer"]');
+    expect(frame).not.toBeNull();
+    expect(frame?.querySelector('.app')).toContainElement(screen.getByText('홈 본문'));
   });
 
-  it('세션 확인 중에는 본문이 없고 aria-busy 프레임만 있다', () => {
+  it("customer + 비로그인: /login으로 가고 state는 {from:'/me?x=1', entry:'customerTab'}", async () => {
+    const { router } = renderAt('/me?x=1', anonymousFakes());
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(router.state.location.state).toEqual({ from: '/me?x=1', entry: 'customerTab' });
+  });
+
+  it('customer + OWNER: /로 보낸다', async () => {
+    const { router } = renderAt('/me', signedInFakes(ownerUser));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    expect(await screen.findByText('홈 본문')).toBeInTheDocument();
+  });
+
+  it('customer + 세션 확인 중: aria-busy 프레임만 있고 본문은 없다', async () => {
     const fakes = signedInFakes(customerUser);
     fakes.auth.findMe.mockReturnValue(deferred<User>().promise);
-    renderGuard(fakes);
-    expect(screen.queryByText('본문')).not.toBeInTheDocument();
-    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
+    renderAt('/me', fakes);
+    await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).not.toBeNull());
+    expect(document.querySelector('[data-shell="customer"]')).not.toBeNull();
+    expect(screen.queryByText('마이 본문')).not.toBeInTheDocument();
   });
 
-  it('비로그인이면 /login으로 이동하고 state.from이 원래 경로(쿼리 포함)다', async () => {
-    const { router } = renderGuard(anonymousFakes(), '/me/reservations?tab=past');
-    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-    expect(router.state.location.state).toEqual({ from: '/me/reservations?tab=past' });
-  });
-
-  it.each([
-    ['OWNER', ownerUser],
-    ['ADMIN', adminUser],
-  ])('%s면 /로 이동한다', async (_label, user) => {
-    const { router } = renderGuard(signedInFakes(user));
+  it('이 화면을 보다가 로그아웃(loggedOut)하면 /로 간다', async () => {
+    const { router } = renderAt('/me', signedInFakes(customerUser));
+    await userEvent.click(await screen.findByRole('button', { name: '테스트 로그아웃' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));
-    expect(screen.queryByText('본문')).not.toBeInTheDocument();
+  });
+
+  it('로그아웃한 뒤 나중에 /reservations로 가면 /login(from 있음, entry customerTab)', async () => {
+    const { router } = renderAt('/', signedInFakes(customerUser));
+    await userEvent.click(await screen.findByRole('button', { name: '테스트 로그아웃' }));
+    expect(await screen.findByText('상태:anonymous')).toBeInTheDocument();
+    await act(async () => {
+      await router.navigate('/reservations');
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(router.state.location.state).toEqual({ from: '/reservations', entry: 'customerTab' });
+  });
+
+  it('탭 바: 현재 탭 링크는 <b> 안에 aria-current="page", handle 없는 라우트는 탭이 없다', async () => {
+    const { router } = renderAt('/me', signedInFakes(customerUser));
+    expect(await screen.findByText('마이 본문')).toBeInTheDocument();
+    const nav = customerNav();
+    expect(nav).not.toBeNull();
+    const me = within(nav as HTMLElement).getByRole('link', { name: '마이' });
+    expect(me).toHaveAttribute('aria-current', 'page');
+    expect(me).toHaveAttribute('href', '/me');
+    expect(me.parentElement?.tagName).toBe('B');
+    const home = within(nav as HTMLElement).getByRole('link', { name: '홈' });
+    expect(home).not.toHaveAttribute('aria-current');
+    expect(within(nav as HTMLElement).getByRole('link', { name: '내 예약' })).toHaveAttribute(
+      'href',
+      '/reservations',
+    );
+    await act(async () => {
+      await router.navigate('/me/points');
+    });
+    expect(await screen.findByText('포인트 본문')).toBeInTheDocument();
+    expect(customerNav()).not.toBeInTheDocument();
   });
 });

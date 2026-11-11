@@ -497,10 +497,18 @@ class User:
         if self.is_suspended(now) and self.role is not Role.OWNER:
             raise AccountSuspendedError()
 
-    def ensure_can_authenticate(self, now: datetime, *, allow_suspended: bool = False) -> None:
+    def ensure_can_authenticate(
+        self,
+        now: datetime,
+        *,
+        allow_suspended: bool = False,
+        allow_suspended_owner: bool = False,
+    ) -> None:
+        """allow_suspended_owner: 정지된 상점주만 통과시키고 정지된 고객·관리자는 403 (요구조건 B-2)."""
         if self.status is UserStatus.WITHDRAWN:
             raise AuthenticationError("유효하지 않은 토큰입니다.")
-        if self.is_suspended(now) and not allow_suspended:
+        passes = allow_suspended or (allow_suspended_owner and self.role is Role.OWNER)
+        if self.is_suspended(now) and not passes:
             raise AccountSuspendedError()
 
     def ensure_approved_owner(self) -> None:

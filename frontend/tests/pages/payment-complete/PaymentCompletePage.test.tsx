@@ -12,7 +12,7 @@ import { createFakes, renderRoutesWithDeps, type DepsFakes } from '../../support
 
 const routes: RouteObject[] = [
   { path: '/checkout/:reservationId/complete', element: <PaymentCompletePage /> },
-  { path: '/me/reservations', element: <p>내 예약 화면</p> },
+  { path: '/reservations', element: <p>내 예약 화면</p> },
 ];
 
 function customerFakes(): DepsFakes {
@@ -26,6 +26,15 @@ function renderPage(fakes: DepsFakes = customerFakes()) {
 }
 
 describe('PaymentCompletePage (C4)', () => {
+  // 픽스처는 2026-11-10 KST 기준. 실제 날짜가 지나도 「픽업 시간 지남」이 되지 않게 현재 시각을 고정한다.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-10T16:00:00+09:00'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('픽업 코드·안내·「예약 확정」·픽업 시간대를 보여 준다', async () => {
     const { fakes } = renderPage();
     expect(await screen.findByText('A12345')).toBeInTheDocument();
@@ -35,11 +44,11 @@ describe('PaymentCompletePage (C4)', () => {
     expect(screen.getByText(/18:00–20:00/)).toBeInTheDocument();
   });
 
-  it('「내 예약 보기」를 누르면 /me/reservations로 이동한다', async () => {
+  it('「내 예약 보기」를 누르면 /reservations로 이동한다', async () => {
     const { router } = renderPage();
     await screen.findByText('A12345');
     await userEvent.click(screen.getByText('내 예약 보기'));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/me/reservations'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/reservations'));
   });
 
   it('불러오는 동안 aria-busy(Skeleton)', async () => {

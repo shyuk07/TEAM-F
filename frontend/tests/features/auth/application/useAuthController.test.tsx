@@ -13,7 +13,7 @@ import {
   type AuthFakes,
 } from '../../../support/authFakes';
 import { deferred } from '../fakes/deferred';
-import { ownerUser } from '../fakes/users';
+import { customerUser, ownerUser } from '../fakes/users';
 
 function setup(fakes: AuthFakes, strict = false) {
   const history: AuthState[] = [];
@@ -156,5 +156,68 @@ describe('useAuthController', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() => renderHook(() => useAuth())).toThrow(/AuthProvider/);
     errorSpy.mockRestore();
+  });
+});
+
+describe('useAuthController.replaceUser', () => {
+  it('인증 상태에서 replaceUser(u2)면 {authenticated, user: u2}가 된다', async () => {
+    const { result } = setup(signedInFakes());
+    await waitFor(() => expect(result.current.state.status).toBe('authenticated'));
+    const u2: User = { ...ownerUser, phone: '010-9999-0000' };
+    act(() => result.current.replaceUser(u2));
+    expect(result.current.state).toEqual({ status: 'authenticated', user: u2 });
+  });
+
+  it('anonymous에서 replaceUser는 상태를 바꾸지 않는다', () => {
+    const { result } = setup(anonymousFakes());
+    act(() => result.current.replaceUser(ownerUser));
+    expect(result.current.state).toEqual(anonymousOther);
+  });
+});
+
+describe('useAuthController.withdraw (customer-home D-24)', () => {
+  it('성공하면 anonymous(loggedOut)이고 중간에 anonymous(other)가 나타나지 않는다', async () => {
+    const { result, history, fakes } = setup(signedInFakes(customerUser));
+    await waitFor(() => expect(result.current.state.status).toBe('authenticated'));
+    const mark = history.length;
+    await act(async () => {
+      await result.current.withdraw('pw123456');
+    });
+    expect(fakes.account.withdraw.mock.calls[0]?.[0]).toBe('pw123456');
+    expect(fakes.session.clear).toHaveBeenCalled();
+    expect(result.current.state).toEqual({ status: 'anonymous', cause: 'loggedOut' });
+    expect(history.slice(mark)).not.toContainEqual(anonymousOther);
+  });
+
+  it('400이면 상태는 authenticated 그대로이고 reject한다', async () => {
+    const fakes = signedInFakes(customerUser);
+    const err = new ApiError(400, 'CURRENT_PASSWORD_MISMATCH', 'x');
+    fakes.account.withdraw.mockRejectedValue(err);
+    const { result } = setup(fakes);
+    await waitFor(() => expect(result.current.state.status).toBe('authenticated'));
+    let caught: unknown;
+    await act(async () => {
+      await result.current.withdraw('wrong').catch((e: unknown) => {
+        caught = e;
+      });
+    });
+    expect(caught).toBe(err);
+    expect(result.current.state).toEqual({ status: 'authenticated', user: customerUser });
+  });
+
+  it('401이면 anonymous(other)가 되고 reject한다', async () => {
+    const fakes = signedInFakes(customerUser);
+    const err = new ApiError(401, 'UNAUTHORIZED', 'x');
+    fakes.account.withdraw.mockRejectedValue(err);
+    const { result } = setup(fakes);
+    await waitFor(() => expect(result.current.state.status).toBe('authenticated'));
+    let caught: unknown;
+    await act(async () => {
+      await result.current.withdraw('pw').catch((e: unknown) => {
+        caught = e;
+      });
+    });
+    expect(caught).toBe(err);
+    expect(result.current.state).toEqual(anonymousOther);
   });
 });

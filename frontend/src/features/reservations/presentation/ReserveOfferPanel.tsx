@@ -94,7 +94,7 @@ export function ReserveOfferPanel(props: ReserveOfferPanelProps) {
             {RESERVE_CONTINUE_LABEL}
           </button>
         ) : pendingExists ? (
-          <Link className="btn pri" to={ROUTES.myReservations}>
+          <Link className="btn pri" to={ROUTES.reservations}>
             {MY_RESERVATIONS_LINK_LABEL}
           </Link>
         ) : (

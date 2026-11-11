@@ -37,7 +37,7 @@ export function PaymentCompletePage() {
     </div>
   );
   const myLink = (
-    <Link className="btn" to={ROUTES.myReservations}>
+    <Link className="btn" to={ROUTES.reservations}>
       {MY_RESERVATIONS_LINK_LABEL}
     </Link>
   );

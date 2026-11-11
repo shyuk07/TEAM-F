@@ -98,7 +98,8 @@ export function onTokenChange(cb: (token: string | null) => void): () => void {
 | 앱 시작 | `session.hasSession()`이면 `GET /v1/users/me`로 사용자 확인. 401이면 `session.clear()` | `features/auth`의 인증 Context(`AuthProvider`, `App.tsx`에서 마운트) |
 | 로그아웃 (`POST /v1/auth/logout`) | 서버 응답과 관계없이 `session.clear()` (서버가 토큰을 블랙리스트에 올림) | `features/auth`의 로그아웃 유스케이스 |
 | `401 UNAUTHORIZED`·`TOKEN_REVOKED` | `session.clear()` → 로그인 화면(A1) | 인증 Context (§3) |
-| 비밀번호 변경·재설정 성공 | 이전 토큰은 서버에서 무효가 되므로 `session.clear()` 후 다시 로그인 | `features/auth`의 유스케이스 |
+| 비밀번호 변경 성공 | 변경에 쓴 현재 토큰은 서버에서 유지되므로(다른 기기 토큰만 무효) 세션을 그대로 둔다 | `features/auth`의 유스케이스 |
+| 비밀번호 재설정 성공 | 그 회원의 모든 토큰이 무효가 되므로 `session.clear()` 후 다시 로그인 | `features/auth`의 유스케이스 |
 | 다른 탭 변경 | `onTokenChange`로 인증 Context 상태 갱신 (포트에 `subscribe`를 두고 구현체가 `onTokenChange`를 감쌈) | 인증 Context |
 
 ### 보안 메모: localStorage의 약점과 대책

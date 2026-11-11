@@ -1,7 +1,12 @@
 import { ROUTES } from '@/shared/lib/routes';
-import { isOwnerPath, type User } from './user';
+import { isAdminPath, isOwnerPath, type User } from './user';
 
-export type LoginLocationState = { from: string };
+export type LoginNotice = 'passwordReset' | 'signupLoginFailed';
+
+// A1 진입 안내 한 줄의 진입 경로(customer-home.md D-7)
+export type LoginEntry = 'reservation' | 'customerTab';
+
+export type LoginLocationState = { from?: string; notice?: LoginNotice; entry?: LoginEntry };
 
 function hasControlChar(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
@@ -28,19 +33,45 @@ export function readFrom(state: unknown): string | null {
   return typeof from === 'string' && isSafeInternalPath(from) ? from : null;
 }
 
+const LOGIN_NOTICES: readonly LoginNotice[] = ['passwordReset', 'signupLoginFailed'];
+
+export function readLoginNotice(state: unknown): LoginNotice | null {
+  if (typeof state !== 'object' || state === null) return null;
+  const notice = (state as { notice?: unknown }).notice;
+  return LOGIN_NOTICES.find((n) => n === notice) ?? null;
+}
+
+const LOGIN_ENTRIES: readonly LoginEntry[] = ['reservation', 'customerTab'];
+
+export function readLoginEntry(state: unknown): LoginEntry | null {
+  if (typeof state !== 'object' || state === null) return null;
+  const entry = (state as { entry?: unknown }).entry;
+  return LOGIN_ENTRIES.find((e) => e === entry) ?? null;
+}
+
+export function isAccountPath(path: string): boolean {
+  return path === ROUTES.account || path.startsWith(`${ROUTES.account}/`);
+}
+
 export function loginRedirectState(
   cause: 'loggedOut' | 'other',
   currentPath: string,
+  entry?: LoginEntry,
 ): LoginLocationState | undefined {
-  return cause === 'loggedOut' ? undefined : { from: currentPath };
+  if (cause === 'loggedOut') return undefined;
+  return entry !== undefined ? { from: currentPath, entry } : { from: currentPath };
 }
 
 export function resolvePostLoginPath(user: User, from: string | null): string {
   const safe = from !== null && isSafeInternalPath(from) ? from : null;
-  // TODO: 상점주는 항상 O1로, 관리자는 홈으로 보낸다.
-  //   왜: 상점 유무로 O0·O1을 정하는 stores 영역과 관리자 셸(M1)이 아직 없다 (docs/design/frontend/auth.md C-3, D-6)
-  //   언제: stores 구현 시, admin 구현 시
+  // C8·C9는 역할 무관 화면이라 세션이 끊겨 다시 로그인하면 역할과 관계없이 그 화면으로 돌아간다(auth-account.md D-29).
+  if (safe !== null && isAccountPath(safe)) return safe;
+  // TODO: 상점주는 항상 O1로 보낸다.
+  //   왜: 상점 유무로 O0·O1을 정하는 stores 영역이 아직 없다 (docs/design/frontend/auth.md C-3, D-6)
+  //   언제: stores 구현 시
   if (user.role === 'OWNER') return safe !== null && isOwnerPath(safe) ? safe : ROUTES.ownerToday;
-  if (user.role === 'CUSTOMER') return safe !== null && !isOwnerPath(safe) ? safe : ROUTES.home;
-  return ROUTES.home;
+  // 관리자는 M1으로, 관리자 화면에서 로그인으로 왔으면 그 화면으로 (docs/design/frontend/admin.md D-10)
+  if (user.role === 'ADMIN')
+    return safe !== null && isAdminPath(safe) ? safe : ROUTES.adminApprovals;
+  return safe !== null && !isOwnerPath(safe) && !isAdminPath(safe) ? safe : ROUTES.home;
 }

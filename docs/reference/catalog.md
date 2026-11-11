@@ -53,8 +53,13 @@
 
 상점주가 본인 상점에 상품을 등록합니다. 등록 시 `is_active = true`
 
+상품 정보와 사진(선택, 0~1장)을 한 요청으로 등록할 수 있습니다. 같은 URI가 `Content-Type`으로 두 형식을 받습니다.
+- `application/json`: 상품 정보만. 외부 이미지 URL(`product_image`)을 넣을 수 있습니다.
+- `multipart/form-data`: 상품 정보 + 사진 파일. 사진 저장이 실패하면 상품도 만들어지지 않습니다(둘 다 롤백).
+- `multipart/form-data`가 아닌 요청은 모두 JSON으로 읽습니다.
+
 **헤더**
-- `Content-Type: application/json`
+- `Content-Type: application/json` 또는 `multipart/form-data`
 - `Authorization: Bearer {access_token}`
 
 **경로 매개변수**
@@ -62,14 +67,47 @@
 | --- | --- | --- |
 | `store_id` | UUID | 상점 ID |
 
-**요청 본문**
+**요청 본문 (multipart/form-data)**
+| 필드 | 타입 | 필수 | 조건 |
+| --- | --- | --- | --- |
+| `name` | 폼 필드(string) | O | 1~200자 |
+| `category` | 폼 필드(string) | X | 최대 80자. 빈 값은 보내지 않은 것으로 본다 |
+| `description` | 폼 필드(string) | X | 빈 값은 보내지 않은 것으로 본다 |
+| `original_price` | 폼 필드(int) | O | 1 이상 99,999,999 이하 |
+| `file` | 파일 | X | 사진 1개. JPEG·PNG·WebP(파일 이름·`Content-Type`이 아니라 **파일 내용**으로 판별), 5MB(5 MiB = 5,242,880바이트) 이하. 사진이 없으면 `file`을 보내지 않는다 |
+
+- multipart는 `product_image`(외부 URL)를 받지 않습니다. 보내도 무시합니다. 외부 URL은 JSON 등록이나 [상품 수정](#5-상품-수정)으로 넣습니다.
+- 사진 규칙은 [상품 이미지 업로드](#15-상품-이미지-업로드)와 같습니다. 저장된 사진은 응답 `product_image`에 `/v1/products/{product_id}/images/{image_id}` 형식 주소로 들어갑니다.
+- 사진 1장 제한은 화면에서도 지킵니다. `file`을 2개 이상 보내면 400입니다.
+
+```http
+POST /v1/stores/{store_id}/products
+Content-Type: multipart/form-data; boundary=----X
+
+------X
+Content-Disposition: form-data; name="name"
+
+샌드위치
+------X
+Content-Disposition: form-data; name="original_price"
+
+6000
+------X
+Content-Disposition: form-data; name="file"; filename="sandwich.jpg"
+Content-Type: image/jpeg
+
+(이미지 바이트)
+------X--
+```
+
+**요청 본문 (application/json)**
 | 필드 | 타입 | 필수 | 조건 |
 | --- | --- | --- | --- |
 | `name` | string | O | 1~200자 |
 | `category` | string | X | 최대 80자 |
 | `description` | string | X | |
 | `original_price` | int | O | 1 이상 99,999,999 이하 (1억 이상 거부) |
-| `product_image` | string[] | X | 최대 10개 |
+| `product_image` | string[] | X | 최대 10개, 빈 문자열 불가. 업로드 이미지 주소는 넣을 수 없음 |
 
 ```json
 {
@@ -83,27 +121,41 @@
 
 **응답:** [Product](#product-상품)
 
-**에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 400 | 정상 가격은 0보다 커야 합니다. |
-| 400 | 정상 가격은 1억 원 미만이어야 합니다. |
-| 400 | 승인되지 않은 상점에는 상품을 등록할 수 없습니다. |
-| 401 | 인증이 필요합니다. |
-| 403 | 본인 상점에만 상품을 등록할 수 있습니다. |
-| 404 | 상점을 찾을 수 없습니다. |
-| 422 | 요청 형식 오류 |
+**에러** (위에서부터 먼저 검사)
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 400 | `IMAGE_TOO_LARGE` | multipart 요청 크기(`Content-Length`)가 상한(5 MiB + 64 KiB)을 넘음. 인증보다 먼저 검사. JSON 요청에는 적용하지 않음 | 이미지 크기는 5MB 이하여야 합니다. |
+| 401 | `UNAUTHORIZED` | 토큰 없음·유효하지 않음 | 토큰 없음: 로그인이 필요합니다. 토큰 오류: 원인에 따라 다름(예: 유효하지 않은 토큰입니다.) |
+| 403 | `FORBIDDEN` | 상점주가 아님 | 접근 권한이 없습니다. |
+| 400 | `HTTP_ERROR` | (JSON) 본문을 문자로 읽을 수 없음(인코딩 오류) | There was an error parsing the body |
+| 400 | `VALIDATION_ERROR` | `store_id`가 UUID가 아님, 본문 없음(`요청: Field required`), JSON 본문이 깨짐(`{위치}: JSON decode error`, 예: `{broken` → `1: JSON decode error`), JSON이 객체가 아님(`요청: Input should be a valid dictionary or object to extract fields from`), 필수 필드(`name`·`original_price`) 누락, `original_price`가 정수가 아님, `file`이 2개 이상이거나 파일이 아님(`file: 사진은 1장만 보낼 수 있습니다`) | `필드: 오류` 형식(요청 형식 오류 공통 메시지) |
+| 404 | `NOT_FOUND` | 상점 없음 | 상점을 찾을 수 없습니다. |
+| 403 | `FORBIDDEN` | 남의 상점 | 본인 상점에만 상품을 등록할 수 있습니다. |
+| 400 | `STORE_CLOSED` | 폐점한 상점 | 폐점된 상점에서는 상품을 등록할 수 없습니다. |
+| 400 | `STORE_SUSPENDED` | 관리자에 의해 정지된 상점 | 관리자에 의해 정지된 상점입니다. |
+| 400 | `STORE_NOT_APPROVED` | 승인되지 않은 상점 | 승인되지 않은 상점에는 상품을 등록할 수 없습니다. |
+| 400 | `VALIDATION_ERROR` | 상품명이 1~200자가 아님(앞뒤 공백 제외) | 상품명은 1자 이상 200자 이하여야 합니다. |
+| 400 | `VALIDATION_ERROR` | 카테고리가 1~80자가 아님 | 카테고리는 1자 이상 80자 이하여야 합니다. |
+| 400 | `VALIDATION_ERROR` | `original_price`가 0 이하 | 정상 가격은 0보다 커야 합니다. |
+| 400 | `VALIDATION_ERROR` | `original_price`가 99,999,999 초과 | 정상 가격은 1억 원 미만이어야 합니다. |
+| 400 | `VALIDATION_ERROR` | (JSON) `product_image`가 10개 초과 | 이미지는 최대 10개까지 등록할 수 있습니다. |
+| 400 | `VALIDATION_ERROR` | (JSON) `product_image`에 빈 문자열 | 이미지 주소는 비어 있을 수 없습니다. |
+| 400 | `VALIDATION_ERROR` | (JSON) `product_image`에 업로드 이미지 주소 | 업로드한 이미지 주소는 직접 추가할 수 없습니다. 이미지 업로드를 이용하세요. |
+| 400 | `UNSUPPORTED_IMAGE_TYPE` | (multipart) `file`이 JPEG·PNG·WebP가 아니거나 0바이트 | JPEG, PNG, WebP 형식의 이미지만 업로드할 수 있습니다. |
+| 400 | `IMAGE_TOO_LARGE` | (multipart) `file`이 5 MiB 초과 | 이미지 크기는 5MB 이하여야 합니다. |
+| 400 | `HTTP_ERROR` | multipart 본문 자체가 깨짐(경계 문자열 오류 등). 파싱 단계 실패라 `VALIDATION_ERROR`가 아님 | Invalid multipart data. (프레임워크 문구, 바뀔 수 있음) |
 
-> **확인 필요:** 폐점한 상점에 등록할 때의 에러 메시지 (상점 폐점 페이지에 "폐점된 상점에서는 상품을 등록할 수 없다"는 규칙이 있음)
+- 상품 필드 오류와 사진 오류가 함께 있으면 상품 필드 오류를 먼저 돌려줍니다.
+- `Content-Length` 없이(chunked) 보내면 크기 사전 검사가 적용되지 않고, 파일 크기 검사에서 `IMAGE_TOO_LARGE`로 거부됩니다.
 
 ---
 
 ## 2. 상점 상품 목록
 | Method | URI (제안) | 권한 | 성공 |
 | --- | --- | --- | --- |
-| GET | `/v1/stores/{store_id}/products` | 공개 | 200 OK |
+| GET | `/v1/stores/{store_id}/products` | 공개 (숨김 상품은 상점주 본인만) | 200 OK |
 
-상점의 상품(대표 메뉴) 목록을 조회합니다.
+상점의 상품(대표 메뉴) 목록을 조회합니다. 로그인하면(`Authorization: Bearer {access_token}`) 본인 상점인지 판단해 숨김 상품을 포함합니다.
 
 **경로 매개변수**
 | 이름 | 타입 | 설명 |
@@ -114,9 +166,17 @@
 | 이름 | 타입 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- | --- |
 | `category` | string | X | | 카테고리 필터 |
-| `is_active` | bool | X | true | 활성 상품만 조회 |
-| `page` | int | X | 1 | 페이지 |
-| `size` | int | X | 20 | 페이지 크기 |
+| `is_active` | bool | X | (미지정) | 노출 여부 필터. 아래 표 참고 |
+| `page` | int | X | 1 | 페이지 (1 이상) |
+| `size` | int | X | 20 | 페이지 크기 (1~100) |
+
+**`is_active`에 따른 결과**
+| 요청한 사람 | 미지정 | `true` | `false` |
+| --- | --- | --- | --- |
+| 상점주 본인 | 노출·숨김 모두 | 노출 상품만 | 숨김 상품만 |
+| 다른 사용자·비로그인 | 노출 상품만 | 노출 상품만 | 빈 목록(200) |
+
+숨김 상품은 본인이 아닌 요청에는 존재하지 않는 것처럼 다룹니다. 그래서 `false`를 보내도 401·403이 아니라 빈 목록을 돌려줍니다.
 
 **응답**
 | 필드 | 타입 | 설명 |
@@ -126,13 +186,14 @@
 | `size` | int | 페이지 크기 |
 | `total` | int | 전체 개수 |
 
-**에러**
-| HTTP | 메시지 |
-| --- | --- |
-| 404 | 상점을 찾을 수 없습니다. |
-| 422 | page는 1 이상이어야 합니다. |
+**에러** (위에서부터 먼저 검사)
+| HTTP | error_code | 상황 | 메시지 |
+| --- | --- | --- | --- |
+| 401 | `UNAUTHORIZED` | `Authorization: Bearer` 헤더를 보냈는데 토큰이 유효하지 않음. 헤더가 없거나 Bearer 형식이 아니면 비로그인으로 처리 | 원인에 따라 다름(예: 유효하지 않은 토큰입니다.) |
+| 400 | `VALIDATION_ERROR` | `store_id`가 UUID가 아님, `page`가 1 미만, `size`가 1~100 밖, `is_active`가 bool이 아님 | `필드: 오류` 형식. 예: `page: Input should be greater than or equal to 1`, `size: Input should be less than or equal to 100` (여러 개면 첫 오류만) |
+| 404 | `NOT_FOUND` | 상점 없음, 또는 폐점·정지 상점을 상점주 본인이 아닌 요청자가 조회 | 상점을 찾을 수 없습니다. |
 
-> **확인 필요:** 공개 API에서 `is_active=false`(노출 중단 상품)를 누구나 볼 수 있는지. 상점주 본인만 허용하는 것을 제안합니다.
+403은 발생하지 않습니다. 숨김 상품 조회 권한 때문에 401·403이 나는 일도 없습니다.
 
 ---
 

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router';
 import { LoginPage } from '@/pages/login';
@@ -9,13 +9,15 @@ import { anonymousFakes, signedInFakes, type AuthFakes } from '../../support/aut
 import { renderRoutesWithAuth } from '../../support/renderWithAuth';
 import type { LoginResult } from '@/features/auth/application/ports';
 import type { InitialEntry } from 'react-router';
-import type { User } from '@/features/auth';
+import { SIGNUP_LOGIN_FAILED_NOTICE, type User } from '@/features/auth';
 
 const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   { path: '/', element: <p>홈 화면</p> },
   { path: '/owner/today', element: <p>오늘 화면</p> },
   { path: '/owner/offers', element: <p>할인 화면</p> },
+  { path: '/signup', element: <p>가입 화면</p> },
+  { path: '/password-reset', element: <p>재설정 화면</p> },
 ];
 
 function renderLogin(opts: { fakes?: AuthFakes; entry?: InitialEntry } = {}) {
@@ -50,14 +52,36 @@ describe('LoginPage (A1)', () => {
     expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('회원가입·비밀번호 재설정·입점 신청 자리가 있고 눌러도 URL이 바뀌지 않는다', async () => {
-    const { router } = renderLogin();
-    const user = userEvent.setup();
-    expect(screen.getByText('계정이 없나요?')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '회원가입' }));
-    await user.click(screen.getByText('비밀번호 재설정'));
-    await user.click(screen.getByText('사장님이신가요? 입점 신청'));
-    expect(router.state.location.pathname).toBe('/login');
+  // jsdom은 컨테이너 쿼리를 평가하지 않아 .dk(PC)·.cta(모바일) 두 벌이 모두 잡힌다.
+  it('「회원가입」·「비밀번호 재설정」·「사장님이신가요? 입점 신청」은 A2·A3로 가는 링크다', () => {
+    renderLogin();
+    expect(screen.getAllByText('계정이 없나요?')).toHaveLength(2);
+    const signups = screen.getAllByRole('link', { name: '회원가입' });
+    expect(signups).toHaveLength(2);
+    for (const a of signups) expect(a).toHaveAttribute('href', '/signup');
+    expect(screen.getByRole('link', { name: '비밀번호 재설정' })).toHaveAttribute(
+      'href',
+      '/password-reset',
+    );
+    const applies = screen.getAllByRole('link', { name: '사장님이신가요? 입점 신청' });
+    expect(applies).toHaveLength(2);
+    for (const a of applies) expect(a).toHaveAttribute('href', '/signup?role=owner');
+  });
+
+  it('가입 안내는 PC용 .dk(본문 끝, 「비밀번호 재설정」 다음)와 모바일용 .cta 두 벌이고, .cta는 display를 직접 정하지 않는다', () => {
+    renderLogin();
+    const cta = document.querySelector<HTMLElement>('.app > .cta');
+    const dk = document.querySelector<HTMLElement>('.body > .dk');
+    expect(cta).not.toBeNull();
+    expect(dk).not.toBeNull();
+    expect(cta?.style.display).toBe('');
+    expect(screen.getByRole('link', { name: '비밀번호 재설정' }).nextElementSibling).toBe(dk);
+    for (const box of [cta, dk]) {
+      const scope = within(box as HTMLElement);
+      expect(scope.getByText('계정이 없나요?')).toBeInTheDocument();
+      expect(scope.getByRole('link', { name: '회원가입' })).toHaveClass('btn');
+      expect(scope.getByRole('link', { name: '사장님이신가요? 입점 신청' })).toHaveClass('link');
+    }
   });
 
   it('「닫기」(✕)는 /로 가는 링크다', () => {
@@ -194,5 +218,84 @@ describe('LoginPage (A1)', () => {
     expect(screen.queryByRole('heading', { name: '로그인' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('이메일')).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/login');
+  });
+});
+
+describe('LoginPage (A1) 계정 화면 연결 (auth-account D-7·D-10·D-17·D-25)', () => {
+  const fromOffers: InitialEntry = { pathname: '/login', state: { from: '/owner/offers' } };
+
+  it.each([0, 1])(
+    'state.from이 있을 때 「회원가입」(%i번째 벌)을 누르면 A2로 가고 from을 넘긴다',
+    async (index) => {
+      const { router } = renderLogin({ entry: fromOffers });
+      const link = screen.getAllByRole('link', { name: '회원가입' })[index];
+      await userEvent.setup().click(link);
+      await waitFor(() => expect(router.state.location.pathname).toBe('/signup'));
+      expect(router.state.location.state).toEqual({ from: '/owner/offers' });
+    },
+  );
+
+  it.each([0, 1])(
+    'state.from이 있을 때 「사장님이신가요? 입점 신청」(%i번째 벌)을 누르면 ?role=owner A2로 가고 from을 넘긴다',
+    async (index) => {
+      const { router } = renderLogin({ entry: fromOffers });
+      const link = screen.getAllByRole('link', { name: '사장님이신가요? 입점 신청' })[index];
+      await userEvent.setup().click(link);
+      await waitFor(() => expect(router.state.location.pathname).toBe('/signup'));
+      expect(router.state.location.search).toBe('?role=owner');
+      expect(router.state.location.state).toEqual({ from: '/owner/offers' });
+    },
+  );
+
+  it('state.from이 있을 때 「비밀번호 재설정」을 누르면 A3로 가고 from을 넘긴다', async () => {
+    const { router } = renderLogin({ entry: fromOffers });
+    await userEvent.setup().click(screen.getByRole('link', { name: '비밀번호 재설정' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/password-reset'));
+    expect(router.state.location.state).toEqual({ from: '/owner/offers' });
+  });
+
+  it('notice가 passwordReset이면 「새 비밀번호로 로그인하세요」를 status로 보인다', () => {
+    renderLogin({ entry: { pathname: '/login', state: { notice: 'passwordReset' } } });
+    expect(screen.getByRole('status')).toHaveTextContent('새 비밀번호로 로그인하세요');
+  });
+
+  it('notice가 signupLoginFailed이면 가입 뒤 로그인 안내를 status로 보인다', () => {
+    renderLogin({ entry: { pathname: '/login', state: { notice: 'signupLoginFailed' } } });
+    expect(screen.getByRole('status')).toHaveTextContent(SIGNUP_LOGIN_FAILED_NOTICE);
+  });
+
+  it('notice가 없으면 status 안내가 없다', () => {
+    renderLogin();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it("state.entry가 'reservation'이면 제목 바로 아래 「예약을 이어가려면 로그인하세요.」", () => {
+    renderLogin({
+      entry: { pathname: '/login', state: { from: '/offers/1', entry: 'reservation' } },
+    });
+    const guide = screen.getByText('예약을 이어가려면 로그인하세요.');
+    expect(screen.getByRole('heading', { level: 1, name: '로그인' }).nextElementSibling).toBe(
+      guide,
+    );
+  });
+
+  // 골격에서도 통과한다(안내가 없는 현재 동작). entry가 없을 때 안내가 생기지 않음을 고정한다.
+  it('state.entry가 없으면 진입 안내 줄이 없다', () => {
+    renderLogin({ entry: { pathname: '/login', state: { from: '/me' } } });
+    expect(screen.queryByText('예약을 이어가려면 로그인하세요.')).not.toBeInTheDocument();
+    expect(screen.queryByText('예약 내역을 보려면 로그인하세요.')).not.toBeInTheDocument();
+  });
+
+  it('429 ACCOUNT_LOCKED면 서버 문구를 글자 그대로 보이고 입력을 유지한 채 「로그인」이 다시 활성이다', async () => {
+    const fakes = anonymousFakes();
+    const message = '로그인 시도가 너무 많아 계정이 잠겼습니다. 9분 뒤에 다시 시도해 주세요.';
+    fakes.auth.login.mockRejectedValue(new ApiError(429, 'ACCOUNT_LOCKED', message));
+    renderLogin({ fakes });
+    const user = await fill();
+    await user.click(submitButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(screen.getByLabelText('이메일')).toHaveValue('a@b.c');
+    expect(screen.getByLabelText('비밀번호')).toHaveValue('pw');
+    expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true');
   });
 });

@@ -122,9 +122,9 @@ async function forwardApi(page: Page) {
 
 test.beforeAll(() => requireEnv());
 
-test('C5: 비로그인으로 /me/reservations에 가면 /login으로 이동한다', async ({ page }) => {
+test('C5: 비로그인으로 /reservations에 가면 /login으로 이동한다', async ({ page }) => {
   await forwardApi(page);
-  await page.goto('/me/reservations');
+  await page.goto('/reservations');
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible();
 });
@@ -157,7 +157,7 @@ test('A1 → C3 → C4 → C5 → C5a → C5b: 로그인·결제·픽업 코드�
 
   // C5 진행 중 카드
   await page.getByText('내 예약 보기').click();
-  await expect(page).toHaveURL(/\/me\/reservations$/);
+  await expect(page).toHaveURL(/\/reservations$/);
   const card = page.locator('.box').filter({ hasText: productName }).first();
   await expect(card).toBeVisible();
   await expect(card.getByText('예약 확정')).toBeVisible();
@@ -222,7 +222,7 @@ async function mockCustomerReservations(page: Page, pending = false) {
 
 test('C5a: 긴 목록의 취소 시트는 화면 안에 보이고 배경 초점과 이동을 막는다', async ({ page }) => {
   await mockCustomerReservations(page);
-  await page.goto('/me/reservations');
+  await page.goto('/reservations');
   const trigger = page.getByText(/^예약 취소 · /).first();
   await trigger.click();
   const dialog = page.getByRole('alertdialog');
@@ -267,7 +267,7 @@ test('C3a: 결제 이탈 시트에서 배경 결제는 실행되지 않고 닫�
 
 test('고객 화면은 모바일 폭을 유지하고 PC 외곽 폭도 420px를 넘지 않는다', async ({ page }) => {
   await mockCustomerReservations(page);
-  await page.goto('/me/reservations');
+  await page.goto('/reservations');
   await expect(page.getByText('검증 상품 0 × 1')).toBeVisible();
   const bounds = await page.locator('.app').boundingBox();
   const width = page.viewportSize()!.width;

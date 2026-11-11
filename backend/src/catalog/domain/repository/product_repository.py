@@ -20,7 +20,7 @@ class ProductRepository(ABC):
         store_id: uuid.UUID,
         *,
         category: str | None,
-        is_active: bool,
+        is_active: bool | None,
         page: int,
         size: int,
     ) -> tuple[list[Product], int]: ...

@@ -12,7 +12,7 @@ function customerFakes(): DepsFakes {
 }
 
 describe('고객 라우트', () => {
-  it.each(['/me/reservations', '/checkout/r1', '/checkout/r1/complete'])(
+  it.each(['/reservations', '/checkout/r1', '/checkout/r1/complete'])(
     '%s는 비로그인이면 /login으로 이동하고 from을 유지한다',
     async (path) => {
       const { router } = renderRoutesWithDeps(routes, {
@@ -20,13 +20,13 @@ describe('고객 라우트', () => {
         fakes: createFakes(anonymousFakes()),
       });
       await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-      expect(router.state.location.state).toEqual({ from: path });
+      expect(router.state.location.state).toMatchObject({ from: path });
     },
   );
 
-  it('/me/reservations는 CUSTOMER에게 「내 예약」 화면을 보여 준다', async () => {
+  it('/reservations는 CUSTOMER에게 「내 예약」 화면을 보여 준다', async () => {
     renderRoutesWithDeps(routes, {
-      initialEntries: ['/me/reservations'],
+      initialEntries: ['/reservations'],
       fakes: customerFakes(),
     });
     expect(await screen.findByRole('heading', { name: '내 예약' })).toBeInTheDocument();
@@ -40,9 +40,9 @@ describe('고객 라우트', () => {
     expect(await screen.findByText('A12345')).toBeInTheDocument();
   });
 
-  it('/me/reservations는 OWNER면 /로 이동한다', async () => {
+  it('/reservations는 OWNER면 /로 이동한다', async () => {
     const { router } = renderRoutesWithDeps(routes, {
-      initialEntries: ['/me/reservations'],
+      initialEntries: ['/reservations'],
       fakes: createFakes(signedInFakes()),
     });
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));

@@ -2023,3 +2023,8 @@ DB 테스트는 `@pytest.mark.db`, skip은 통과가 아니다(R16).
 ### 18.9 질문 목록
 
 사용자 대면 질문(실효 상태, 이메일 이스케이프, 빈 값 처리 등)은 admin.md §13.10·§13.12에 모았다. auth 내부에서 추가로 확인할 것은 없다(위 임시 결정은 구현 중 바꾸기 쉽다: 상수는 `user_list_query.py` 한 곳, SQL 규칙은 `_status_clause` 한 곳, DTO 필드는 `UserSummary` 한 곳).
+
+## 19. 정지된 상점주의 내 정보 조회 (B-2)
+
+- 결정: `GET /v1/users/me`만 `CurrentUserAllowSuspendedOwner`를 쓴다. 정지된 상점주는 200(status `SUSPENDED`), 정지된 고객·관리자는 403, 탈퇴는 401. 규칙은 `User.ensure_can_authenticate(allow_suspended_owner=True)`에 둔다.
+- 근거: 요구조건 B-2, PR #60 C-2. `SuspendedAllowedOwnerUser`는 상점주 전용(타 역할 403)이라 쓸 수 없어 역할 무관 의존성을 따로 둔다. `PATCH /v1/users/me` 등은 바꾸지 않는다.

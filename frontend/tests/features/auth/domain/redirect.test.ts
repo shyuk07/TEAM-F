@@ -1,10 +1,13 @@
 import {
+  isAccountPath,
   isSafeInternalPath,
   loginRedirectState,
   readFrom,
+  readLoginEntry,
+  readLoginNotice,
   resolvePostLoginPath,
 } from '@/features/auth/domain/redirect';
-import type { Role } from '@/features/auth/domain/user';
+import type { Role, User } from '@/features/auth/domain/user';
 import { ROUTES } from '@/shared/lib/routes';
 import { adminUser, customerUser, ownerUser } from '../fakes/users';
 
@@ -50,7 +53,13 @@ describe('resolvePostLoginPath', () => {
     ['CUSTOMER', null, ROUTES.home],
     ['CUSTOMER', '/offers/1', '/offers/1'],
     ['CUSTOMER', '/owner/today', ROUTES.home],
-    ['ADMIN', '/owner/today', ROUTES.home],
+    ['ADMIN', '/owner/today', ROUTES.adminApprovals],
+    ['ADMIN', null, ROUTES.adminApprovals],
+    ['ADMIN', '/admin/users?filter=owner', '/admin/users?filter=owner'],
+    ['ADMIN', '/', ROUTES.adminApprovals],
+    ['ADMIN', '/adminx', ROUTES.adminApprovals],
+    ['CUSTOMER', '/admin/users', ROUTES.home],
+    ['OWNER', '/admin/users', ROUTES.ownerToday],
     ['OWNER', '//evil.com', ROUTES.ownerToday],
   ])('%s + from %j → %s', (role, from, expected) => {
     expect(resolvePostLoginPath(as(role), from)).toBe(expected);
@@ -77,5 +86,71 @@ describe('isSafeInternalPath 제어문자·역슬래시', () => {
 
   it('정상 경로는 통과한다', () => {
     expect(isSafeInternalPath('/owner/offers?page=2')).toBe(true);
+  });
+});
+
+describe('readLoginNotice', () => {
+  it.each<[string, unknown, string | null]>([
+    ['passwordReset', { notice: 'passwordReset' }, 'passwordReset'],
+    ['signupLoginFailed', { notice: 'signupLoginFailed' }, 'signupLoginFailed'],
+    ['알 수 없는 notice', { notice: 'x' }, null],
+    ['null', null, null],
+    ['notice 없음', { from: '/' }, null],
+  ])('%s → %j', (_name, state, expected) => {
+    expect(readLoginNotice(state)).toBe(expected);
+  });
+});
+
+describe('isAccountPath', () => {
+  it.each<[string, boolean]>([
+    ['/account/profile', true],
+    ['/account', true],
+    ['/accountx', false],
+  ])('%s → %s', (path, expected) => {
+    expect(isAccountPath(path)).toBe(expected);
+  });
+});
+
+describe('resolvePostLoginPath: /account/* 복귀(역할 무관)', () => {
+  it.each<[string, string, User]>([
+    ['OWNER', '/account/password', ownerUser],
+    ['CUSTOMER', '/account/profile', customerUser],
+    ['ADMIN', '/account/profile', adminUser],
+  ])('%s + from %s → 그대로', (_name, from, user) => {
+    expect(resolvePostLoginPath(user, from)).toBe(from);
+  });
+});
+
+describe('loginRedirectState: entry (customer-home §3.1)', () => {
+  it("('other', '/me', 'customerTab') → {from, entry}", () => {
+    expect(loginRedirectState('other', '/me', 'customerTab')).toEqual({
+      from: '/me',
+      entry: 'customerTab',
+    });
+  });
+
+  // 골격에서도 통과한다(기존 loggedOut 규칙). entry가 있어도 바뀌지 않음을 고정한다.
+  it("('loggedOut', '/me', 'customerTab') → undefined", () => {
+    expect(loginRedirectState('loggedOut', '/me', 'customerTab')).toBeUndefined();
+  });
+});
+
+describe('readLoginEntry', () => {
+  it("{entry:'reservation'} → 'reservation'", () => {
+    expect(readLoginEntry({ from: '/offers/1', entry: 'reservation' })).toBe('reservation');
+  });
+
+  it.each<[string, unknown]>([
+    ["{entry:'x'}", { entry: 'x' }],
+    ['null', null],
+    ['entry 없음', { from: '/me' }],
+  ])('%s → null', (_name, state) => {
+    expect(readLoginEntry(state)).toBeNull();
+  });
+});
+
+describe('readFrom: notice가 함께 있어도', () => {
+  it('from만 읽는다', () => {
+    expect(readFrom({ from: '/owner/offers', notice: 'passwordReset' })).toBe('/owner/offers');
   });
 });

@@ -115,6 +115,7 @@ from stores.domain.service import Clock as StoresClock
 from stores.domain.service import Geocoder
 from stores.infrastructure.clock import SystemClock
 from stores.infrastructure.geocoder import KakaoGeocoder
+from stores.infrastructure.mock_geocoder import MockGeocoder
 from stores.infrastructure.repositories import SqlAlchemyStoreRepository
 from stores.infrastructure.settings import get_kakao_geocoding_settings
 from stores.presentation.dependencies import (
@@ -148,8 +149,9 @@ _reservations_clock: ReservationsClock = ReservationsSystemClock()
 _pickup_code_generator: PickupCodeGenerator = SecretsPickupCodeGenerator()
 _payments_gateway: PaymentGateway = MockPaymentGateway()
 _payments_clock: PaymentsClock = PaymentsSystemClock()
-# 카카오 지오코딩: KAKAO_REST_API_KEY가 없으면 개설이 503 (stores.md D28, D50)
-_geocoder: Geocoder = KakaoGeocoder(get_kakao_geocoding_settings())
+# 카카오 지오코딩: KAKAO_REST_API_KEY가 없으면 로컬 개발용 MockGeocoder로 폴백
+_kakao_settings = get_kakao_geocoding_settings()
+_geocoder: Geocoder = KakaoGeocoder(_kakao_settings) if _kakao_settings else MockGeocoder()
 _admin_clock: AdminClock = AdminSystemClock()
 
 

@@ -46,7 +46,7 @@ describe('회귀 3: 진행 중 탭은 현재 시각(useNow)으로 다시 나뉜�
 });
 
 describe('회귀 4: ID를 못 찾은 중복 예약의 「내 예약 보기」는 라우터 링크다', () => {
-  it('누르면 라우터 안에서 /me/reservations로 이동한다', async () => {
+  it('누르면 라우터 안에서 /reservations로 이동한다', async () => {
     const fakes = createFakes();
     fakes.reservations.create.mockRejectedValue(
       new ApiError(409, 'PENDING_RESERVATION_EXISTS', '중복'),
@@ -68,14 +68,14 @@ describe('회귀 4: ID를 못 찾은 중복 예약의 「내 예약 보기」는
             />
           ),
         },
-        { path: '/me/reservations', element: <p>내 예약 화면</p> },
+        { path: '/reservations', element: <p>내 예약 화면</p> },
       ],
       { initialEntries: ['/offer'] },
     );
     render(withDeps(fakes, <RouterProvider router={router} />));
     await userEvent.click(screen.getByRole('button', { name: /예약하고 결제/ }));
     await userEvent.click(await screen.findByText('내 예약 보기'));
-    expect(router.state.location.pathname).toBe('/me/reservations');
+    expect(router.state.location.pathname).toBe('/reservations');
     expect(await screen.findByText('내 예약 화면')).toBeInTheDocument();
   });
 });

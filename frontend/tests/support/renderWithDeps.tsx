@@ -7,7 +7,7 @@ import {
   type RouteObject,
 } from 'react-router';
 import { SessionStoreToken } from '@/entities/session';
-import { AuthGatewayToken, AuthProvider } from '@/features/auth';
+import { AccountGatewayToken, AuthGatewayToken, AuthProvider } from '@/features/auth';
 import { PaymentRepositoryToken } from '@/features/payments/application/tokens';
 import { ReservationRepositoryToken } from '@/features/reservations/application/tokens';
 import { Container, bind } from '@/shared/lib/di';
@@ -32,6 +32,7 @@ export function createFakes(auth: AuthFakes = anonymousFakes()): DepsFakes {
 export function createDepsContainer(fakes: DepsFakes): Container {
   return new Container([
     bind(AuthGatewayToken, fakes.auth),
+    bind(AccountGatewayToken, fakes.account),
     bind(SessionStoreToken, fakes.session),
     bind(ReservationRepositoryToken, fakes.reservations),
     bind(PaymentRepositoryToken, fakes.payments),
