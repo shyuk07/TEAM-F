@@ -16,18 +16,20 @@
 
 ## 프로젝트 구조
 
-- `src/auth` : 회원, 인증, 포인트
-- `src/stores` : 매장, 관리자 승인
-- `src/catalog` : 상품, 할인, 재고
-- `src/reservations` : 예약, 취소, 픽업
-- `src/payments` : 모의 결제, 환불
+- `src/auth` : 회원, 인증, 포인트 (JWT, 블랙리스트, 비밀번호 재설정, 로그인 잠금)
+- `src/stores` : 매장 등록, 위치 좌표 변환, 관리자 승인 연동, 폐점
+- `src/catalog` : 메뉴 상품 등록, 당일 마감 할인(Offer), 실시간 재고 제어
+- `src/reservations` : 예약 접수, 임시 재고 선점, 픽업번호 발급, 상태 전이
+- `src/payments` : 포인트 복합 모의 결제, 취소 위약금 계산 및 환불
+- `src/admin` : 점주 입점 심사(승인/반려), 회원/상점 제재, 토큰 블랙리스트 관리
+- `src/container.py` : 전 도메인 4계층 인스턴스를 조립하는 중앙 집중식 DI 컨테이너
 
-각 기능은 다음 4계층으로 구성합니다.
+각 도메인은 도메인 주도 설계(DDD)와 클린 아키텍처 원칙에 따라 다음 4계층으로 엄격히 분리되어 있습니다.
 
-- domain
-- application
-- infrastructure
-- presentation
+- `domain` : 핵심 엔티티, 도메인 불변식, 비즈니스 규칙 (외부 의존성 없음)
+- `application` : 유스케이스, 서비스, 트랜잭션 오케스트레이션, DTO 정의
+- `infrastructure` : SQLAlchemy 비동기 ORM 매퍼, 데이터베이스 레포지토리 구현체
+- `presentation` : FastAPI 엔드포인트 라우터, Pydantic 요청/응답 스키마, 의존성 주입
 
 ## 로컬 개발 환경 실행
 
@@ -132,9 +134,36 @@ uv run python scripts/seed_demo.py
 
 ## 현재 개발 상태
 
-공통 FastAPI 및 PostgreSQL 개발 환경 구성 완료.
+전체 6개 도메인의 핵심 비즈니스 로직과 API가 모두 구현 및 검증되어 배포 가능한 상태입니다.
 
-실제 도메인 기능과 API는 담당별로 구현할 예정입니다.
+- [x] **공통 인프라**: FastAPI 비동기 서버, PostgreSQL 17, Docker Compose, 비동기 세션 및 DI 컨테이너(`container.py`) 구축
+- [x] **인증·포인트 (`src/auth`)**: JWT(Access/Refresh), DB 기반 토큰 블랙리스트, 비밀번호 재설정(SMTP), 5회 로그인 실패 계정 잠금, 포인트 적립/차감
+- [x] **매장 (`src/stores`)**: 상점 개설 신청, 카카오 로컬 주소-좌표 변환(Mock fallback 지원), 운영 정보 관리, 폐점
+- [x] **상품·할인 (`src/catalog`)**: 상점 메뉴(Product) 관리, 당일 마감할인(Offer) 등록/수정/재발행, 비동기 동시성 제어 기반 실시간 재고 차감/복구
+- [x] **예약·픽업 (`src/reservations`)**: 수량 및 유효시간 검증, 임시 재고 선점, 4자리 픽업번호 발급, 상태 머신(대기→확정→픽업완료/취소/만료)
+- [x] **결제·환불 (`src/payments`)**: 카드+포인트 복합 모의 결제, 취소 시점별 위약금 자동 계산 및 환불, 원자적 롤백 보장
+- [x] **관리자 (`src/admin`)**: 점주 입점 심사 승인/반려, 부정 사용자/상점 정지 및 강제 폐점, 만료 토큰 일괄 퍼지
+- [x] **테스트 및 보안 검증**: `pytest` 단위/통합 테스트 1,300여 개 전량 통과 완료
+
+## 테스트 실행
+
+### 전체 테스트 실행 (인메모리 단위 테스트)
+
+```powershell
+uv run pytest
+```
+
+### PostgreSQL 연동 통합 테스트 실행
+
+Docker DB가 실행 중인 상태에서 `-m db` 마커 또는 전체 테스트를 실행합니다.
+
+```powershell
+# DB 컨테이너 실행
+docker compose up -d
+
+# DB 연동 테스트 포함 실행
+uv run pytest -m db
+```
 ## API 명세서
 
 `../docs/reference/`에 모듈별 API 명세가 있습니다. 전체 목록과 공통 규칙은 [../docs/reference/README.md](../docs/reference/README.md)를 봅니다.
