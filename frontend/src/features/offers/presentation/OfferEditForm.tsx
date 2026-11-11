@@ -65,7 +65,7 @@ export function OfferEditForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div className="grid">
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="t">{offer.productName}</div>
           <div className="m">
@@ -114,7 +114,7 @@ export function OfferEditForm({
         </div>
       </div>
 
-      <div className="grid">
+      <div className="grid" style={{ alignContent: 'start' }}>
         {isLocked ? (
           <div>
             <div className="lbl">예약이 생긴 할인을 열면</div>
@@ -150,7 +150,7 @@ export function OfferEditForm({
           desktopOnly
           pending={isPending}
           disabled={isFormBlocked}
-          style={{ width: '100%', marginTop: 'var(--s2)' }}
+          style={{ width: '100%', alignSelf: 'start', marginTop: 'var(--s2)' }}
         >
           저장
         </Button>

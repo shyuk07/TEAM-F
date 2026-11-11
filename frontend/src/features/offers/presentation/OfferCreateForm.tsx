@@ -82,7 +82,7 @@ export function OfferCreateForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div className="grid">
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div>
           <label className="lbl" htmlFor="offer-product-select">
             상품 *
@@ -112,6 +112,8 @@ export function OfferCreateForm({
             <Input
               label="할인가 *"
               type="number"
+              placeholder={selectedProduct ? '할인가 입력' : '상품 선택 필요'}
+              disabled={!selectedProduct || isPending}
               value={draft.salePrice ? String(draft.salePrice) : ''}
               readOnly={isPending}
               onChange={(val) =>
@@ -184,7 +186,7 @@ export function OfferCreateForm({
         )}
       </div>
 
-      <div className="grid">
+      <div className="grid" style={{ alignContent: 'start' }}>
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="kv">
             <span className="lbl">판매</span>
@@ -201,7 +203,7 @@ export function OfferCreateForm({
           </div>
           <div className="kv">
             <span className="lbl">고객 취소 가능</span>
-            <b>{cancelBlocked ? '취소 불가 (1시간 이내)' : `${formatHm(deadline)}까지`}</b>
+            <b>{cancelBlocked ? '취소 불가 (1시간 이내)' : `오늘 ${formatHm(deadline)}까지`}</b>
           </div>
           <button type="button" className="link" onClick={() => setCustomSchedule(!customSchedule)}>
             시간 직접 바꾸기
@@ -222,7 +224,7 @@ export function OfferCreateForm({
           desktopOnly
           pending={isPending}
           disabled={isFormBlocked}
-          style={{ width: '100%' }}
+          style={{ width: '100%', alignSelf: 'start' }}
         >
           {submitButtonText}
         </Button>
