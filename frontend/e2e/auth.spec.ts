@@ -1,6 +1,6 @@
 // 백엔드 응답은 page.route로 대체 (모킹)
 import { expect, test, type Page } from '@playwright/test';
-import { TOKEN_KEY, errorBody, json, mockOwnerSession, userDto } from './support/auth';
+import { TOKEN_KEY, errorBody, json, mockOwnerSession, storeDto, userDto } from './support/auth';
 
 const token = (page: Page) => page.evaluate((k) => localStorage.getItem(k), TOKEN_KEY);
 
@@ -13,6 +13,8 @@ async function mockLogin(page: Page, role: 'OWNER' | 'CUSTOMER' = 'OWNER') {
     meAuth.push(route.request().headers()['authorization']);
     return json(route, userDto(role));
   });
+  // OWNER는 로그인 뒤 OwnerStoreGate가 /v1/stores/me를 부른다
+  await page.route('**/v1/stores/me', (route) => json(route, storeDto()));
   return meAuth;
 }
 
