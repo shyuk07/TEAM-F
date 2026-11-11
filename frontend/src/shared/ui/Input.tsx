@@ -11,6 +11,8 @@ export type InputProps = {
   maxLength?: number;
   required?: boolean;
   readOnly?: boolean;
+  placeholder?: string;
+  disabled?: boolean;
   error?: string | null;
   id?: string;
 };
@@ -24,6 +26,8 @@ export function Input({
   maxLength,
   required,
   readOnly,
+  placeholder,
+  disabled,
   error,
   id,
 }: InputProps) {
@@ -45,6 +49,8 @@ export function Input({
         autoComplete={autoComplete}
         maxLength={maxLength}
         readOnly={readOnly}
+        placeholder={placeholder}
+        disabled={disabled}
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={errorId}
         onChange={(e) => onChange(e.target.value)}
