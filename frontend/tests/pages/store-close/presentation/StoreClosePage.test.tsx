@@ -21,9 +21,7 @@ describe('pages/store-close StoreClosePage', () => {
   it('「상점 폐점」 제목이 있고 상점명이 라벨에 보인다', async () => {
     renderAt();
     expect(await screen.findByText('상점 폐점')).toBeInTheDocument();
-    expect(screen.getByText(/확인을 위해 상점명을 입력하세요:/)).toHaveTextContent(
-      /망원베이커리/,
-    );
+    expect(screen.getByText(/확인을 위해 상점명을 입력하세요:/)).toHaveTextContent(/망원베이커리/);
   });
 
   it('「뒤로」 클릭 → /owner/store로 이동한다', async () => {

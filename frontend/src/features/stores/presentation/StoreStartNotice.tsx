@@ -4,7 +4,10 @@ import { Box, StatusTag } from '@/shared/ui';
 type View = 'pending' | 'rejected' | 'closed' | 'account-blocked';
 
 // open-issues: O0 거절된 상점주의 다시 신청 기능은 아직 없다.
-const VIEW_CONTENT: Record<View, { tone: 'hot' | 'mute'; tag: string; title?: string; desc?: ReactNode }> = {
+const VIEW_CONTENT: Record<
+  View,
+  { tone: 'hot' | 'mute'; tag: string; title?: string; desc?: ReactNode }
+> = {
   pending: {
     tone: 'hot',
     tag: '승인 대기',
