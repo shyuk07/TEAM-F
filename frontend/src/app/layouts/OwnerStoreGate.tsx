@@ -1,10 +1,6 @@
 import { Navigate, Outlet, useLocation, useMatches } from 'react-router';
 import { isTabBarHandle } from '@/app/router/handle';
-import {
-  MY_STORE_ERROR_FALLBACK_MESSAGE,
-  decideOwnerEntry,
-  useMyStore,
-} from '@/entities/store';
+import { MY_STORE_ERROR_FALLBACK_MESSAGE, decideOwnerEntry, useMyStore } from '@/entities/store';
 import { ROUTES } from '@/shared/lib/routes';
 import { OwnerTabBar } from '@/widgets/owner-nav';
 
