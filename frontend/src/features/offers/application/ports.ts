@@ -4,3 +4,12 @@ import type { GeoPoint } from '../domain/nearbyQuery';
 export interface LocationProvider {
   current(signal?: AbortSignal): Promise<GeoPoint | null>;
 }
+
+// 유스케이스 전용 기술 기능(지도 그리기). 키가 없거나 로드·렌더에 실패하면 reject한다(호출부가 폴백).
+export interface MapRenderer {
+  render(
+    el: HTMLElement,
+    opts: { center: GeoPoint; level: number },
+    signal?: AbortSignal,
+  ): Promise<void>;
+}

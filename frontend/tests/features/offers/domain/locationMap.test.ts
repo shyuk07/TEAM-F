@@ -1,4 +1,4 @@
-import { DEFAULT_MAP_CENTER, mapEmbedUrl } from '@/features/offers';
+import { DEFAULT_MAP_CENTER, kakaoMapLevel, mapEmbedUrl } from '@/features/offers';
 
 const BASE = 'https://www.openstreetmap.org/export/embed.html';
 const center = { lat: 37.5563, lng: 126.902 };
@@ -32,5 +32,14 @@ describe('locationMap', () => {
     const [e, f, g, h] = bboxOf(mapEmbedUrl(center, 10));
     expect(g! - e!).toBeGreaterThan(c! - a!);
     expect(h! - f!).toBeGreaterThan(d! - b!);
+  });
+
+  it.each([
+    [1, 5],
+    [3, 6],
+    [5, 7],
+    [10, 8],
+  ] as const)('kakaoMapLevel(%i) = %i', (r, level) => {
+    expect(kakaoMapLevel(r)).toBe(level);
   });
 });
