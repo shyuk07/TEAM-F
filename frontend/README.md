@@ -111,6 +111,16 @@ npm run build
 npm run preview
 ```
 
+### 배포 (Vercel + Render)
+
+현재 배포는 프론트를 Vercel, 백엔드·DB를 Render에 둡니다.
+
+- Vercel 프로젝트: 저장소 `shyuk07/TEAM-F`, Root Directory `frontend`. 빌드 설정은 `frontend/vercel.json`에 있습니다.
+- `vercel.json`의 `rewrites`가 `/v1/...` 요청을 Render 백엔드(`https://lastcall-api-ggzn.onrender.com`)로 넘깁니다. 브라우저에는 같은 주소로 보이므로 CORS 설정이 필요 없고, `VITE_API_BASE_URL`은 **비워 둡니다**.
+- 나머지 경로는 `index.html`로 돌려줘 새로고침해도 404가 나지 않습니다(SPA fallback).
+- 카카오맵은 Vercel 환경변수 `VITE_KAKAO_MAP_JS_KEY`가 필요하고, 카카오 개발자 콘솔의 JavaScript SDK 도메인에 배포 주소를 등록해야 합니다.
+- Render 무료 서버는 한동안 요청이 없으면 잠들어, 첫 요청이 30~60초 걸릴 수 있습니다.
+
 ### 배포 (Nginx)
 
 `dist/` 폴더의 정적 파일을 Nginx로 서비스합니다.
