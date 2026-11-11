@@ -117,6 +117,12 @@ uv run python scripts/seed_dev.py
 
 서버 주소가 다르면 `$env:SEED_BASE_URL="http://localhost:8001"`처럼 지정합니다. 끝나면 샘플 계정과 확인할 주소가 출력됩니다. 계정 정보는 `scripts/seed_dev.py` 상단 상수에 있습니다(로컬 전용).
 
+시연용으로 **가게 3곳(망원·합정·연남)과 음식 사진 상품 6개**가 필요하면 아래 스크립트를 실행합니다. 사용법과 조건은 `seed_dev.py`와 같고, 사진은 `scripts/demo_images/`에 있습니다. 카카오 키(`KAKAO_REST_API_KEY`)가 있으면 실제 주소 좌표로, 없으면 MockGeocoder 좌표로 상점이 개설됩니다. 계정 정보는 `scripts/seed_demo.py` 상단 상수에 있습니다(로컬 전용).
+
+```powershell
+uv run python scripts/seed_demo.py
+```
+
 ## 개발 방식
 
 - GitHub 저장소 하나를 공동으로 사용합니다.
