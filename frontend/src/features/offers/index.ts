@@ -18,6 +18,7 @@ export {
   OFFER_NOT_FOUND_MESSAGE,
 } from './domain/offerMessages';
 export { KEYWORD_MAX_LENGTH } from './domain/nearbyQuery';
+export { DEFAULT_MAP_CENTER, mapEmbedUrl } from './domain/locationMap';
 export type { LocationProvider } from './application/ports';
 export { OfferRepositoryToken, LocationProviderToken } from './application/tokens';
 export { useDeviceLocation } from './application/useDeviceLocation';
@@ -27,6 +28,7 @@ export { OfferCard } from './presentation/OfferCard';
 export { OfferCardSkeleton } from './presentation/OfferCardSkeleton';
 export { SortChips } from './presentation/SortChips';
 export { LocationSheet } from './presentation/LocationSheet';
+export { LocationMap } from './presentation/LocationMap';
 export { NearbyEmpty } from './presentation/NearbyEmpty';
 export { OfferImage } from './presentation/OfferImage';
 export { OfferDetailBody } from './presentation/OfferDetailBody';

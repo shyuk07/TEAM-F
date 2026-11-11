@@ -2,8 +2,10 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '@/features/auth';
 import {
+  DEFAULT_MAP_CENTER,
   KEYWORD_MAX_LENGTH,
   LOAD_MORE_LABEL,
+  LocationMap,
   LocationSheet,
   NearbyEmpty,
   OFFERS_LOAD_FAILED_MESSAGE,
@@ -139,6 +141,7 @@ export function HomePage() {
       </div>
       {sheetOpen ? (
         <Overlay onClose={closeSheet} returnFocusRef={chipRef}>
+          <LocationMap center={device.point ?? DEFAULT_MAP_CENTER} radiusKm={filter.radiusKm} />
           <LocationSheet
             hasLocation={hasLocation}
             locating={device.status === 'pending'}
