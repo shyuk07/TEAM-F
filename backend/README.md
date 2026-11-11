@@ -107,6 +107,16 @@ http://127.0.0.1:8001/health/db
 }
 ```
 
+### 7. 샘플 데이터 넣기 (선택)
+
+화면 확인용 상점·상품·판매 중 할인과 샘플 계정을 서버 API로 만듭니다. `.env`에 `ADMIN_EMAIL`·`ADMIN_PASSWORD`를 넣고 서버를 켠 상태에서 실행합니다. 다시 실행해도 안전합니다(있는 것은 재사용, 마감된 할인은 새로 등록).
+
+```powershell
+uv run python scripts/seed_dev.py
+```
+
+서버 주소가 다르면 `$env:SEED_BASE_URL="http://localhost:8001"`처럼 지정합니다. 끝나면 샘플 계정과 확인할 주소가 출력됩니다. 계정 정보는 `scripts/seed_dev.py` 상단 상수에 있습니다(로컬 전용).
+
 ## 개발 방식
 
 - GitHub 저장소 하나를 공동으로 사용합니다.
