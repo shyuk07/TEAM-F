@@ -53,11 +53,9 @@ export function StockAdjustForm({
   const displayError = clientErrorMessage ?? serverError;
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--s2)' }}>
+    <form onSubmit={handleSubmit} className="grid">
       <div>
-        <div className="t" style={{ fontSize: '17px' }}>
-          재고 조정
-        </div>
+        <div className="t">재고 조정</div>
         <div className="m">
           {offer.productName} · 지금 남은 {offer.remainingStock}개
         </div>
@@ -91,7 +89,7 @@ export function StockAdjustForm({
         max={Math.max(bounds.min, bounds.max)}
         onChange={setAmount}
         disabled={isPending || bounds.max < bounds.min}
-        style={{ justifyContent: 'space-between' }}
+        className="kv"
       />
 
       <Input

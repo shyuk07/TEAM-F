@@ -40,8 +40,7 @@ export function hasChanges(changes: OfferChanges): boolean {
   return Object.keys(changes).length > 0;
 }
 
-export function isEditable(offer: Offer, now: Date): boolean {
-  void now;
+export function isEditable(offer: Offer): boolean {
   return (
     offer.isActive &&
     (offer.status === 'ON_SALE' || offer.status === 'SCHEDULED' || offer.status === 'SOLD_OUT')

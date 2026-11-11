@@ -41,11 +41,7 @@ export function OfferDeactivateForm({
   const displayError = clientError ?? serverError;
 
   return (
-    <form
-      id={formId}
-      onSubmit={handleSubmit}
-      style={{ display: 'grid', gap: 'var(--s2)', maxWidth: 480 }}
-    >
+    <form id={formId} onSubmit={handleSubmit} className="grid" style={{ maxWidth: 480 }}>
       <div className="box">
         <div className="t">
           {offer.productName} · {formatWon(offer.salePrice)}
@@ -63,7 +59,7 @@ export function OfferDeactivateForm({
         onChange={setReason}
       />
 
-      <div className="lbl">기존 예약 처리는?</div>
+      <div className="lbl">기존 예약은?</div>
       <div
         className="box"
         role="radio"
@@ -110,7 +106,7 @@ export function OfferDeactivateForm({
 
       {displayError ? <FieldError>{displayError}</FieldError> : null}
 
-      <div className="row dk" style={{ marginTop: 'var(--s3)', gap: 'var(--s2)' }}>
+      <div className="row dk" style={{ marginTop: 'var(--s3)' }}>
         <Button onClick={onCancel} disabled={isPending}>
           취소
         </Button>

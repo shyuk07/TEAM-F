@@ -55,7 +55,8 @@ export function OfferCreateForm({
     setDraft((prev) => ({
       ...prev,
       productId,
-      salePrice: prod ? Math.floor(prod.originalPrice * 0.7) : prev.salePrice,
+      // open-issues: 할인가 기본 자동 계산(정가의 30% 할인)은 정본이 없어 0으로 비움 — 사용자가 직접 입력
+      salePrice: prod ? 0 : prev.salePrice,
     }));
   };
 
@@ -73,7 +74,7 @@ export function OfferCreateForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid">
         <div>
           <label className="lbl" htmlFor="offer-product-select">
             상품 *
@@ -97,9 +98,7 @@ export function OfferCreateForm({
         <div className="row">
           <div style={{ flex: 1 }}>
             <div className="lbl">정가</div>
-            <div className="in ro" style={{ background: 'var(--fill)' }}>
-              {originalPrice > 0 ? formatWon(originalPrice) : '0원'}
-            </div>
+            <div className="in ro">{originalPrice > 0 ? formatWon(originalPrice) : '0원'}</div>
           </div>
           <div style={{ flex: 1 }}>
             <Input
@@ -125,7 +124,7 @@ export function OfferCreateForm({
             max={9999}
             disabled={isPending}
             onChange={(val) => setDraft((prev) => ({ ...prev, initialStock: val }))}
-            style={{ justifyContent: 'space-between' }}
+            className="kv"
           />
         </div>
 
@@ -177,7 +176,7 @@ export function OfferCreateForm({
         )}
       </div>
 
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid">
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="kv">
             <span className="lbl">판매</span>
@@ -196,19 +195,7 @@ export function OfferCreateForm({
             <span className="lbl">고객 취소 가능</span>
             <b>{cancelBlocked ? '취소 불가 (1시간 이내)' : `${formatHm(deadline)}까지`}</b>
           </div>
-          <button
-            type="button"
-            className="link"
-            style={{
-              textAlign: 'left',
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              font: 'inherit',
-              cursor: 'pointer',
-            }}
-            onClick={() => setCustomSchedule(!customSchedule)}
-          >
+          <button type="button" className="link" onClick={() => setCustomSchedule(!customSchedule)}>
             시간 직접 바꾸기
           </button>
         </div>

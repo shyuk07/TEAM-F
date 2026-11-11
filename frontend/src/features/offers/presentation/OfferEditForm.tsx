@@ -12,6 +12,7 @@ import {
   type OfferEditValues,
 } from '../domain/offerEdit';
 import { OWNER_OFFER_MESSAGES } from '../domain/ownerOfferMessages';
+import { ownerStatusTag } from '../domain/ownerOffer';
 import { OfferScheduleFields } from './OfferScheduleFields';
 
 export type OfferEditFormProps = {
@@ -57,11 +58,11 @@ export function OfferEditForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="split h">
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid">
         <div className="box" style={{ background: 'var(--fill)' }}>
           <div className="t">{offer.productName}</div>
           <div className="m">
-            {offer.status} · 최초 수량 {offer.initialStock}개 (남은 {offer.remainingStock}개)
+            {ownerStatusTag(offer).label} · 최초 수량 {offer.initialStock}개 (남은 {offer.remainingStock}개)
           </div>
         </div>
 
@@ -86,7 +87,7 @@ export function OfferEditForm({
             max={9999}
             disabled={isPending || isLocked}
             onChange={(val) => setValues((prev) => ({ ...prev, initialStock: val }))}
-            style={{ justifyContent: 'space-between' }}
+            className="kv"
           />
         </div>
 
@@ -106,7 +107,7 @@ export function OfferEditForm({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: 'var(--s2)', alignContent: 'start' }}>
+      <div className="grid">
         {isLocked ? (
           <div>
             <div className="lbl">예약이 생긴 할인을 열면</div>
@@ -121,7 +122,7 @@ export function OfferEditForm({
           </div>
         ) : (
           <div>
-            <div className="m" style={{ color: 'var(--mute)' }}>
+            <div className="m">
               할인 정보를 수정한 뒤 저장을 눌러주세요.
             </div>
             {onDeactivateClick && (
