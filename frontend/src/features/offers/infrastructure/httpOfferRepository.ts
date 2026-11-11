@@ -27,7 +27,12 @@ type OfferDto = {
 };
 
 type NearbyOfferListDto = {
-  items: { offer: OfferDto; distance: number | null; unit: string }[];
+  items: {
+    offer: OfferDto;
+    distance: number | null;
+    unit: string;
+    product_image?: string[];
+  }[];
   page: number;
   size: number;
   total: number;
@@ -116,6 +121,7 @@ export class HttpOfferRepository implements OfferRepository {
     const items: NearbyOffer[] = dto.items.map((item) => ({
       offer: toOffer(item.offer),
       distanceKm: item.distance,
+      imageUrls: (item.product_image ?? []).flatMap((s) => toImageUrl(s) ?? []),
     }));
     return { items, page: dto.page, size: dto.size, total: dto.total };
   }

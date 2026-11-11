@@ -28,8 +28,9 @@ export function makeOffer(over: Partial<Offer> = {}): Offer {
 export function makeNearby(
   over: Partial<Offer> = {},
   distanceKm: number | null = null,
+  imageUrls: string[] = [],
 ): NearbyOffer {
-  return { offer: makeOffer(over), distanceKm };
+  return { offer: makeOffer(over), distanceKm, imageUrls };
 }
 
 /** id가 o1…oN인 할인 N개. */

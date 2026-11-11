@@ -176,7 +176,8 @@ async def test_nearby_offers_basic_and_filters(client):
     body = r.json()
     assert set(body) == {"items", "page", "size", "total"} and body["total"] == 1
     item = body["items"][0]
-    assert set(item) == {"offer", "distance", "unit"} and item["distance"] is None
+    assert set(item) == {"offer", "distance", "unit", "product_image"} and item["distance"] is None
+    assert item["product_image"] == []  # 사진 없는 상품은 빈 목록
     assert item["unit"] == "km" and item["offer"]["id"] == o["id"]
     assert item["offer"]["status"] == "ON_SALE" and item["offer"]["store_name"]
     # status 필터
@@ -319,3 +320,14 @@ async def test_pagination_order_by_distance_with_location(client):
     assert [i["store"]["id"] for i in r2["items"]] == order[2:]
     assert r1["items"][0]["distance"] <= r1["items"][1]["distance"] <= r2["items"][0]["distance"]
     assert r3["items"] == []
+
+
+async def test_nearby_offers_include_product_image_for_card(client):
+    """홈 목록 카드 썸네일(프론트엔드 연동 2026-11-11): 목록 항목에 상세와 같은 상품 이미지 목록을 담는다."""
+    t, s = await owner_with_store(client)
+    p = await make_product(client, t, s, name="크루아상", product_image=["https://example.com/a.jpg", "https://example.com/b.jpg"])
+    o = await make_offer(client, t, p["id"])
+    item = (await client.get("/v1/offers")).json()["items"][0]
+    assert item["product_image"] == ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+    detail = (await client.get(f"/v1/offers/{o['id']}")).json()
+    assert item["product_image"] == detail["product_image"]  # 상세와 같은 값

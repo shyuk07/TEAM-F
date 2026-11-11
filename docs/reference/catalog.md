@@ -512,6 +512,7 @@ Content-Type: image/jpeg
 | `items[].offer` | [Offer](#offer-할인) | 할인 정보 |
 | `items[].distance` | float \| null | 거리 (위치 없이 조회하면 null) |
 | `items[].unit` | string | 거리 단위 |
+| `items[].product_image` | string[] | 상품 이미지 URL 목록(할인 상세의 `product_image`와 같은 값). 목록 카드 썸네일용, 사진이 없으면 빈 배열 |
 | `page` | int | 현재 페이지 |
 | `size` | int | 페이지 크기 |
 | `total` | int | 전체 개수 |

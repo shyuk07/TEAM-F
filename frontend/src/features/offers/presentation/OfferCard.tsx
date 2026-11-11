@@ -1,15 +1,27 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { ROUTES } from '@/shared/lib/routes';
 import type { NearbyOffer } from '../domain/offer';
 import { toOfferCardView } from '../domain/offerFormat';
 
 // 마크업은 wireframe.html:307~318, 정보 순서는 OfferCard README(customer-home.md §3.5).
-// TODO: 카드 사진 자리(.ph)에 기본 그림만 둔다.
-//   왜: 주변 할인 목록 응답(Offer)에 상품 이미지 필드가 없다 (docs/design/frontend/customer-home.md C-4)
-//   언제: 결정 후 (백엔드: Offer 응답에 이미지)
+// 사진 자리(.ph)는 첫 이미지를 채우고, 없거나 로드에 실패하면 기본 그림을 둔다.
+// .ph 규칙은 div용이라 img가 원본 크기로 넘친다. 썸네일 칸(--thumb)에 맞춰 자르고 채운다.
+const THUMB_IMAGE_STYLE = {
+  display: 'block',
+  width: '100%',
+  maxWidth: 'var(--thumb)',
+  height: 'var(--thumb)',
+  minWidth: 0,
+  objectFit: 'cover',
+} as const;
+
 export function OfferCard({ item, now }: { item: NearbyOffer; now: Date }) {
   const location = useLocation();
   const view = toOfferCardView(item, now);
+  const src = item.imageUrls[0];
+  // 실패한 주소를 기억한다. 주소가 바뀌면 다시 시도한다.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   return (
     // C2 ← 가 필터가 유지된 홈으로 돌아오게 홈 경로 + 쿼리를 넘긴다(customer-home.md §5.4).
     <Link
@@ -17,7 +29,18 @@ export function OfferCard({ item, now }: { item: NearbyOffer; now: Date }) {
       to={ROUTES.offerDetail(item.offer.id)}
       state={{ from: location.pathname + location.search }}
     >
-      <div className="ph" aria-hidden="true" />
+      {src === undefined || failedSrc === src ? (
+        <div className="ph" aria-hidden="true" />
+      ) : (
+        <img
+          className="ph"
+          src={src}
+          alt=""
+          loading="lazy"
+          style={THUMB_IMAGE_STYLE}
+          onError={() => setFailedSrc(src)}
+        />
+      )}
       <div>
         <div className="m">{view.storeLine}</div>
         <div className="t">{view.title}</div>
