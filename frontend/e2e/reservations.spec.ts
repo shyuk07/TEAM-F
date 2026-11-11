@@ -272,6 +272,8 @@ test('고객 화면은 모바일 폭을 유지하고 PC 외곽 폭도 420px를 �
   const bounds = await page.locator('.app').boundingBox();
   const width = page.viewportSize()!.width;
   expect(bounds).not.toBeNull();
-  expect(bounds!.width).toBe(Math.min(width, 420));
-  expect(bounds!.x).toBe((width - bounds!.width) / 2);
+  // 정식 고객 셸(CustomerFrame)은 좌우 1px 선을 두므로 안쪽 .app은 화면 폭보다 최대 2px 좁다(layout.md)
+  expect(bounds!.width).toBeLessThanOrEqual(420);
+  expect(bounds!.width).toBeGreaterThanOrEqual(Math.min(width - 2, 420));
+  expect(Math.abs(bounds!.x - (width - bounds!.width) / 2)).toBeLessThanOrEqual(1);
 });
