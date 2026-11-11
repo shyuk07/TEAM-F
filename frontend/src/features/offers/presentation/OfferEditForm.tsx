@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/shared/ui/Button';
 import { FieldError } from '@/shared/ui/FieldError';
 import { Input } from '@/shared/ui/Input';
@@ -23,6 +23,7 @@ export type OfferEditFormProps = {
   errorMessage?: string | null;
   formId?: string;
   onDeactivateClick?: () => void;
+  onValidityChange?: (isValid: boolean) => void;
   onSubmit: (values: OfferEditValues) => Promise<void>;
 };
 
@@ -34,6 +35,7 @@ export function OfferEditForm({
   errorMessage: serverError,
   formId = 'offer-edit-form',
   onDeactivateClick,
+  onValidityChange,
   onSubmit,
 }: OfferEditFormProps) {
   const [values, setValues] = useState<OfferEditValues>({
@@ -47,6 +49,11 @@ export function OfferEditForm({
   const floor = quantityFloor(offer);
   const changes = diffOfferChanges(offer, values);
   const changed = hasChanges(changes);
+  const isValid = changed && !isLocked;
+
+  useEffect(() => {
+    onValidityChange?.(isValid);
+  }, [isValid, onValidityChange]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

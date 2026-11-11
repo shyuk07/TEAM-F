@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Product } from '@/entities/product';
 import { Button } from '@/shared/ui/Button';
 import { Chip } from '@/shared/ui/Chip';
@@ -25,6 +25,7 @@ export type OfferCreateFormProps = {
   errorMessage?: string | null;
   submitButtonText?: string;
   formId?: string;
+  onValidityChange?: (isValid: boolean) => void;
   onSubmit: (draft: OfferDraft) => Promise<void>;
 };
 
@@ -36,6 +37,7 @@ export function OfferCreateForm({
   errorMessage: serverError,
   submitButtonText = '할인 등록',
   formId = 'offer-create-form',
+  onValidityChange,
   onSubmit,
 }: OfferCreateFormProps) {
   const [draft, setDraft] = useState<OfferDraft>(initialDraft);
@@ -49,6 +51,12 @@ export function OfferCreateForm({
   const issues = validateDraft(draft, originalPrice, now);
   const cancelBlocked = isCancelBlocked(draft, now);
   const deadline = cancelDeadline(draft);
+
+  const isValid = issues.length === 0 && Boolean(selectedProduct);
+
+  useEffect(() => {
+    onValidityChange?.(isValid);
+  }, [isValid, onValidityChange]);
 
   const handleProductChange = (productId: string) => {
     const prod = products.find((p) => p.id === productId);
