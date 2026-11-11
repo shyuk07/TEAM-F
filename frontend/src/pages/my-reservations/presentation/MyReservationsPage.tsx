@@ -21,7 +21,11 @@ export function MyReservationsPage() {
 
   return (
     <>
-      <div aria-hidden={cancelling !== null ? true : undefined}>
+      {/* 셸의 세로 배치를 이어 받아 본문이 남은 높이를 채우게 한다(탭 바가 화면 아래에 붙도록) */}
+      <div
+        aria-hidden={cancelling !== null ? true : undefined}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+      >
         <div className="bar">
           <h1 className="t">내 예약</h1>
           <span className="sp"></span>
